@@ -1,6 +1,6 @@
 use crate::quad::{HeapQuadAllocator, QuadTrait, TripleLayerQuadAllocator};
 use crate::selection::SelectionRange;
-use crate::termwindow::box_model::*;
+use crate::termwindow::box_model::{ComputedElement, PixelDimension, ElementColors, BorderColor, InheritableColor, ComputedElementContent};
 use crate::termwindow::render::{
     same_hyperlink, CursorProperties, LineQuadCacheKey, LineQuadCacheValue, LineToEleShapeCacheKey,
     RenderScreenLineParams,
@@ -116,8 +116,7 @@ impl crate::TermWindow {
                 )
             } else {
                 (
-                    padding_left + border.left.get() as f32 - (cell_width / 2.0)
-                        + (pos.left as f32 * cell_width),
+                    (pos.left as f32).mul_add(cell_width, padding_left + border.left.get() as f32 - (cell_width / 2.0)),
                     cell_width,
                 )
             };
@@ -129,7 +128,7 @@ impl crate::TermWindow {
                 )
             } else {
                 (
-                    top_pixel_y + (pos.top as f32 * cell_height) - (cell_height / 2.0),
+                    (pos.top as f32).mul_add(cell_height, top_pixel_y) - (cell_height / 2.0),
                     cell_height,
                 )
             };
@@ -137,16 +136,16 @@ impl crate::TermWindow {
                 x,
                 y,
                 // Go all the way to the right edge if we're right-most
-                if pos.left + pos.width >= self.terminal_size.cols as usize {
+                if pos.left + pos.width >= self.terminal_size.cols {
                     self.dimensions.pixel_width as f32 - x
                 } else {
-                    (pos.width as f32 * cell_width) + width_delta
+                    (pos.width as f32).mul_add(cell_width, width_delta)
                 },
                 // Go all the way to the bottom if we're bottom-most
-                if pos.top + pos.height >= self.terminal_size.rows as usize {
+                if pos.top + pos.height >= self.terminal_size.rows {
                     self.dimensions.pixel_height as f32 - y
                 } else {
-                    (pos.height as f32 * cell_height) + height_delta as f32
+                    (pos.height as f32).mul_add(cell_height, height_delta)
                 },
             )
         };
@@ -201,13 +200,13 @@ impl crate::TermWindow {
                         .mul_alpha(config.window_background_opacity)
                         .tuple();
                     LinearRgba::with_components(
-                        r1 + (r - r1) * intensity,
-                        g1 + (g - g1) * intensity,
-                        b1 + (b - b1) * intensity,
+                        (r - r1).mul_add(intensity, r1),
+                        (g - g1).mul_add(intensity, g1),
+                        (b - b1).mul_add(intensity, b1),
                         a,
                     )
                 };
-                log::trace!("bell color is {:?}", background);
+                log::trace!("bell color is {background:?}");
 
                 let mut quad = self
                     .filled_rectangle(layers, 0, background_rect, background)
@@ -245,7 +244,7 @@ impl crate::TermWindow {
 
             // Adjust the scrollbar thumb position
             let config = &self.config;
-            let padding = self.effective_right_padding(&config) as f32;
+            let padding = self.effective_right_padding(config) as f32;
 
             let thumb_x = self.dimensions.pixel_width - padding as usize - border.right.get();
 
@@ -291,7 +290,7 @@ impl crate::TermWindow {
 
         let (selrange, rectangular) = {
             let sel = self.selection(pos.pane.pane_id());
-            (sel.range.clone(), sel.rectangular)
+            (sel.range, sel.rectangular)
         };
 
         let start = Instant::now();
@@ -337,9 +336,7 @@ impl crate::TermWindow {
                 error: Option<anyhow::Error>,
             }
 
-            let left_pixel_x = padding_left
-                + border.left.get() as f32
-                + (pos.left as f32 * self.render_metrics.cell_size.width as f32);
+            let left_pixel_x = (pos.left as f32).mul_add(self.render_metrics.cell_size.width as f32, padding_left + border.left.get() as f32);
 
             let mut render = LineRender {
                 term_window: self,
@@ -367,7 +364,7 @@ impl crate::TermWindow {
                 error: None,
             };
 
-            impl<'a, 'b> LineRender<'a, 'b> {
+            impl LineRender<'_, '_> {
                 fn render_line(
                     &mut self,
                     stable_top: StableRowIndex,
@@ -398,7 +395,7 @@ impl crate::TermWindow {
                             }),
                             match (self.pos.is_active, &self.term_window.dead_key_status) {
                                 (true, DeadKeyStatus::Composing(composing)) => {
-                                    Some(composing.to_string())
+                                    Some(composing.clone())
                                 }
                                 _ => None,
                             },
@@ -430,7 +427,7 @@ impl crate::TermWindow {
                         config_generation: self.term_window.config.generation(),
                         shape_generation: self.term_window.shape_generation,
                         quad_generation: self.term_window.quad_generation,
-                        composing: composing.clone(),
+                        composing,
                         selection: selrange.clone(),
                         cursor,
                         shape_hash,
@@ -447,8 +444,7 @@ impl crate::TermWindow {
                     {
                         let expired = cached_quad
                             .expires
-                            .map(|i| Instant::now() >= i)
-                            .unwrap_or(false);
+                            .is_some_and(|i| Instant::now() >= i);
                         let hover_changed = if cached_quad.invalidate_on_hover_change {
                             !same_hyperlink(
                                 cached_quad.current_highlight.as_ref(),
@@ -477,7 +473,7 @@ impl crate::TermWindow {
                             if let DeadKeyStatus::Composing(composing) =
                                 &self.term_window.dead_key_status
                             {
-                                Some((self.cursor.x, composing.to_string()))
+                                Some((self.cursor.x, composing.clone()))
                             } else {
                                 None
                             }
@@ -495,10 +491,10 @@ impl crate::TermWindow {
                                 pixel_width: self.dims.cols as f32
                                     * self.term_window.render_metrics.cell_size.width as f32,
                                 stable_line_idx: Some(stable_row),
-                                line: &line,
-                                selection: selrange.clone(),
-                                cursor: &self.cursor,
-                                palette: &self.palette,
+                                line,
+                                selection: selrange,
+                                cursor: self.cursor,
+                                palette: self.palette,
                                 dims: &self.dims,
                                 config: &self.term_window.config,
                                 cursor_border_color: self.cursor_border_color,
@@ -528,7 +524,7 @@ impl crate::TermWindow {
                         )
                         .context("render_screen_line")?;
 
-                    let expires = self.term_window.has_animation.borrow().as_ref().cloned();
+                    let expires = self.term_window.has_animation.borrow().as_ref().copied();
                     self.term_window.update_next_frame_time(next_due);
 
                     buf.apply_to(self.layers)
@@ -554,7 +550,7 @@ impl crate::TermWindow {
                 }
             }
 
-            impl<'a, 'b> WithPaneLines for LineRender<'a, 'b> {
+            impl WithPaneLines for LineRender<'_, '_> {
                 fn with_lines_mut(&mut self, stable_top: StableRowIndex, lines: &mut [&mut Line]) {
                     for (line_idx, line) in lines.iter().enumerate() {
                         if let Err(err) = self.render_line(stable_top, line_idx, line) {
@@ -565,7 +561,7 @@ impl crate::TermWindow {
                 }
             }
 
-            pos.pane.with_lines_mut(stable_range.clone(), &mut render);
+            pos.pane.with_lines_mut(stable_range, &mut render);
             if let Some(error) = render.error.take() {
                 return Err(error).context("error while calling with_lines_mut");
             }
@@ -610,8 +606,7 @@ impl crate::TermWindow {
             )
         } else {
             (
-                padding_left + border.left.get() as f32 - (cell_width / 2.0)
-                    + (pos.left as f32 * cell_width),
+                (pos.left as f32).mul_add(cell_width, padding_left + border.left.get() as f32 - (cell_width / 2.0)),
                 cell_width,
             )
         };
@@ -623,7 +618,7 @@ impl crate::TermWindow {
             )
         } else {
             (
-                top_pixel_y + (pos.top as f32 * cell_height) - (cell_height / 2.0),
+                (pos.top as f32).mul_add(cell_height, top_pixel_y) - (cell_height / 2.0),
                 cell_height,
             )
         };
@@ -632,24 +627,23 @@ impl crate::TermWindow {
             x,
             y,
             // Go all the way to the right edge if we're right-most
-            if pos.left + pos.width >= self.terminal_size.cols as usize {
+            if pos.left + pos.width >= self.terminal_size.cols {
                 self.dimensions.pixel_width as f32 - x
             } else {
-                (pos.width as f32 * cell_width) + width_delta
+                (pos.width as f32).mul_add(cell_width, width_delta)
             },
             // Go all the way to the bottom if we're bottom-most
-            if pos.top + pos.height >= self.terminal_size.rows as usize {
+            if pos.top + pos.height >= self.terminal_size.rows {
                 self.dimensions.pixel_height as f32 - y
             } else {
-                (pos.height as f32 * cell_height) + height_delta as f32
+                (pos.height as f32).mul_add(cell_height, height_delta)
             },
         );
 
         // Bounds for the terminal cells
         let content_rect = euclid::rect(
-            padding_left + border.left.get() as f32 - (cell_width / 2.0)
-                + (pos.left as f32 * cell_width),
-            top_pixel_y + (pos.top as f32 * cell_height) - (cell_height / 2.0),
+            (pos.left as f32).mul_add(cell_width, padding_left + border.left.get() as f32 - (cell_width / 2.0)),
+            (pos.top as f32).mul_add(cell_height, top_pixel_y) - (cell_height / 2.0),
             pos.width as f32 * cell_width,
             pos.height as f32 * cell_height,
         );

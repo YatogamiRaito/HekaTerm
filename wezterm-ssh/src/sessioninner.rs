@@ -2,7 +2,7 @@ use crate::channelwrap::ChannelWrap;
 use crate::config::ConfigMap;
 use crate::dirwrap::DirWrap;
 use crate::filewrap::FileWrap;
-use crate::pty::*;
+use crate::pty::SshChildProcess;
 use crate::session::{Exec, ExecResult, SessionEvent, SessionRequest, SignalChannel};
 use crate::sessionwrap::SessionWrap;
 use crate::sftp::dir::{Dir, DirId, DirRequest};
@@ -23,12 +23,12 @@ use std::net::ToSocketAddrs;
 use std::time::{Duration, Instant};
 
 #[derive(Debug)]
-pub(crate) struct DescriptorState {
+pub struct DescriptorState {
     pub fd: Option<FileDescriptor>,
     pub buf: VecDeque<u8>,
 }
 
-pub(crate) struct ChannelInfo {
+pub struct ChannelInfo {
     pub channel_id: ChannelId,
     pub channel: ChannelWrap,
     pub exit: Option<Sender<ExitStatus>>,
@@ -36,9 +36,9 @@ pub(crate) struct ChannelInfo {
     pub descriptors: [DescriptorState; 3],
 }
 
-pub(crate) type ChannelId = usize;
+pub type ChannelId = usize;
 
-pub(crate) struct SessionInner {
+pub struct SessionInner {
     pub config: ConfigMap,
     pub tx_event: Sender<SessionEvent>,
     pub rx_req: Receiver<SessionRequest>,
@@ -64,7 +64,7 @@ impl SessionInner {
     pub fn run(&mut self) {
         if let Err(err) = self.run_impl() {
             self.tx_event
-                .try_send(SessionEvent::Error(format!("{:#}", err)))
+                .try_send(SessionEvent::Error(format!("{err:#}")))
                 .ok();
         }
     }
@@ -73,13 +73,7 @@ impl SessionInner {
         let backend = self
             .config
             .get("wezterm_ssh_backend")
-            .map(|s| s.as_str())
-            .unwrap_or(
-                #[cfg(feature = "libssh-rs")]
-                "libssh",
-                #[cfg(not(feature = "libssh-rs"))]
-                "ssh2",
-            );
+            .map_or("libssh", std::string::String::as_str);
         match backend {
             #[cfg(feature = "ssh2")]
             "ssh2" => self.run_impl_ssh2(),
@@ -100,8 +94,7 @@ impl SessionInner {
             ),
 
             _ => anyhow::bail!(
-                "invalid wezterm_ssh_backend value: {}, expected either `ssh2` or `libssh`",
-                backend
+                "invalid wezterm_ssh_backend value: {backend}, expected either `ssh2` or `libssh`"
             ),
         }
     }
@@ -111,13 +104,11 @@ impl SessionInner {
         let hostname = self
             .config
             .get("hostname")
-            .ok_or_else(|| anyhow!("hostname not present in config"))?
-            .to_string();
+            .ok_or_else(|| anyhow!("hostname not present in config"))?.clone();
         let user = self
             .config
             .get("user")
-            .ok_or_else(|| anyhow!("username not present in config"))?
-            .to_string();
+            .ok_or_else(|| anyhow!("username not present in config"))?.clone();
         let port = self
             .config
             .get("port")
@@ -126,8 +117,7 @@ impl SessionInner {
 
         self.tx_event
             .try_send(SessionEvent::Banner(Some(format!(
-                "Using libssh-rs to connect to {}@{}:{}",
-                user, hostname, port
+                "Using libssh-rs to connect to {user}@{hostname}:{port}"
             ))))
             .context("notifying user of banner")?;
 
@@ -135,8 +125,7 @@ impl SessionInner {
         let verbose = self
             .config
             .get("wezterm_ssh_verbose")
-            .map(|s| s.as_str())
-            .unwrap_or("false")
+            .map_or("false", std::string::String::as_str)
             == "true";
         if verbose {
             sess.set_option(libssh_rs::SshOption::LogLevel(libssh_rs::LogLevel::Packet))?;
@@ -152,24 +141,24 @@ impl SessionInner {
                 _userdata: *mut std::os::raw::c_void,
             ) {
                 use std::ffi::CStr;
-                let function = CStr::from_ptr(function).to_string_lossy().to_string();
-                let message = CStr::from_ptr(message).to_string_lossy().to_string();
+                let function = unsafe { CStr::from_ptr(function) }.to_string_lossy().to_string();
+                let message = unsafe { CStr::from_ptr(message) }.to_string_lossy().to_string();
 
                 // The message typically has "function: message" prefixed, which
                 // looks redundant when logged with the function prefix by the
                 // logging crate.
                 // Strip that off!
-                let message = match message.strip_prefix(&format!("{}: ", function)) {
+                let message = match message.strip_prefix(&format!("{function}: ")) {
                     Some(m) => m,
                     None => &message,
                 };
 
                 log::logger().log(
                     &log::Record::builder()
-                        .args(format_args!("{}", message))
+                        .args(format_args!("{message}"))
                         .level(log::Level::Info)
                         .module_path(Some(&function))
-                        .target(&format!("libssh::{}", function))
+                        .target(&format!("libssh::{function}"))
                         .build(),
                 );
             }
@@ -189,22 +178,20 @@ impl SessionInner {
                 sess.set_option(libssh_rs::SshOption::AddIdentity(file.to_string()))?;
             }
         }
-        if let Some(kh) = self.config.get("userknownhostsfile") {
-            for file in kh.split_whitespace() {
+        if let Some(kh) = self.config.get("userknownhostsfile")
+            && let Some(file) = kh.split_whitespace().next() {
                 sess.set_option(libssh_rs::SshOption::KnownHosts(Some(file.to_string())))?;
-                break;
             }
-        }
         if let Some(types) = self.config.get("pubkeyacceptedtypes") {
             sess.set_option(libssh_rs::SshOption::PublicKeyAcceptedTypes(
-                types.to_string(),
+                types.clone(),
             ))?;
         }
         if let Some(bind_addr) = self.config.get("bindaddress") {
-            sess.set_option(libssh_rs::SshOption::BindAddress(bind_addr.to_string()))?;
+            sess.set_option(libssh_rs::SshOption::BindAddress(bind_addr.clone()))?;
         }
         if let Some(host_key) = self.config.get("hostkeyalgorithms") {
-            sess.set_option(libssh_rs::SshOption::HostKeys(host_key.to_string()))?;
+            sess.set_option(libssh_rs::SshOption::HostKeys(host_key.clone()))?;
         }
 
         let (sock, _child) = self.connect_to_host(&hostname, port, verbose)?;
@@ -244,7 +231,7 @@ impl SessionInner {
             .try_send(SessionEvent::Authenticated)
             .context("notifying user that session is authenticated")?;
 
-        if let Some("yes") = self.config.get("forwardagent").map(|s| s.as_str()) {
+        if self.config.get("forwardagent").map(std::string::String::as_str) == Some("yes") {
             if self.identity_agent().is_some() {
                 sess.enable_accept_agent_forward(true);
             } else {
@@ -261,31 +248,27 @@ impl SessionInner {
         let verbose = self
             .config
             .get("wezterm_ssh_verbose")
-            .map(|s| s.as_str())
-            .unwrap_or("false")
+            .map_or("false", std::string::String::as_str)
             == "true";
 
         let hostname = self
             .config
             .get("hostname")
-            .ok_or_else(|| anyhow!("hostname not present in config"))?
-            .to_string();
+            .ok_or_else(|| anyhow!("hostname not present in config"))?.clone();
         let user = self
             .config
             .get("user")
-            .ok_or_else(|| anyhow!("username not present in config"))?
-            .to_string();
+            .ok_or_else(|| anyhow!("username not present in config"))?.clone();
         let port = self
             .config
             .get("port")
             .ok_or_else(|| anyhow!("port is always set in config loader"))?
             .parse::<u16>()?;
-        let remote_address = format!("{}:{}", hostname, port);
+        let remote_address = format!("{hostname}:{port}");
 
         self.tx_event
             .try_send(SessionEvent::Banner(Some(format!(
-                "Using ssh2 to connect to {}@{}:{}",
-                user, hostname, port
+                "Using ssh2 to connect to {user}@{hostname}:{port}"
             ))))
             .context("notifying user of banner")?;
 
@@ -298,10 +281,10 @@ impl SessionInner {
         sess.set_blocking(true);
         sess.set_tcp_stream(sock);
         sess.handshake()
-            .with_context(|| format!("ssh handshake with {}", remote_address))?;
+            .with_context(|| format!("ssh handshake with {remote_address}"))?;
 
         self.tx_event
-            .try_send(SessionEvent::Banner(sess.banner().map(|s| s.to_string())))
+            .try_send(SessionEvent::Banner(sess.banner().map(std::string::ToString::to_string)))
             .context("notifying user of banner")?;
 
         self.host_verification(&sess, &hostname, port, &remote_address)
@@ -323,7 +306,7 @@ impl SessionInner {
     /// Explicitly and directly connect to the requested host because
     /// neither libssh no libssh2 respect addressfamily, so we must
     /// handle it for ourselves.
-    /// If proxy_command is set, then we execute that process for ourselves
+    /// If `proxy_command` is set, then we execute that process for ourselves
     /// too, as proxy commands are not supported by libssh2 and are not supported
     /// on Windows in libssh.
     fn connect_to_host(
@@ -332,7 +315,7 @@ impl SessionInner {
         port: u16,
         verbose: bool,
     ) -> anyhow::Result<(Socket, Option<KillOnDropChild>)> {
-        match self.config.get("proxycommand").map(|s| s.as_str()) {
+        match self.config.get("proxycommand").map(std::string::String::as_str) {
             Some("none") | None => {}
             Some(proxy_command) => {
                 let mut cmd;
@@ -342,7 +325,7 @@ impl SessionInner {
                     cmd.args(["/c", proxy_command]);
                 } else {
                     cmd = std::process::Command::new("sh");
-                    cmd.args(["-c", &format!("exec {}", proxy_command)]);
+                    cmd.args(["-c", &format!("exec {proxy_command}")]);
                 }
 
                 let (a, b) = socketpair()?;
@@ -352,7 +335,7 @@ impl SessionInner {
                 cmd.stderr(std::process::Stdio::inherit());
                 let child = cmd
                     .spawn()
-                    .with_context(|| format!("spawning ProxyCommand {}", proxy_command))?;
+                    .with_context(|| format!("spawning ProxyCommand {proxy_command}"))?;
 
                 #[cfg(unix)]
                 unsafe {
@@ -360,7 +343,7 @@ impl SessionInner {
                     use std::os::unix::io::{FromRawFd, IntoRawFd};
 
                     let raw = a.into_raw_fd();
-                    let dest = match self.config.get("proxyusefdpass").map(|s| s.as_str()) {
+                    let dest = match self.config.get("proxyusefdpass").map(std::string::String::as_str) {
                         Some("yes") => raw.recv_fd()?,
                         _ => raw,
                     };
@@ -381,7 +364,7 @@ impl SessionInner {
         let addr = (hostname, port)
             .to_socket_addrs()?
             .find(|addr| self.filter_sock_addr(addr))
-            .with_context(|| format!("resolving address for {}", hostname))?;
+            .with_context(|| format!("resolving address for {hostname}"))?;
         if verbose {
             log::info!("resolved {hostname}:{port} -> {addr:?}");
         }
@@ -403,13 +386,13 @@ impl SessionInner {
         Ok((sock, None))
     }
 
-    /// Used to restrict to_socket_addrs results to the address
+    /// Used to restrict `to_socket_addrs` results to the address
     /// family specified by the config
     fn filter_sock_addr(&self, addr: &std::net::SocketAddr) -> bool {
-        match self.config.get("addressfamily").map(|s| s.as_str()) {
+        match self.config.get("addressfamily").map(std::string::String::as_str) {
             Some("inet") => addr.is_ipv4(),
             Some("inet6") => addr.is_ipv6(),
-            None | Some("any") | Some(_) => true,
+            None | Some("any" | _) => true,
         }
     }
 
@@ -427,8 +410,8 @@ impl SessionInner {
                 // that based on what we can see here in this crate), nor do we
                 // explicitly trigger a disconnect if there is an error with
                 // the ignore packet.
-                if let Some(duration) = self.keep_alive {
-                    if self.last_keep_alive.elapsed() >= duration {
+                if let Some(duration) = self.keep_alive
+                    && self.last_keep_alive.elapsed() >= duration {
                         log::trace!("sending keep alive");
                         self.last_keep_alive = Instant::now();
                         let ignore_me = [0x42; 128];
@@ -438,7 +421,6 @@ impl SessionInner {
                             );
                         }
                     }
-                }
                 Ok(())
             }
         }
@@ -512,35 +494,29 @@ impl SessionInner {
                     if fd_num == 0 {
                         // There's data we can read into the buffer
                         match read_into_buf(fd, &mut state.buf) {
-                            Ok(_) => {}
+                            Ok(()) => {}
                             Err(err) => {
                                 log::debug!(
-                                    "error reading from channel {channel_id} stdin pipe: {:#}",
-                                    err
+                                    "error reading from channel {channel_id} stdin pipe: {err:#}"
                                 );
                                 info.channel.close();
                                 state.fd.take();
                             }
                         }
+                    } else if info.exited && state.buf.is_empty() {
+                        log::trace!("channel {channel_id} exited and we have no data to send to fd {fd_num}: close it!");
+                        state.fd.take();
                     } else {
-                        if info.exited && state.buf.is_empty() {
-                            log::trace!("channel {channel_id} exited and we have no data to send to fd {fd_num}: close it!");
-                            state.fd.take();
-                        } else {
-                            // We can write our buffered output
-                            match write_from_buf(fd, &mut state.buf) {
-                                Ok(_) => {}
-                                Err(err) => {
-                                    log::debug!(
-                                        "error while writing to channel {} fd {}: {:#}",
-                                        channel_id,
-                                        fd_num,
-                                        err
-                                    );
+                        // We can write our buffered output
+                        match write_from_buf(fd, &mut state.buf) {
+                            Ok(()) => {}
+                            Err(err) => {
+                                log::debug!(
+                                    "error while writing to channel {channel_id} fd {fd_num}: {err:#}"
+                                );
 
-                                    // Close it out
-                                    state.fd.take();
-                                }
+                                // Close it out
+                                state.fd.take();
                             }
                         }
                     }
@@ -553,29 +529,25 @@ impl SessionInner {
     /// If we have room in our channel fd write buffers, try to fill it
     fn tick_io(&mut self) -> anyhow::Result<()> {
         let mut dead = vec![];
-        for (id, chan) in self.channels.iter_mut() {
-            if chan.exit.is_some() {
-                if let Some(status) = chan.channel.exit_status() {
+        for (id, chan) in &mut self.channels {
+            if chan.exit.is_some()
+                && let Some(status) = chan.channel.exit_status() {
                     log::trace!("channel {id} has exit status {status:?}");
                     chan.exited = true;
                     let exit = chan.exit.take().unwrap();
                     smol::block_on(exit.send(status)).ok();
                 }
-            }
 
             let stdin = &mut chan.descriptors[0];
-            if stdin.fd.is_some() && !stdin.buf.is_empty() {
-                if let Err(err) = write_from_buf(&mut chan.channel.writer(), &mut stdin.buf)
+            if stdin.fd.is_some() && !stdin.buf.is_empty()
+                && let Err(err) = write_from_buf(&mut chan.channel.writer(), &mut stdin.buf)
                     .context("writing to channel")
                 {
                     log::trace!(
-                        "Failed to write data to channel {} stdin: {:#}, closing pipe",
-                        id,
-                        err
+                        "Failed to write data to channel {id} stdin: {err:#}, closing pipe"
                     );
                     stdin.fd.take();
                 }
-            }
 
             for (idx, out) in chan
                 .descriptors
@@ -593,23 +565,17 @@ impl SessionInner {
                     continue;
                 }
                 match read_into_buf(&mut chan.channel.reader(idx), &mut out.buf) {
-                    Ok(_) => {}
+                    Ok(()) => {}
                     Err(err) => {
                         if out.buf.is_empty() {
                             log::trace!(
-                                "Failed to read data from channel {} stream {}: {:#}, closing pipe",
-                                id,
-                                idx,
-                                err
+                                "Failed to read data from channel {id} stream {idx}: {err:#}, closing pipe"
                             );
                             out.fd.take();
                         } else {
                             log::trace!(
-                                "Failed to read data from channel {} stream {}: {:#}, but \
-                                         still have some buffer to drain",
-                                id,
-                                idx,
-                                err
+                                "Failed to read data from channel {id} stream {idx}: {err:#}, but \
+                                         still have some buffer to drain"
                             );
                         }
                     }
@@ -621,7 +587,7 @@ impl SessionInner {
                 .iter()
                 .all(|descriptor| descriptor.fd.is_none())
             {
-                log::trace!("all descriptors on channel {} are closed", id);
+                log::trace!("all descriptors on channel {id} are closed");
                 dead.push(*id);
             }
         }
@@ -660,7 +626,7 @@ impl SessionInner {
                     }
                     SessionRequest::ResizePty(resize, None) => {
                         if let Err(err) = self.resize_pty(resize) {
-                            log::error!("error in resize_pty: {:#}", err);
+                            log::error!("error in resize_pty: {err:#}");
                         }
                         Ok(true)
                     }
@@ -669,7 +635,7 @@ impl SessionInner {
                     }
                     SessionRequest::SignalChannel(info) => {
                         if let Err(err) = self.signal_channel(&info) {
-                            log::error!("{:?} -> error: {:#}", info, err);
+                            log::error!("{info:?} -> error: {err:#}");
                         }
                         Ok(true)
                     }
@@ -911,7 +877,7 @@ impl SessionInner {
         }
         while let Some(channel) = sess.accept_agent_forward() {
             if let Err(err) = process_one(self, channel) {
-                log::error!("error connecting agent forward: {:#}", err);
+                log::error!("error connecting agent forward: {err:#}");
             }
         }
     }
@@ -929,13 +895,11 @@ impl SessionInner {
     pub fn exec(&mut self, sess: &mut SessionWrap, exec: Exec) -> anyhow::Result<ExecResult> {
         let mut channel = sess.open_session()?;
 
-        if let Some("yes") = self.config.get("forwardagent").map(|s| s.as_str()) {
-            if self.identity_agent().is_some() {
-                if let Err(err) = channel.request_auth_agent_forwarding() {
-                    log::error!("Failed to request agent forwarding: {:#}", err);
+        if self.config.get("forwardagent").map(std::string::String::as_str) == Some("yes")
+            && self.identity_agent().is_some()
+                && let Err(err) = channel.request_auth_agent_forwarding() {
+                    log::error!("Failed to request agent forwarding: {err:#}");
                 }
-            }
-        }
 
         if let Some(env) = &exec.env {
             for (key, val) in env {
@@ -944,11 +908,8 @@ impl SessionInner {
                     // setenv request may not succeed, but that doesn't
                     // prevent the connection from being set up.
                     log::warn!(
-                        "ssh: setenv {}={} failed: {}. \
-                         Check the AcceptEnv setting on the ssh server side.",
-                        key,
-                        val,
-                        err
+                        "ssh: setenv {key}={val} failed: {err}. \
+                         Check the AcceptEnv setting on the ssh server side."
                     );
                 }
             }
@@ -1067,7 +1028,7 @@ impl SessionInner {
     pub fn identity_agent(&self) -> Option<String> {
         self.config
             .get("identityagent")
-            .map(|s| s.to_owned())
+            .map(std::borrow::ToOwned::to_owned)
             .or_else(|| std::env::var("SSH_AUTH_SOCK").ok())
     }
 }
@@ -1122,7 +1083,7 @@ where
     T: Send + Sync + 'static,
 {
     if let Err(err) = reply.try_send(f()) {
-        log::error!("{}: {:#}", what, err);
+        log::error!("{what}: {err:#}");
     }
     Ok(true)
 }
@@ -1133,10 +1094,10 @@ struct KillOnDropChild(std::process::Child);
 impl Drop for KillOnDropChild {
     fn drop(&mut self) {
         if let Err(err) = self.0.kill() {
-            log::error!("Error killing ProxyCommand: {}", err);
+            log::error!("Error killing ProxyCommand: {err}");
         }
         if let Err(err) = self.0.wait() {
-            log::error!("Error waiting for ProxyCommand to finish: {}", err);
+            log::error!("Error waiting for ProxyCommand to finish: {err}");
         }
     }
 }

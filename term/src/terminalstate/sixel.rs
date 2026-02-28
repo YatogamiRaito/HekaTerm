@@ -1,4 +1,4 @@
-use crate::terminalstate::image::*;
+use crate::terminalstate::image::{check_image_dimensions, ImageAttachStyle};
 use crate::terminalstate::{default_color_map, ImageAttachParams};
 use crate::TerminalState;
 use ::image::RgbaImage;
@@ -7,11 +7,12 @@ use wezterm_cell::image::ImageDataType;
 use wezterm_escape_parser::{Sixel, SixelData};
 
 impl TerminalState {
+    #[allow(clippy::boxed_local)]
     pub(crate) fn sixel(&mut self, sixel: Box<Sixel>) {
         let (width, height) = sixel.dimensions();
 
         if let Err(err) = check_image_dimensions(width, height) {
-            log::error!("{}", err);
+            log::error!("{err}");
             return;
         }
 
@@ -28,7 +29,7 @@ impl TerminalState {
         } else {
             let background_color = color_map
                 .get(&0)
-                .cloned()
+                .copied()
                 .unwrap_or(RgbColor::new_8bpc(0, 0, 0));
             let (red, green, blue) = background_color.to_tuple_rgb8();
             RgbaImage::from_pixel(width, height, [red, green, blue, 0xffu8].into())
@@ -90,12 +91,12 @@ impl TerminalState {
                     // go from sixel red to standard hsl red.
                     // Negative values wrap around the circle.
                     // https://github.com/wezterm/wezterm/issues/775
-                    let angle = (*hue_angle as f64) - 120.0;
+                    let angle = f64::from(*hue_angle) - 120.0;
                     let angle = if angle < 0. { 360.0 + angle } else { angle };
                     let c = csscolorparser::Color::from_hsla(
                         angle,
-                        *saturation as f64 / 100.,
-                        *lightness as f64 / 100.,
+                        f64::from(*saturation) / 100.,
+                        f64::from(*lightness) / 100.,
                         1.,
                     );
                     let [r, g, b, _] = c.to_rgba8();
@@ -103,8 +104,8 @@ impl TerminalState {
                 }
 
                 SixelData::SelectColorMapEntry(n) => {
-                    foreground_color = color_map.get(n).cloned().unwrap_or_else(|| {
-                        log::error!("sixel selected noexistent colormap entry {}", n);
+                    foreground_color = color_map.get(n).copied().unwrap_or_else(|| {
+                        log::error!("sixel selected noexistent colormap entry {n}");
                         RgbColor::new_8bpc(255, 255, 255)
                     });
                 }
@@ -147,7 +148,7 @@ impl TerminalState {
             placement_id: None,
             do_not_move_cursor: self.sixel_display_mode,
         }) {
-            log::error!("set sixel image: {:#}", err);
+            log::error!("set sixel image: {err:#}");
         }
         if self.sixel_display_mode {
             self.cursor = old_cursor;

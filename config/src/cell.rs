@@ -9,6 +9,7 @@ pub struct CellWidth {
 }
 
 impl CellWidth {
+    #[must_use] 
     pub fn compile_to_map(cellwidths: Option<Vec<Self>>) -> Option<Arc<HashMap<u32, u8>>> {
         let cellwidths = cellwidths.as_ref()?;
         let mut map = HashMap::new();

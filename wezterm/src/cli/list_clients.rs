@@ -90,15 +90,13 @@ impl ListClientsCommand {
                     let connected = now - info.connected_at;
                     let idle = now - info.last_input;
                     data.push(vec![
-                        info.client_id.username.to_string(),
-                        info.client_id.hostname.to_string(),
+                        info.client_id.username.clone(),
+                        info.client_id.hostname.clone(),
                         info.client_id.pid.to_string(),
                         duration_string(connected),
                         duration_string(idle),
                         info.active_workspace.as_deref().unwrap_or("").to_string(),
-                        info.focused_pane_id
-                            .map(|id| id.to_string())
-                            .unwrap_or_else(String::new),
+                        info.focused_pane_id.map_or_else(String::new, |id| id.to_string()),
                         info.client_id
                             .ssh_auth_sock
                             .as_deref()
@@ -131,7 +129,7 @@ struct CliListClientsResultItem {
 }
 
 impl From<mux::client::ClientInfo> for CliListClientsResultItem {
-    fn from(client_info: mux::client::ClientInfo) -> CliListClientsResultItem {
+    fn from(client_info: mux::client::ClientInfo) -> Self {
         let now: DateTime<Utc> = Utc::now();
 
         let mux::client::ClientInfo {
@@ -154,9 +152,9 @@ impl From<mux::client::ClientInfo> for CliListClientsResultItem {
         let connection_elapsed = now - connected_at;
         let idle_time = now - last_input;
 
-        CliListClientsResultItem {
-            username: username.to_string(),
-            hostname: hostname.to_string(),
+        Self {
+            username: username.clone(),
+            hostname: hostname.clone(),
             pid: *pid,
             connection_elapsed: connection_elapsed
                 .to_std()
@@ -164,7 +162,7 @@ impl From<mux::client::ClientInfo> for CliListClientsResultItem {
             idle_time: idle_time.to_std().unwrap_or(std::time::Duration::ZERO),
             workspace: active_workspace.as_deref().unwrap_or("").to_string(),
             focused_pane_id,
-            ssh_auth_sock: ssh_auth_sock.as_ref().map(|s| s.to_string()),
+            ssh_auth_sock: ssh_auth_sock.clone(),
         }
     }
 }

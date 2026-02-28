@@ -6,7 +6,7 @@ use ::window::{Point, Rect, Size};
 use anyhow::Context;
 use config::DimensionContext;
 use std::rc::Rc;
-use wezterm_font::units::*;
+use wezterm_font::units::{PixelLength, IntPixelLength};
 use wezterm_font::{FontConfiguration, FontMetrics};
 
 #[derive(Copy, Clone, Debug)]
@@ -50,7 +50,7 @@ impl RenderMetrics {
             (self.cell_size.height as f64 * line_height) as isize,
         );
 
-        let adjust = (((self.descender_row as f64 * line_height) - self.descender_row as f64) / 2.0)
+        let adjust = ((self.descender_row as f64).mul_add(line_height, -(self.descender_row as f64)) / 2.0)
             as isize;
         Self {
             descender: self.descender - PixelLength::new(adjust as f64),
@@ -63,7 +63,7 @@ impl RenderMetrics {
     }
 
     pub fn scale_cell_width(&self, scale: f64) -> Self {
-        let mut scaled = self.clone();
+        let mut scaled = *self;
         scaled.cell_size.width = (self.cell_size.width as f64 * scale) as isize;
         scaled
     }
@@ -99,11 +99,11 @@ impl RenderMetrics {
 
         let underline_position = match &config.underline_position {
             None => metrics.underline_position.get(),
-            Some(d) => d.evaluate_as_pixels(DimensionContext {
+            Some(d) => f64::from(d.evaluate_as_pixels(DimensionContext {
                 dpi: fonts.get_dpi() as f32,
                 pixel_max: metrics.underline_position.get() as f32,
                 pixel_cell: cell_height as f32,
-            }) as f64,
+            })),
         };
 
         let descender_row = (cell_height as f64 + (metrics.descender.get() - underline_position)
@@ -112,7 +112,7 @@ impl RenderMetrics {
             (2 * underline_height + descender_row).min(cell_height as isize - underline_height);
         let strike_row = match &config.strikethrough_position {
             None => {
-                ((cell_height as f64 + (metrics.descender.get() - underline_position)) / 2.)
+                f64::midpoint(cell_height as f64, metrics.descender.get() - underline_position)
                     as isize
             }
             Some(d) => d

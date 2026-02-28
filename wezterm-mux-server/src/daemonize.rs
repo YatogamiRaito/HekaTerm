@@ -41,7 +41,7 @@ fn lock_pid_file(config: &config::ConfigHandle) -> anyhow::Result<std::fs::File>
     let pid_file_dir = pid_file
         .parent()
         .ok_or_else(|| anyhow::anyhow!("{} has no parent?", pid_file.display()))?;
-    std::fs::create_dir_all(&pid_file_dir).with_context(|| {
+    std::fs::create_dir_all(pid_file_dir).with_context(|| {
         format!(
             "while creating directory structure: {}",
             pid_file_dir.display()
@@ -50,6 +50,7 @@ fn lock_pid_file(config: &config::ConfigHandle) -> anyhow::Result<std::fs::File>
     let file = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(false)
         .open(&pid_file)
         .with_context(|| format!("opening pid file {}", pid_file.display()))?;
     config::set_sticky_bit(&pid_file);
@@ -65,7 +66,9 @@ fn lock_pid_file(config: &config::ConfigHandle) -> anyhow::Result<std::fs::File>
 }
 
 pub fn daemonize(config: &config::ConfigHandle) -> anyhow::Result<Option<RawFd>> {
-    let pid_file = if !config::running_under_wsl() {
+    let pid_file = if config::running_under_wsl() {
+        None
+    } else {
         // pid file locking is only partly functional when running under
         // WSL 1; it is possible for the pid file to exist after a reboot
         // and for attempts to open and lock it to fail when there are no
@@ -73,8 +76,6 @@ pub fn daemonize(config: &config::ConfigHandle) -> anyhow::Result<Option<RawFd>>
         // So, we only use a pid file when not under WSL.
 
         Some(lock_pid_file(config)?)
-    } else {
-        None
     };
     let stdout = config.daemon_options.open_stdout()?;
     let stderr = config.daemon_options.open_stderr()?;
@@ -83,7 +84,7 @@ pub fn daemonize(config: &config::ConfigHandle) -> anyhow::Result<Option<RawFd>>
     match fork()? {
         Fork::Parent(pid) => {
             let mut status = 0;
-            unsafe { libc::waitpid(pid, &mut status, 0) };
+            unsafe { libc::waitpid(pid, &raw mut status, 0) };
             std::process::exit(0);
         }
         Fork::Child(_) => {}

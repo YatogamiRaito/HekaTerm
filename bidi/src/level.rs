@@ -10,11 +10,13 @@ pub const MAX_DEPTH: usize = 125;
 pub struct Level(pub i8);
 
 impl Level {
-    pub fn direction(self) -> Direction {
+    #[must_use] 
+    pub const fn direction(self) -> Direction {
         Direction::with_level(self.0)
     }
 
-    pub fn as_bidi_class(self) -> BidiClass {
+    #[must_use] 
+    pub const fn as_bidi_class(self) -> BidiClass {
         if self.0 % 2 == 1 {
             BidiClass::RightToLeft
         } else {
@@ -22,15 +24,17 @@ impl Level {
         }
     }
 
-    pub fn removed_by_x9(self) -> bool {
+    #[must_use] 
+    pub const fn removed_by_x9(self) -> bool {
         self.0 == NO_LEVEL
     }
 
-    pub fn max(self, other: Level) -> Level {
-        Level(self.0.max(other.0))
+    #[must_use] 
+    pub fn max(self, other: Self) -> Self {
+        Self(self.0.max(other.0))
     }
 
-    pub(crate) fn least_greater_even(self) -> Option<Level> {
+    pub(crate) const fn least_greater_even(self) -> Option<Self> {
         let level = if self.0 % 2 == 0 {
             self.0 + 2
         } else {
@@ -43,7 +47,7 @@ impl Level {
         }
     }
 
-    pub(crate) fn least_greater_odd(self) -> Option<Level> {
+    pub(crate) const fn least_greater_odd(self) -> Option<Self> {
         let level = if self.0 % 2 == 1 {
             self.0 + 2
         } else {

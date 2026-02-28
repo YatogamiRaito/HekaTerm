@@ -40,10 +40,10 @@ impl SeatHandler for WaylandState {
                 let surface = self.compositor.create_surface(qh);
                 let pointer = self
                     .seat
-                    .get_pointer_with_theme_and_data::<WaylandState, SurfaceUserData, PointerUserData>(
+                    .get_pointer_with_theme_and_data::<Self, SurfaceUserData, PointerUserData>(
                         qh,
                         &seat,
-                        &self.shm.wl_shm(),
+                        self.shm.wl_shm(),
                         surface,
                         ThemeSpec::System,
                         PointerUserData::new(seat.clone()),
@@ -80,7 +80,7 @@ impl SeatHandler for WaylandState {
         match capability {
             Capability::Keyboard => {
                 log::trace!("Lost keyboard capability");
-                self.keyboard.take().map(|k| k.release());
+                if let Some(k) = self.keyboard.take() { k.release() }
             }
             Capability::Pointer => {
                 log::trace!("Lost pointer capability");

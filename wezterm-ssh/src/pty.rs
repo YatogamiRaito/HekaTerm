@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 use std::sync::Mutex;
 
 #[derive(Debug)]
-pub(crate) struct NewPty {
+pub struct NewPty {
     pub term: String,
     pub size: PtySize,
     pub command_line: Option<String>,
@@ -17,7 +17,7 @@ pub(crate) struct NewPty {
 }
 
 #[derive(Debug)]
-pub(crate) struct ResizePty {
+pub struct ResizePty {
     pub channel: ChannelId,
     pub size: PtySize,
 }
@@ -102,16 +102,13 @@ impl SshChildProcess {
         if let Some(status) = self.exited.as_ref() {
             return Ok(status.clone());
         }
-        match self.exit.recv().await {
-            Ok(status) => {
-                self.exited.replace(status.clone());
-                Ok(status)
-            }
-            Err(_) => {
-                let status = ExitStatus::with_exit_code(1);
-                self.exited.replace(status.clone());
-                Ok(status)
-            }
+        if let Ok(status) = self.exit.recv().await {
+            self.exited.replace(status.clone());
+            Ok(status)
+        } else {
+            let status = ExitStatus::with_exit_code(1);
+            self.exited.replace(status.clone());
+            Ok(status)
         }
     }
 }
@@ -139,16 +136,13 @@ impl portable_pty::Child for SshChildProcess {
         if let Some(status) = self.exited.as_ref() {
             return Ok(status.clone());
         }
-        match smol::block_on(self.exit.recv()) {
-            Ok(status) => {
-                self.exited.replace(status.clone());
-                Ok(status)
-            }
-            Err(_) => {
-                let status = ExitStatus::with_exit_code(1);
-                self.exited.replace(status.clone());
-                Ok(status)
-            }
+        if let Ok(status) = smol::block_on(self.exit.recv()) {
+            self.exited.replace(status.clone());
+            Ok(status)
+        } else {
+            let status = ExitStatus::with_exit_code(1);
+            self.exited.replace(status.clone());
+            Ok(status)
         }
     }
 
@@ -169,7 +163,7 @@ impl portable_pty::ChildKiller for SshChildProcess {
                 channel: self.channel,
                 signame: "HUP",
             }))
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
         }
         Ok(())
     }
@@ -195,13 +189,13 @@ impl portable_pty::ChildKiller for SshChildKiller {
                 channel: self.channel,
                 signame: "HUP",
             }))
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
         }
         Ok(())
     }
 
     fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
-        Box::new(SshChildKiller {
+        Box::new(Self {
             tx: self.tx.clone(),
             channel: self.channel,
         })
@@ -218,13 +212,11 @@ impl crate::sessioninner::SessionInner {
 
         let mut channel = sess.open_session()?;
 
-        if let Some("yes") = self.config.get("forwardagent").map(|s| s.as_str()) {
-            if self.identity_agent().is_some() {
-                if let Err(err) = channel.request_auth_agent_forwarding() {
-                    log::error!("Failed to request agent forwarding: {:#}", err);
+        if self.config.get("forwardagent").map(std::string::String::as_str) == Some("yes")
+            && self.identity_agent().is_some()
+                && let Err(err) = channel.request_auth_agent_forwarding() {
+                    log::error!("Failed to request agent forwarding: {err:#}");
                 }
-            }
-        }
 
         channel.request_pty(&newpty)?;
 
@@ -234,25 +226,19 @@ impl crate::sessioninner::SessionInner {
                     // Depending on the server configuration, a given
                     // setenv request may not succeed, but that doesn't
                     // prevent the connection from being set up.
-                    if !self.shown_accept_env_error {
+                    if self.shown_accept_env_error {
+                        log::debug!(
+                            "ssh: setenv {key}={val} failed: {err}. \
+                             Check the AcceptEnv setting on the ssh server side."
+                        );
+                    } else {
                         log::warn!(
-                            "ssh: setenv {}={} failed: {}. \
+                            "ssh: setenv {key}={val} failed: {err}. \
                             Check the AcceptEnv setting on the ssh server side. \
                             Additional errors with setting env vars in this \
-                            session will be logged at debug log level.",
-                            key,
-                            val,
-                            err
+                            session will be logged at debug log level."
                         );
                         self.shown_accept_env_error = true;
-                    } else {
-                        log::debug!(
-                            "ssh: setenv {}={} failed: {}. \
-                             Check the AcceptEnv setting on the ssh server side.",
-                            key,
-                            val,
-                            err
-                        );
                     }
                 }
             }

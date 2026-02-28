@@ -8,7 +8,7 @@ use wezterm_term::{ScrollbackOrVisibleRowIndex, StableRowIndex};
 pub struct GetText {
     /// Specify the target pane.
     /// The default is to use the current pane based on the
-    /// environment variable WEZTERM_PANE.
+    /// environment variable `WEZTERM_PANE`.
     #[arg(long)]
     pane_id: Option<PaneId>,
 
@@ -70,8 +70,11 @@ impl GetText {
 
         let lines = client
             .get_lines(codec::GetLines {
-                pane_id: pane_id.into(),
-                lines: vec![start_line..end_line + 1],
+                pane_id,
+                lines: vec![std::ops::Range {
+                    start: start_line,
+                    end: end_line + 1,
+                }],
             })
             .await?;
 

@@ -47,7 +47,7 @@ pub struct RenderableDimensions {
 }
 impl_lua_conversion_dynamic!(RenderableDimensions);
 
-/// Implements Pane::get_cursor_position for Terminal
+/// Implements `Pane::get_cursor_position` for Terminal
 pub fn terminal_get_cursor_position(term: &mut Terminal) -> StableCursorPosition {
     let pos = term.cursor_pos();
 
@@ -59,7 +59,7 @@ pub fn terminal_get_cursor_position(term: &mut Terminal) -> StableCursorPosition
     }
 }
 
-/// Implements Pane::get_dirty_lines for Terminal
+/// Implements `Pane::get_dirty_lines` for Terminal
 pub fn terminal_get_dirty_lines(
     term: &mut Terminal,
     lines: Range<StableRowIndex>,
@@ -85,7 +85,7 @@ pub fn terminal_for_each_logical_line_in_stable_range_mut(
     });
 }
 
-/// Implements Pane::with_lines for Terminal
+/// Implements `Pane::with_lines` for Terminal
 pub fn terminal_with_lines<F>(term: &mut Terminal, lines: Range<StableRowIndex>, mut func: F)
 where
     F: FnMut(StableRowIndex, &[&Line]),
@@ -97,7 +97,7 @@ where
     screen.with_phys_lines(phys_range, |lines| func(first, lines));
 }
 
-/// Implements Pane::with_lines_mut for Terminal
+/// Implements `Pane::with_lines_mut` for Terminal
 pub fn terminal_with_lines_mut(
     term: &mut Terminal,
     lines: Range<StableRowIndex>,
@@ -110,7 +110,7 @@ pub fn terminal_with_lines_mut(
     screen.with_phys_lines_mut(phys_range, |lines| with_lines.with_lines_mut(first, lines));
 }
 
-/// Implements Pane::get_lines for Terminal
+/// Implements `Pane::get_lines` for Terminal
 pub fn terminal_get_lines(
     term: &mut Terminal,
     lines: Range<StableRowIndex>,
@@ -124,7 +124,7 @@ pub fn terminal_get_lines(
     (first, lines)
 }
 
-/// Implements Pane::get_dimensions for Terminal
+/// Implements `Pane::get_dimensions` for Terminal
 pub fn terminal_get_dimensions(term: &mut Terminal) -> RenderableDimensions {
     let size = term.get_size();
     let screen = term.screen();

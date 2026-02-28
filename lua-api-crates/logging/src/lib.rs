@@ -9,7 +9,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "log_error",
         lua.create_function(|_, args: Variadic<Value>| {
             let output = print_helper(args);
-            log::error!("lua: {}", output);
+            log::error!("lua: {output}");
             Ok(())
         })?,
     )?;
@@ -17,7 +17,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "log_info",
         lua.create_function(|_, args: Variadic<Value>| {
             let output = print_helper(args);
-            log::info!("lua: {}", output);
+            log::info!("lua: {output}");
             Ok(())
         })?,
     )?;
@@ -25,7 +25,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "log_warn",
         lua.create_function(|_, args: Variadic<Value>| {
             let output = print_helper(args);
-            log::warn!("lua: {}", output);
+            log::warn!("lua: {output}");
             Ok(())
         })?,
     )?;
@@ -34,7 +34,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "to_string",
         lua.create_function(|_, arg: Value| {
             let res = ValuePrinter(arg);
-            Ok(format!("{:#?}", res).to_string())
+            Ok(format!("{res:#?}"))
         })?,
     )?;
 
@@ -42,7 +42,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "print",
         lua.create_function(|_, args: Variadic<Value>| {
             let output = print_helper(args);
-            log::info!("lua: {}", output);
+            log::info!("lua: {output}");
             Ok(())
         })?,
     )?;
@@ -58,14 +58,11 @@ fn print_helper(args: Variadic<Value>) -> String {
         }
 
         match item {
-            Value::String(s) => match s.to_str() {
-                Ok(s) => output.push_str(s),
-                Err(_) => {
-                    let item = String::from_utf8_lossy(s.as_bytes());
-                    output.push_str(&item);
-                }
+            Value::String(s) => if let Ok(s) = s.to_str() { output.push_str(s) } else {
+                let item = String::from_utf8_lossy(s.as_bytes());
+                output.push_str(&item);
             },
-            item @ _ => {
+            item => {
                 let item = format!("{:#?}", ValuePrinter(item));
                 output.push_str(&item);
             }

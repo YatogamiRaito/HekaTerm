@@ -1,6 +1,5 @@
 // The range_plus_one lint can't see when the LHS is not compatible with
 // and inclusive range
-#![allow(clippy::range_plus_one)]
 use mux::pane::Pane;
 use std::cmp::Ordering;
 use std::ops::Range;
@@ -24,17 +23,17 @@ pub struct Selection {
 pub use config::keyassignment::SelectionMode;
 
 impl Selection {
-    pub fn clear(&mut self) {
+    pub const fn clear(&mut self) {
         self.range = None;
         self.origin = None;
     }
 
-    pub fn begin(&mut self, origin: SelectionCoordinate) {
+    pub const fn begin(&mut self, origin: SelectionCoordinate) {
         self.range = None;
         self.origin = Some(origin);
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.range.is_none()
     }
 }
@@ -174,19 +173,19 @@ fn is_double_click_word(s: &str) -> bool {
 
 impl SelectionRange {
     /// Create a new range that starts at the specified location
-    pub fn start(start: SelectionCoordinate) -> Self {
+    pub const fn start(start: SelectionCoordinate) -> Self {
         let end = start;
         Self { start, end }
     }
 
     /// Computes the selection range for the line around the specified coords
     pub fn line_around(start: SelectionCoordinate, pane: &dyn Pane) -> Self {
-        for logical in pane.get_logical_lines(start.y..start.y + 1) {
+        for logical in pane.get_logical_lines(std::ops::Range { start: start.y, end: start.y + 1 }) {
             if logical.contains_y(start.y) {
                 return Self {
                     start: SelectionCoordinate::x_y(0, logical.first_row),
                     end: SelectionCoordinate::x_y(
-                        usize::max_value(),
+                        usize::MAX,
                         logical.first_row + (logical.physical_lines.len() - 1) as StableRowIndex,
                     ),
                 };
@@ -238,7 +237,7 @@ impl SelectionRange {
 
     /// Computes the selection range for the word around the specified coords
     pub fn word_around(start: SelectionCoordinate, pane: &dyn Pane) -> Self {
-        for logical in pane.get_logical_lines(start.y..start.y + 1) {
+        for logical in pane.get_logical_lines(std::ops::Range { start: start.y, end: start.y + 1 }) {
             if !logical.contains_y(start.y) {
                 continue;
             }
@@ -286,7 +285,7 @@ impl SelectionRange {
     }
 
     /// Returns an extended selection that it ends at the specified location
-    pub fn extend(&self, end: SelectionCoordinate) -> Self {
+    pub const fn extend(&self, end: SelectionCoordinate) -> Self {
         Self {
             start: self.start,
             end,
@@ -295,7 +294,7 @@ impl SelectionRange {
 
     /// Return a normalized selection such that the starting y coord
     /// is <= the ending y coord.
-    pub fn normalize(&self) -> Self {
+    pub const fn normalize(&self) -> Self {
         if self.start.y <= self.end.y {
             *self
         } else {
@@ -308,13 +307,16 @@ impl SelectionRange {
 
     /// Yields a range representing the row indices.
     /// Make sure that you invoke this on a normalized range!
-    pub fn rows(&self) -> Range<StableRowIndex> {
+    pub const fn rows(&self) -> Range<StableRowIndex> {
         let norm = self.normalize();
-        norm.start.y..norm.end.y + 1
+        std::ops::Range {
+            start: norm.start.y,
+            end: norm.end.y + 1,
+        }
     }
 
     /// Yields a range representing the selected columns for the specified row.
-    /// Not that the range may include usize::max_value() for some rows; this
+    /// Not that the range may include `usize::MAX` for some rows; this
     /// indicates that the selection extends to the end of that row.
     /// Since this struct has no knowledge of line length, it cannot be
     /// more precise than that.
@@ -325,33 +327,29 @@ impl SelectionRange {
         if rectangular {
             if row < norm.start.y || row > norm.end.y {
                 0..0
+            } else if norm.start.x <= norm.end.x {
+                norm.start.x.range(norm.end.x.saturating_add(1))
             } else {
-                if norm.start.x <= norm.end.x {
-                    norm.start.x.range(norm.end.x.saturating_add(1))
-                } else {
-                    norm.end.x.range(norm.start.x.saturating_add(1))
-                }
+                norm.end.x.range(norm.start.x.saturating_add(1))
             }
+        } else if row < norm.start.y || row > norm.end.y {
+            0..0
+        } else if norm.start.y == norm.end.y {
+            // A single line selection
+            if norm.start.x <= norm.end.x {
+                norm.start.x.range(norm.end.x.saturating_add(1))
+            } else {
+                norm.end.x.range(norm.start.x.saturating_add(1))
+            }
+        } else if row == norm.end.y {
+            // last line of multi-line
+            SelectionX::Cell(0).range(norm.end.x.saturating_add(1))
+        } else if row == norm.start.y {
+            // first line of multi-line
+            norm.start.x.range(SelectionX::Cell(usize::MAX))
         } else {
-            if row < norm.start.y || row > norm.end.y {
-                0..0
-            } else if norm.start.y == norm.end.y {
-                // A single line selection
-                if norm.start.x <= norm.end.x {
-                    norm.start.x.range(norm.end.x.saturating_add(1))
-                } else {
-                    norm.end.x.range(norm.start.x.saturating_add(1))
-                }
-            } else if row == norm.end.y {
-                // last line of multi-line
-                SelectionX::Cell(0).range(norm.end.x.saturating_add(1))
-            } else if row == norm.start.y {
-                // first line of multi-line
-                norm.start.x.range(SelectionX::Cell(usize::max_value()))
-            } else {
-                // some "middle" line of multi-line
-                0..usize::max_value()
-            }
+            // some "middle" line of multi-line
+            0..usize::MAX
         }
     }
 }

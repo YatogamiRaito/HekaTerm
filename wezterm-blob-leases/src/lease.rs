@@ -2,6 +2,7 @@ use crate::{get_storage, BoxedReader, ContentId, Error, LeaseId};
 use std::sync::Arc;
 
 /// A lease represents a handle to data in the store.
+///
 /// The lease will help to keep the data alive in the store.
 /// Depending on the policy configured for the store, it
 /// may guarantee to keep the data intact for its lifetime,
@@ -41,6 +42,7 @@ impl BlobLease {
         storage.get_reader(self.inner.content_id, self.inner.lease_id)
     }
 
+    #[must_use] 
     pub fn content_id(&self) -> ContentId {
         self.inner.content_id
     }
@@ -62,7 +64,7 @@ impl Drop for LeaseInner {
 /// will store the data implicitly.
 #[cfg(feature = "serde")]
 pub mod lease_bytes {
-    use super::*;
+    use super::BlobLease;
     use crate::BlobManager;
     use serde::{de, ser, Deserialize, Serialize};
 
@@ -95,7 +97,7 @@ pub mod lease_bytes {
 #[cfg(feature = "serde")]
 pub mod lease_content_id {
 
-    use super::*;
+    use super::{BlobLease, ContentId};
     use crate::BlobManager;
     use serde::{de, ser, Deserialize, Serialize};
 

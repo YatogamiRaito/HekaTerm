@@ -36,29 +36,26 @@ impl CopyAndPaste {
     pub(super) fn get_clipboard_data(&mut self, clipboard: Clipboard) -> anyhow::Result<ReadPipe> {
         let conn = crate::Connection::get().unwrap().wayland();
         let wayland_state = conn.wayland_state.borrow();
-        let primary_selection = if let Clipboard::PrimarySelection = clipboard {
+        let primary_selection = if clipboard == Clipboard::PrimarySelection {
             wayland_state.primary_selection_device.as_ref()
         } else {
             None
         };
 
-        match primary_selection {
-            Some(primary_selection) => {
-                let offer = primary_selection
-                    .data()
-                    .selection_offer()
-                    .ok_or_else(|| anyhow!("no primary selection offer"))?;
-                let pipe = offer.receive(TEXT_MIME_TYPE.to_string())?;
-                Ok(pipe)
-            }
-            None => {
-                let offer = self
-                    .data_offer
-                    .as_ref()
-                    .ok_or_else(|| anyhow!("no data offer"))?;
-                let pipe = offer.receive(TEXT_MIME_TYPE.to_string())?;
-                Ok(pipe)
-            }
+        if let Some(primary_selection) = primary_selection {
+            let offer = primary_selection
+                .data()
+                .selection_offer()
+                .ok_or_else(|| anyhow!("no primary selection offer"))?;
+            let pipe = offer.receive(TEXT_MIME_TYPE.to_string())?;
+            Ok(pipe)
+        } else {
+            let offer = self
+                .data_offer
+                .as_ref()
+                .ok_or_else(|| anyhow!("no data offer"))?;
+            let pipe = offer.receive(TEXT_MIME_TYPE.to_string())?;
+            Ok(pipe)
         }
     }
 
@@ -68,29 +65,26 @@ impl CopyAndPaste {
         let mut wayland_state = conn.wayland_state.borrow_mut();
         let last_serial = *wayland_state.last_serial.borrow();
 
-        let primary_selection = if let Clipboard::PrimarySelection = clipboard {
+        let primary_selection = if clipboard == Clipboard::PrimarySelection {
             wayland_state.primary_selection_device.as_ref()
         } else {
             None
         };
 
-        match primary_selection {
-            Some(primary_selection) => {
-                let manager = wayland_state.primary_selection_manager.as_ref().unwrap();
-                let source = manager.create_selection_source(&qh, [TEXT_MIME_TYPE]);
-                source.set_selection(&primary_selection, last_serial);
-                wayland_state
-                    .primary_selection_source
-                    .replace((source, data));
-            }
-            None => {
-                let data_device = &wayland_state.data_device;
-                let source = wayland_state
-                    .data_device_manager_state
-                    .create_copy_paste_source(&qh, vec![TEXT_MIME_TYPE]);
-                source.set_selection(data_device.as_ref().unwrap(), last_serial);
-                wayland_state.copy_paste_source.replace((source, data));
-            }
+        if let Some(primary_selection) = primary_selection {
+            let manager = wayland_state.primary_selection_manager.as_ref().unwrap();
+            let source = manager.create_selection_source(&qh, [TEXT_MIME_TYPE]);
+            source.set_selection(primary_selection, last_serial);
+            wayland_state
+                .primary_selection_source
+                .replace((source, data));
+        } else {
+            let data_device = &wayland_state.data_device;
+            let source = wayland_state
+                .data_device_manager_state
+                .create_copy_paste_source(&qh, vec![TEXT_MIME_TYPE]);
+            source.set_selection(data_device.as_ref().unwrap(), last_serial);
+            wayland_state.copy_paste_source.replace((source, data));
         }
     }
 
@@ -103,14 +97,14 @@ impl WaylandState {
     pub(super) fn resolve_copy_and_paste(&mut self) -> Option<Arc<Mutex<CopyAndPaste>>> {
         let active_surface_id = self.active_surface_id.borrow();
         let active_surface_id = active_surface_id.as_ref()?;
-        let pending = self.surface_to_pending.get(&active_surface_id)?;
+        let pending = self.surface_to_pending.get(active_surface_id)?;
         Some(Arc::clone(&pending.lock().unwrap().copy_and_paste))
     }
 }
 
 pub(super) fn write_selection_to_pipe(fd: WritePipe, text: &str) {
     if let Err(e) = write_pipe_with_timeout(fd, text.as_bytes()) {
-        log::error!("while sending primary selection to pipe: {}", e);
+        log::error!("while sending primary selection to pipe: {e}");
     }
 }
 
@@ -133,15 +127,15 @@ fn write_pipe_with_timeout(mut file: WritePipe, data: &[u8]) -> anyhow::Result<(
     let mut buf = data;
 
     while !buf.is_empty() {
-        if unsafe { libc::poll(&mut pfd, 1, 3000) == 1 } {
+        if unsafe { libc::poll(&raw mut pfd, 1, 3000) == 1 } {
             match file.write(buf) {
-                Ok(size) if size == 0 => {
+                Ok(0) => {
                     bail!("zero byte write");
                 }
                 Ok(size) => {
                     buf = &buf[size..];
                 }
-                Err(e) => bail!("error writing to pipe: {}", e),
+                Err(e) => bail!("error writing to pipe: {e}"),
             }
         } else {
             bail!("timed out writing to pipe");
@@ -173,7 +167,7 @@ impl PrimarySelectionSourceHandler for WaylandState {
     ) {
         if mime != TEXT_MIME_TYPE {
             return;
-        };
+        }
 
         if let Some((ps_source, data)) = &self.primary_selection_source {
             if ps_source.inner() != source {

@@ -1,5 +1,5 @@
-use super::*;
-use crate::bitmaps::*;
+use super::{xcb_util, XConnection, CursorInfo};
+use crate::bitmaps::{BitmapImage, Image};
 use crate::connection::ConnectionOps;
 use crate::os::{xkeysyms, Connection, Window};
 use crate::{
@@ -39,21 +39,21 @@ struct CopyAndPaste {
 }
 
 impl CopyAndPaste {
-    fn clipboard(&self, clipboard: Clipboard) -> &Option<String> {
+    const fn clipboard(&self, clipboard: Clipboard) -> &Option<String> {
         match clipboard {
             Clipboard::PrimarySelection => &self.primary_selection_owned,
             Clipboard::Clipboard => &self.clipboard_owned,
         }
     }
 
-    fn clipboard_mut(&mut self, clipboard: Clipboard) -> &mut Option<String> {
+    const fn clipboard_mut(&mut self, clipboard: Clipboard) -> &mut Option<String> {
         match clipboard {
             Clipboard::PrimarySelection => &mut self.primary_selection_owned,
             Clipboard::Clipboard => &mut self.clipboard_owned,
         }
     }
 
-    fn request_mut(&mut self, clipboard: Clipboard) -> &mut Option<Promise<String>> {
+    const fn request_mut(&mut self, clipboard: Clipboard) -> &mut Option<Promise<String>> {
         match clipboard {
             Clipboard::PrimarySelection => &mut self.selection_request,
             Clipboard::Clipboard => &mut self.clipboard_request,
@@ -71,8 +71,8 @@ struct DragAndDrop {
 }
 
 impl Default for DragAndDrop {
-    fn default() -> DragAndDrop {
-        DragAndDrop {
+    fn default() -> Self {
+        Self {
             src_window: None,
             src_types: Vec::new(),
             src_action: xcb::x::ATOM_NONE,
@@ -118,8 +118,8 @@ const _NET_WM_MOVERESIZE_CANCEL: u32 = 11;
 
 impl Drop for XWindowInner {
     fn drop(&mut self) {
-        if self.window_id != xcb::x::Window::none() {
-            if let Some(conn) = self.conn.upgrade() {
+        if self.window_id != xcb::x::Window::none()
+            && let Some(conn) = self.conn.upgrade() {
                 self.conn()
                     .conn()
                     .flush()
@@ -132,7 +132,6 @@ impl Drop for XWindowInner {
                     window: self.window_id,
                 });
             }
-        }
     }
 }
 
@@ -140,7 +139,7 @@ impl HasDisplayHandle for XWindowInner {
     fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
         if let Some(conn) = self.conn.upgrade() {
             let handle =
-                XcbDisplayHandle::new(NonNull::new(conn.conn.get_raw_conn() as _), conn.screen_num);
+                XcbDisplayHandle::new(NonNull::new(conn.conn.get_raw_conn().cast()), conn.screen_num);
             unsafe { Ok(DisplayHandle::borrow_raw(RawDisplayHandle::Xcb(handle))) }
         } else {
             Err(HandleError::Unavailable)
@@ -250,7 +249,7 @@ impl XWindowInner {
                 self.dpi
             );
             self.dpi = dpi;
-            self.last_wm_state = self.get_window_state().unwrap_or(WindowState::default());
+            self.last_wm_state = self.get_window_state().unwrap_or_default();
             self.events.dispatch(WindowEvent::Resized {
                 dimensions: Dimensions {
                     pixel_width: self.width as usize,
@@ -272,8 +271,8 @@ impl XWindowInner {
             .send_request_no_reply_log(&xcb::x::ConfigureWindow {
                 window: self.child_id,
                 value_list: &[
-                    xcb::x::ConfigWindow::Width(width as u32),
-                    xcb::x::ConfigWindow::Height(height as u32),
+                    xcb::x::ConfigWindow::Width(width),
+                    xcb::x::ConfigWindow::Height(height),
                 ],
             });
         // send_request_no_reply_log() is synchronous, so no further synchronization required
@@ -367,13 +366,13 @@ impl XWindowInner {
                         self.height
                     );
 
-                    let window_state = self.get_window_state().unwrap_or(WindowState::default());
+                    let window_state = self.get_window_state().unwrap_or_default();
 
                     if self.width != geom.width()
                         || self.height != geom.height()
                         || self.last_wm_state != window_state
                     {
-                        self.resize_child(geom.width() as u32, geom.height() as u32);
+                        self.resize_child(u32::from(geom.width()), u32::from(geom.height()));
 
                         self.width = geom.width();
                         self.height = geom.height();
@@ -397,7 +396,7 @@ impl XWindowInner {
                 let window_id = self.window_id;
                 let max_fps = self.config.max_fps;
                 promise::spawn::spawn(async move {
-                    async_io::Timer::after(std::time::Duration::from_millis(1000 / max_fps as u64))
+                    async_io::Timer::after(std::time::Duration::from_millis(1000 / max_fps))
                         .await;
                     XConnection::with_window_inner(window_id, move |inner| {
                         inner.paint_throttled = false;
@@ -419,12 +418,12 @@ impl XWindowInner {
         pressed: bool,
         time: xcb::x::Timestamp,
         detail: xcb::x::Button,
-        event_x: i16,
-        event_y: i16,
-        root_x: i16,
-        root_y: i16,
+        event_coords: (i16, i16),
+        root_coords: (i16, i16),
         state: xcb::x::KeyButMask,
     ) -> anyhow::Result<()> {
+        let (event_x, event_y) = event_coords;
+        let (root_x, root_y) = root_coords;
         self.copy_and_paste.time = time;
 
         if self.cancel_drag() {
@@ -463,15 +462,15 @@ impl XWindowInner {
                 })
             }
             _ => {
-                log::trace!("button {} is not implemented", detail);
+                log::trace!("button {detail} is not implemented");
                 return Ok(());
             }
         };
 
         let event = MouseEvent {
             kind,
-            coords: Point::new(event_x.try_into().unwrap(), event_y.try_into().unwrap()),
-            screen_coords: ScreenPoint::new(root_x.try_into().unwrap(), root_y.try_into().unwrap()),
+            coords: Point::new(event_x.into(), event_y.into()),
+            screen_coords: ScreenPoint::new(root_x.into(), root_y.into()),
             modifiers: xkeysyms::modifiers_from_state(state.bits()),
             mouse_buttons: MouseButtons::default(),
         };
@@ -531,7 +530,7 @@ impl XWindowInner {
             return Ok(());
         }
 
-        self.resize_child(width as u32, height as u32);
+        self.resize_child(u32::from(width), u32::from(height));
 
         log::trace!(
             "{source}: width {} -> {}, height {} -> {}, dpi {} -> {}",
@@ -546,7 +545,7 @@ impl XWindowInner {
         self.width = width;
         self.height = height;
         self.dpi = dpi;
-        self.last_wm_state = self.get_window_state().unwrap_or(WindowState::default());
+        self.last_wm_state = self.get_window_state().unwrap_or_default();
 
         let dimensions = Dimensions {
             pixel_width: self.width as usize,
@@ -568,19 +567,13 @@ impl XWindowInner {
         use xcb::XidNew;
         let conn = self.conn();
         let msgtype_name = conn.atom_name(msgtype);
-        let srcwin = unsafe { xcb::x::Window::new(data[0]) };
+        let srcwin = xcb::x::Window::new(data[0]);
         if msgtype == conn.atom_xdndenter {
             self.drag_and_drop.src_window = Some(srcwin);
             let moretypes = data[1] & 0x01 != 0;
-            let xdndversion = data[1] >> 24 as u8;
+            let xdndversion = data[1] >> 24_u8;
             log::trace!("ClientMessage {msgtype_name}, Version {xdndversion}, more than 3 types: {moretypes}");
-            if !moretypes {
-                self.drag_and_drop.src_types = data[2..]
-                    .into_iter()
-                    .filter(|&&x| x != 0)
-                    .map(|&x| unsafe { Atom::new(x) })
-                    .collect();
-            } else {
+            if moretypes {
                 self.drag_and_drop.src_types =
                     match conn.send_and_wait_request(&xcb::x::GetProperty {
                         delete: false,
@@ -588,17 +581,22 @@ impl XWindowInner {
                         property: conn.atom_xdndtypelist,
                         r#type: xcb::x::ATOM_ATOM,
                         long_offset: 0,
-                        long_length: u32::max_value(),
+                        long_length: u32::MAX,
                     }) {
                         Ok(prop) => prop.value::<Atom>().to_vec(),
                         Err(err) => {
                             log::error!(
-                                "xdnd: unable to get type list from source window: {:?}",
-                                err
+                                "xdnd: unable to get type list from source window: {err:?}"
                             );
                             Vec::<Atom>::new()
                         }
                     };
+            } else {
+                self.drag_and_drop.src_types = data[2..]
+                    .iter()
+                    .filter(|&&x| x != 0)
+                    .map(|&x| Atom::new(x))
+                    .collect();
             }
             self.drag_and_drop.target_type = xcb::x::ATOM_NONE;
             for t in [
@@ -622,8 +620,8 @@ impl XWindowInner {
             log::error!("ClientMessage {msgtype_name} received, but no Xdnd in progress or source window mismatch");
         } else if msgtype == conn.atom_xdndposition {
             self.drag_and_drop.time = data[3];
-            let (x, y) = (data[2] >> 16 as u16, data[2] as u16);
-            self.drag_and_drop.src_action = unsafe { Atom::new(data[4]) };
+            let (x, y) = (data[2] >> 16_u16, data[2] as u16);
+            self.drag_and_drop.src_action = Atom::new(data[4]);
             self.drag_and_drop.target_action = conn.atom_xdndactioncopy;
             log::trace!(
                 "ClientMessage {msgtype_name}, ({x}, {y}), timestamp: {}, action: {}",
@@ -639,7 +637,7 @@ impl XWindowInner {
                     conn.atom_xdndstatus,
                     xcb::x::ClientMessageData::Data32([
                         self.window_id.resource_id(),
-                        2 | (self.drag_and_drop.target_type != xcb::x::ATOM_NONE) as u32,
+                        2 | u32::from(self.drag_and_drop.target_type != xcb::x::ATOM_NONE),
                         0,
                         0,
                         self.drag_and_drop.target_action.resource_id(),
@@ -655,15 +653,7 @@ impl XWindowInner {
                 "ClientMessage {msgtype_name}, timestamp: {}",
                 self.drag_and_drop.time
             );
-            if self.drag_and_drop.target_type != xcb::x::ATOM_NONE {
-                conn.send_request_no_reply_log(&xcb::x::ConvertSelection {
-                    requestor: self.window_id,
-                    selection: conn.atom_xdndselection,
-                    target: self.drag_and_drop.target_type,
-                    property: conn.atom_xsel_data,
-                    time: self.drag_and_drop.time,
-                });
-            } else {
+            if self.drag_and_drop.target_type == xcb::x::ATOM_NONE {
                 log::warn!("XdndDrop received, but no target type selected. Ignoring.");
                 conn.send_request_no_reply_log(&xcb::x::SendEvent {
                     propagate: false,
@@ -681,9 +671,17 @@ impl XWindowInner {
                         ]),
                     ),
                 });
+            } else {
+                conn.send_request_no_reply_log(&xcb::x::ConvertSelection {
+                    requestor: self.window_id,
+                    selection: conn.atom_xdndselection,
+                    target: self.drag_and_drop.target_type,
+                    property: conn.atom_xsel_data,
+                    time: self.drag_and_drop.time,
+                });
             }
         }
-        return Ok(());
+        Ok(())
     }
 
     pub fn dispatch_event(&mut self, event: &Event) -> anyhow::Result<()> {
@@ -722,12 +720,12 @@ impl XWindowInner {
                 let event = MouseEvent {
                     kind: MouseEventKind::Move,
                     coords: Point::new(
-                        motion.event_x().try_into().unwrap(),
-                        motion.event_y().try_into().unwrap(),
+                        motion.event_x().into(),
+                        motion.event_y().into(),
                     ),
                     screen_coords: ScreenPoint::new(
-                        motion.root_x().try_into().unwrap(),
-                        motion.root_y().try_into().unwrap(),
+                        motion.root_x().into(),
+                        motion.root_y().into(),
                     ),
                     modifiers: xkeysyms::modifiers_from_state(motion.state().bits()),
                     mouse_buttons: MouseButtons::default(),
@@ -739,10 +737,8 @@ impl XWindowInner {
                     true,
                     e.time(),
                     e.detail(),
-                    e.event_x(),
-                    e.event_y(),
-                    e.root_x(),
-                    e.root_y(),
+                    (e.event_x(), e.event_y()),
+                    (e.root_x(), e.root_y()),
                     e.state(),
                 )?;
             }
@@ -751,10 +747,8 @@ impl XWindowInner {
                     false,
                     e.time(),
                     e.detail(),
-                    e.event_x(),
-                    e.event_y(),
-                    e.root_x(),
-                    e.root_y(),
+                    (e.event_x(), e.event_y()),
+                    (e.root_x(), e.root_y()),
                     e.state(),
                 )?;
             }
@@ -778,7 +772,7 @@ impl XWindowInner {
                     }
                 } else if msg.r#type() == conn.atom_protocols {
                     if let ClientMessageData::Data32(data) = msg.data() {
-                        let protocol_atom = unsafe { Atom::new(data[0]) };
+                        let protocol_atom = Atom::new(data[0]);
                         log::trace!(
                             "ClientMessage {type_atom_name}/{}",
                             conn.atom_name(protocol_atom)
@@ -850,7 +844,7 @@ impl XWindowInner {
                 self.events.dispatch(WindowEvent::MouseLeave);
             }
             _ => {
-                log::warn!("unhandled: {:?}", event);
+                log::warn!("unhandled: {event:?}");
             }
         }
 
@@ -961,7 +955,7 @@ impl XWindowInner {
 
     fn selection_clear(&mut self, request: &xcb::x::SelectionClearEvent) -> anyhow::Result<()> {
         let window_id = self.window_id;
-        log::debug!("SEL: window_id={window_id:?} {:?}", request);
+        log::debug!("SEL: window_id={window_id:?} {request:?}");
         if let Some(clipboard) = self.selection_atom_to_clipboard(request.selection()) {
             self.copy_and_paste.clipboard_mut(clipboard).take();
             self.copy_and_paste.request_mut(clipboard).take();
@@ -976,7 +970,7 @@ impl XWindowInner {
     fn selection_request(&mut self, request: &xcb::x::SelectionRequestEvent) -> anyhow::Result<()> {
         let conn = self.conn();
         let window_id = self.window_id;
-        log::trace!("SEL: window_id={window_id:?} {:?}", request);
+        log::trace!("SEL: window_id={window_id:?} {request:?}");
         log::trace!(
             "XSEL={:?}, UTF8={:?} PRIMARY={:?} clip={:?}",
             conn.atom_xsel_data,
@@ -1031,8 +1025,7 @@ impl XWindowInner {
             xcb::x::ATOM_NONE
         };
         log::trace!(
-            "SEL: window_id={window_id:?} responding with selprop={:?}",
-            selprop
+            "SEL: window_id={window_id:?} responding with selprop={selprop:?}"
         );
 
         conn.send_request_no_reply(&xcb::x::SendEvent {
@@ -1084,7 +1077,7 @@ impl XWindowInner {
                         "SEL: window_id={window_id:?} -> no compatible selection data \
                          available, fulfil promise with empty string"
                     );
-                    promise.ok("".to_owned());
+                    promise.ok(String::new());
                     return Ok(());
                 }
                 log::trace!(
@@ -1101,7 +1094,7 @@ impl XWindowInner {
                 property: selection.property(),
                 r#type: selection.target(),
                 long_offset: 0,
-                long_length: u32::max_value(),
+                long_length: u32::MAX,
             }) {
                 Ok(prop) => {
                     if let Some(mut promise) = self.copy_and_paste.request_mut(clipboard).take() {
@@ -1127,9 +1120,9 @@ impl XWindowInner {
                     })?;
                 }
                 Err(err) => {
-                    log::error!("clipboard: err while getting clipboard property: {:?}", err);
+                    log::error!("clipboard: err while getting clipboard property: {err:?}");
                     if let Some(mut promise) = self.copy_and_paste.request_mut(clipboard).take() {
-                        promise.ok("".to_owned());
+                        promise.ok(String::new());
                     }
                 }
             }
@@ -1143,7 +1136,7 @@ impl XWindowInner {
                     property: selection.property(),
                     r#type: selection.target(),
                     long_offset: 0,
-                    long_length: u32::max_value(),
+                    long_length: u32::MAX,
                 }) {
                     Ok(prop) => {
                         if selection.target() == conn.atom_utf8_string {
@@ -1227,7 +1220,7 @@ impl XWindowInner {
         let data: [u32; 5] = [
             action as u32,
             atom.resource_id(),
-            atom2.map(|a| a.resource_id()).unwrap_or(0),
+            atom2.map_or(0, |a| a.resource_id()),
             0,
             0,
         ];
@@ -1313,8 +1306,13 @@ impl XWindowInner {
 
         let conn = self.conn();
 
-        let hints_slice =
-            unsafe { std::slice::from_raw_parts(&hints as *const _ as *const u32, 5) };
+        let hints_slice: &[u32] = &[
+            hints.flags,
+            hints.functions,
+            hints.decorations,
+            hints.input_mode as u32,
+            hints.status,
+        ];
 
         conn.send_request_no_reply(&xcb::x::ChangeProperty {
             mode: PropMode::Replace,
@@ -1337,7 +1335,7 @@ pub struct XWindow(xcb::x::Window);
 
 impl PartialOrd for XWindow {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.0.resource_id().partial_cmp(&other.0.resource_id())
+        Some(self.cmp(other))
     }
 }
 
@@ -1348,7 +1346,7 @@ impl Ord for XWindow {
 }
 
 impl XWindow {
-    pub(crate) fn from_id(id: xcb::x::Window) -> Self {
+    pub(crate) const fn from_id(id: xcb::x::Window) -> Self {
         Self(id)
     }
 
@@ -1468,10 +1466,11 @@ impl XWindow {
             conn.send_request_no_reply(&xcb::x::MapWindow { window: child_id })
                 .context("xcb::map_window")?;
 
-            events.assign_window(Window::X11(XWindow::from_id(window_id)));
+            events.assign_window(Window::X11(Self::from_id(window_id)));
 
             let appearance = conn.get_appearance();
 
+            #[allow(clippy::arc_with_non_send_sync)]
             Arc::new(Mutex::new(XWindowInner {
                 title: String::new(),
                 appearance,
@@ -1522,7 +1521,7 @@ impl XWindow {
             window: window_id,
             property: conn.atom_net_wm_pid,
             r#type: xcb::x::ATOM_CARDINAL,
-            data: &[unsafe { libc::getpid() as u32 }],
+            data: &[std::process::id()],
         })?;
 
         conn.send_request_no_reply(&xcb::x::ChangeProperty {
@@ -1546,7 +1545,7 @@ impl XWindow {
             .unwrap()
             .adjust_decorations(config.window_decorations)?;
 
-        let window_handle = Window::X11(XWindow::from_id(window_id));
+        let window_handle = Window::X11(Self::from_id(window_id));
 
         conn.windows.borrow_mut().insert(window_id, window);
         conn.child_to_parent_id
@@ -1621,7 +1620,7 @@ impl XWindowInner {
         promise::spawn::spawn(async move {
             async_io::Timer::after(std::time::Duration::from_secs(2)).await;
             let conn = Connection::get().unwrap().x11();
-            log::trace!("close sending DestroyWindow for {:?}", window);
+            log::trace!("close sending DestroyWindow for {window:?}");
             conn.send_request_no_reply_log(&xcb::x::DestroyWindow { window });
         })
         .detach();
@@ -1631,7 +1630,7 @@ impl XWindowInner {
         log::trace!("clear out self.window_id");
         self.window_id = xcb::x::Window::none();
     }
-    fn hide(&mut self) {}
+    const fn hide(&mut self) {}
     fn show(&mut self) {
         self.conn().send_request_no_reply_log(&xcb::x::MapWindow {
             window: self.window_id,
@@ -1687,7 +1686,7 @@ impl XWindowInner {
         let fullscreen = match self.get_window_state() {
             Ok(f) => f.contains(WindowState::FULL_SCREEN),
             Err(err) => {
-                log::error!("Failed to determine fullscreen state: {}", err);
+                log::error!("Failed to determine fullscreen state: {err}");
                 return;
             }
         };
@@ -1794,8 +1793,8 @@ impl XWindowInner {
                 | xcb_util::MOVE_RESIZE_WINDOW_Y,
                     coords.x as u32,
                     coords.y as u32,
-                    self.width as u32,
-                    self.height as u32,
+                    u32::from(self.width),
+                    u32::from(self.height),
                 ]),
             ),
         });
@@ -1876,7 +1875,7 @@ impl XWindowInner {
     }
 
     fn set_resize_increments(&mut self, incr: ResizeIncrement) -> anyhow::Result<()> {
-        use xcb_util::*;
+        use xcb_util::{xcb_size_hints_t, XCB_ICCCM_SIZE_HINT_P_MIN_SIZE, XCB_ICCCM_SIZE_HINT_P_RESIZE_INC, XCB_ICCCM_SIZE_HINT_BASE_SIZE};
         let hints = xcb_size_hints_t {
             flags: XCB_ICCCM_SIZE_HINT_P_MIN_SIZE
                 | XCB_ICCCM_SIZE_HINT_P_RESIZE_INC
@@ -1902,7 +1901,7 @@ impl XWindowInner {
 
         let data = unsafe {
             std::slice::from_raw_parts(
-                &hints as *const _ as *const u32,
+                (&raw const hints).cast::<u32>(),
                 std::mem::size_of::<xcb_size_hints_t>() / 4,
             )
         };
@@ -1924,7 +1923,7 @@ impl HasDisplayHandle for XWindow {
         let conn = Connection::get()
             .expect("display_handle only callable on main thread")
             .x11();
-        let handle = XcbDisplayHandle::new(NonNull::new(conn.get_raw_conn() as _), conn.screen_num);
+        let handle = XcbDisplayHandle::new(NonNull::new(conn.get_raw_conn().cast()), conn.screen_num);
 
         unsafe { Ok(DisplayHandle::borrow_raw(RawDisplayHandle::Xcb(handle))) }
     }
@@ -2105,7 +2104,7 @@ impl WindowOps for XWindow {
     fn set_resize_increments(&self, incr: ResizeIncrement) {
         XConnection::with_window_inner(self.0, move |inner| {
             if let Err(err) = inner.set_resize_increments(incr) {
-                log::error!("set_resize_increments failed: {:#}", err);
+                log::error!("set_resize_increments failed: {err:#}");
             }
             Ok(())
         });
@@ -2185,7 +2184,7 @@ fn parse_texturi_list(url_list: &[u8]) -> Vec<PathBuf> {
                 })
                 .ok()?;
             url.to_file_path()
-                .map_err(|_| {
+                .map_err(|()| {
                     log::error!("Error converting url {url:?} from line {line} to pathbuf");
                 })
                 .ok()
@@ -2241,7 +2240,7 @@ enum NetWmStateAction {
 }
 
 impl NetWmStateAction {
-    fn with_bool(enable: bool) -> Self {
+    const fn with_bool(enable: bool) -> Self {
         if enable {
             Self::Add
         } else {

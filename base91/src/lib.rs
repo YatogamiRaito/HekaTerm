@@ -1,6 +1,6 @@
-//! Implements basE91 encoding; see http://base91.sourceforge.net/
+//! Implements basE91 encoding; see <http://base91.sourceforge.net>/
 //! basE91 is an advanced method for encoding binary data as ASCII characters. It is similar to
-//! UUencode or base64, but is more efficient. The overhead produced by basE91 depends on the input
+//! `UUencode` or base64, but is more efficient. The overhead produced by basE91 depends on the input
 //! data. It amounts at most to 23% (versus 33% for base64) and can range down to 14%, which
 //! typically occurs on 0-byte blocks. This makes basE91 very useful for transferring larger files
 //! over binary unsafe connections like e-mail or terminal lines.
@@ -69,7 +69,7 @@ pub struct Base91Encoder<'a> {
 }
 
 impl<'a> Base91Encoder<'a> {
-    /// Construct a Base91Encoder that writes encoded data to the supplied writer
+    /// Construct a `Base91Encoder` that writes encoded data to the supplied writer
     pub fn new(writer: &'a mut dyn Write) -> Self {
         Self {
             writer,
@@ -79,13 +79,13 @@ impl<'a> Base91Encoder<'a> {
     }
 }
 
-impl<'a> Drop for Base91Encoder<'a> {
+impl Drop for Base91Encoder<'_> {
     fn drop(&mut self) {
         self.flush().ok();
     }
 }
 
-impl<'a> std::io::Write for Base91Encoder<'a> {
+impl std::io::Write for Base91Encoder<'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         for b in buf {
             self.accumulator |= u64::from(*b) << self.bits;
@@ -131,8 +131,9 @@ impl<'a> std::io::Write for Base91Encoder<'a> {
     }
 }
 
-/// A convenience function that wraps Base91Encoder; it encodes a slice of data
+/// A convenience function that wraps `Base91Encoder`; it encodes a slice of data
 /// and returns a vector holding the base91 encoded data.
+#[must_use] 
 pub fn encode(buf: &[u8]) -> Vec<u8> {
     let mut result = Vec::with_capacity((buf.len() * 123) / 100);
     {
@@ -166,13 +167,13 @@ impl<'a> Base91Decoder<'a> {
     }
 }
 
-impl<'a> Drop for Base91Decoder<'a> {
+impl Drop for Base91Decoder<'_> {
     fn drop(&mut self) {
         self.flush().ok();
     }
 }
 
-impl<'a> std::io::Write for Base91Decoder<'a> {
+impl std::io::Write for Base91Decoder<'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         for b in buf {
             let d = DECTAB[usize::from(*b)];
@@ -183,7 +184,7 @@ impl<'a> std::io::Write for Base91Decoder<'a> {
             }
 
             if let Some(value) = self.value.take() {
-                let value = (value as u64) + (d as u64) * 91;
+                let value = u64::from(value) + u64::from(d) * 91;
                 self.accumulator |= value << self.bits;
                 self.bits += if (value & 8191) > 88 { 13 } else { 14 };
 
@@ -216,8 +217,9 @@ impl<'a> std::io::Write for Base91Decoder<'a> {
     }
 }
 
-/// A convenience function that wraps Base91Decoder; it decodes a slice of data
+/// A convenience function that wraps `Base91Decoder`; it decodes a slice of data
 /// and returns a vector holding the unencoded binary data.
+#[must_use] 
 pub fn decode(buf: &[u8]) -> Vec<u8> {
     let mut result = Vec::with_capacity(buf.len());
     {

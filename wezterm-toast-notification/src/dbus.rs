@@ -1,4 +1,5 @@
 #![cfg(all(not(target_os = "macos"), not(windows)))]
+#![allow(clippy::too_many_arguments)]
 //! See <https://developer.gnome.org/notification-spec/>
 
 use crate::ToastNotification;
@@ -25,6 +26,7 @@ pub struct ServerInformation {
 }
 
 #[proxy(
+
     interface = "org.freedesktop.Notifications",
     default_service = "org.freedesktop.Notifications",
     default_path = "/org/freedesktop/Notifications"
@@ -35,10 +37,10 @@ trait Notifications {
     /// This message returns the information on the server.
     fn get_server_information(&self) -> zbus::Result<ServerInformation>;
 
-    /// GetCapabilities method
+    /// `GetCapabilities` method
     fn get_capabilities(&self) -> zbus::Result<Vec<String>>;
 
-    /// CloseNotification method
+    /// `CloseNotification` method
     fn close_notification(&self, nid: u32) -> zbus::Result<()>;
 
     fn notify(
@@ -64,7 +66,7 @@ trait Notifications {
 const REASON_EXPIRED: u32 = 1;
 /// User dismissed it
 const REASON_USER_DISMISSED: u32 = 2;
-/// CloseNotification was called with the nid
+/// `CloseNotification` was called with the nid
 const REASON_CLOSE_NOTIFICATION: u32 = 3;
 
 #[derive(Debug)]
@@ -77,7 +79,7 @@ enum Reason {
 }
 
 impl Reason {
-    fn new(n: u32) -> Self {
+    const fn new(n: u32) -> Self {
         match n {
             REASON_EXPIRED => Self::Expired,
             REASON_USER_DISMISSED => Self::Dismissed,
@@ -115,7 +117,7 @@ async fn show_notif_impl(notif: ToastNotification) -> Result<(), Box<dyn std::er
                 &[]
             },
             &hints,
-            notif.timeout.map(|d| d.as_millis() as _).unwrap_or(0),
+            notif.timeout.map_or(0, |d| d.as_millis() as _),
         )
         .await?;
 
@@ -126,13 +128,12 @@ async fn show_notif_impl(notif: ToastNotification) -> Result<(), Box<dyn std::er
         async {
             while let Some(signal) = invoked_stream.next().await {
                 let args = signal.args()?;
-                if args.nid == notification {
-                    if let Some(url) = notif.url.as_ref() {
+                if args.nid == notification
+                    && let Some(url) = notif.url.as_ref() {
                         wezterm_open_url::open_url(url);
                         abort_closed.abort();
                         break;
                     }
-                }
             }
             Ok::<(), zbus::Error>(())
         },
@@ -158,7 +159,7 @@ pub fn show_notif(notif: ToastNotification) -> Result<(), Box<dyn std::error::Er
     std::thread::spawn(move || {
         let res = async_io::block_on(async move { show_notif_impl(notif).await });
         if let Err(err) = res {
-            log::error!("while showing notification: {:#}", err);
+            log::error!("while showing notification: {err:#}");
         }
     });
     Ok(())

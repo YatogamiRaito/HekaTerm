@@ -69,12 +69,12 @@ impl RateLimiter {
                 None => return Ok(0),
             };
             match self.lim.check_n(non_zero_amount) {
-                Ok(_) => return Ok(amount),
+                Ok(()) => return Ok(amount),
                 Err(NegativeMultiDecision::BatchNonConforming(_, over)) if amount == 1 => {
                     return Err(over.wait_time_from(DefaultClock::default().now()));
                 }
                 _ => {}
-            };
+            }
 
             // try again with half the size.
             // This isn't a perfectly efficient approach, especially

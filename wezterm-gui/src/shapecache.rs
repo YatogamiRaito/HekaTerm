@@ -3,7 +3,7 @@ use crate::glyphcache::CachedGlyph;
 use config::TextStyle;
 use std::rc::Rc;
 use wezterm_font::shaper::GlyphInfo;
-use wezterm_font::units::*;
+use wezterm_font::units::PixelLength;
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct ShapeCacheKey {
@@ -30,11 +30,11 @@ pub struct ShapedInfo {
 impl ShapedInfo {
     /// Process the results from the shaper, stitching together glyph
     /// and positioning information
-    pub fn process(infos: &[GlyphInfo], glyphs: &[Rc<CachedGlyph>]) -> Vec<ShapedInfo> {
-        let mut pos: Vec<ShapedInfo> = Vec::with_capacity(infos.len());
+    pub fn process(infos: &[GlyphInfo], glyphs: &[Rc<CachedGlyph>]) -> Vec<Self> {
+        let mut pos: Vec<Self> = Vec::with_capacity(infos.len());
 
         for (info, glyph) in infos.iter().zip(glyphs.iter()) {
-            pos.push(ShapedInfo {
+            pos.push(Self {
                 pos: GlyphPosition {
                     glyph_idx: info.glyph_pos,
                     bitmap_pixel_width: glyph
@@ -54,7 +54,7 @@ impl ShapedInfo {
 }
 
 /// We'd like to avoid allocating when resolving from the cache
-/// so this is the borrowed version of ShapeCacheKey.
+/// so this is the borrowed version of `ShapeCacheKey`.
 /// It's a bit involved to make this work; more details can be
 /// found in the excellent guide here:
 /// <https://github.com/sunshowers/borrow-complex-key-example/blob/master/src/lib.rs>
@@ -64,8 +64,8 @@ pub struct BorrowedShapeCacheKey<'a> {
     pub text: &'a str,
 }
 
-impl<'a> BorrowedShapeCacheKey<'a> {
-    pub fn to_owned(&self) -> ShapeCacheKey {
+impl BorrowedShapeCacheKey<'_> {
+    pub fn into_owned(self) -> ShapeCacheKey {
         ShapeCacheKey {
             style: self.style.clone(),
             text: self.text.to_owned(),
@@ -74,11 +74,11 @@ impl<'a> BorrowedShapeCacheKey<'a> {
 }
 
 pub trait ShapeCacheKeyTrait: std::fmt::Debug {
-    fn key<'k>(&'k self) -> BorrowedShapeCacheKey<'k>;
+    fn key(&self) -> BorrowedShapeCacheKey<'_>;
 }
 
 impl ShapeCacheKeyTrait for ShapeCacheKey {
-    fn key<'k>(&'k self) -> BorrowedShapeCacheKey<'k> {
+    fn key(&self) -> BorrowedShapeCacheKey<'_> {
         BorrowedShapeCacheKey {
             style: &self.style,
             text: &self.text,
@@ -86,8 +86,8 @@ impl ShapeCacheKeyTrait for ShapeCacheKey {
     }
 }
 
-impl<'a> ShapeCacheKeyTrait for BorrowedShapeCacheKey<'a> {
-    fn key<'k>(&'k self) -> BorrowedShapeCacheKey<'k> {
+impl ShapeCacheKeyTrait for BorrowedShapeCacheKey<'_> {
+    fn key(&self) -> BorrowedShapeCacheKey<'_> {
         *self
     }
 }
@@ -98,17 +98,17 @@ impl<'a> std::borrow::Borrow<dyn ShapeCacheKeyTrait + 'a> for ShapeCacheKey {
     }
 }
 
-impl<'a> PartialEq for dyn ShapeCacheKeyTrait + 'a {
+impl PartialEq for dyn ShapeCacheKeyTrait + '_ {
     fn eq(&self, other: &Self) -> bool {
         self.key().eq(&other.key())
     }
 }
 
-impl<'a> Eq for dyn ShapeCacheKeyTrait + 'a {}
+impl Eq for dyn ShapeCacheKeyTrait + '_ {}
 
-impl<'a> std::hash::Hash for dyn ShapeCacheKeyTrait + 'a {
+impl std::hash::Hash for dyn ShapeCacheKeyTrait + '_ {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.key().hash(state)
+        self.key().hash(state);
     }
 }
 
@@ -144,10 +144,12 @@ mod test {
                     &cluster.text,
                     || {},
                     |_| {},
-                    None,
-                    Direction::LeftToRight,
-                    None,
-                    Some(&presentation_width),
+                    wezterm_font::shaper::ShapeContext {
+                        presentation: None,
+                        direction: Direction::LeftToRight,
+                        range: None,
+                        presentation_width: Some(&presentation_width),
+                    },
                 )
                 .unwrap();
             let mut glyphs = infos
@@ -164,7 +166,7 @@ mod test {
                     glyph_cache
                         .cached_glyph(
                             info,
-                            &style,
+                            style,
                             followed_by_space,
                             font,
                             render_metrics,
@@ -208,7 +210,7 @@ mod test {
         let fonts = Rc::new(
             FontConfiguration::new(
                 None,
-                config.dpi.unwrap_or_else(|| ::window::default_dpi()) as usize,
+                config.dpi.unwrap_or_else(::window::default_dpi) as usize,
             )
             .unwrap(),
         );
@@ -273,7 +275,7 @@ mod test {
                         None,
                         config::configuration()
                             .dpi
-                            .unwrap_or_else(|| ::window::default_dpi())
+                            .unwrap_or_else(::window::default_dpi)
                             as usize,
                     )
                     .unwrap(),
@@ -283,7 +285,7 @@ mod test {
                 let line = Line::from_text(&text, &CellAttributes::default(), SEQ_ZERO, None);
                 let cell_clusters = line.cluster(None);
                 let cluster = &cell_clusters[0];
-                let presentation_width = PresentationWidth::with_cluster(&cluster);
+                let presentation_width = PresentationWidth::with_cluster(cluster);
 
                 measurer.measure(|| {
                     let _x = font
@@ -291,10 +293,12 @@ mod test {
                             &cluster.text,
                             || {},
                             |_| {},
-                            None,
-                            Direction::LeftToRight,
-                            None,
-                            Some(&presentation_width),
+                            wezterm_font::shaper::ShapeContext {
+                                presentation: None,
+                                direction: Direction::LeftToRight,
+                                range: None,
+                                presentation_width: Some(&presentation_width),
+                            },
                         )
                         .unwrap();
                     // println!("{:?}", &x[0..2]);
@@ -317,7 +321,7 @@ mod test {
         let fonts = Rc::new(
             FontConfiguration::new(
                 None,
-                config.dpi.unwrap_or_else(|| ::window::default_dpi()) as usize,
+                config.dpi.unwrap_or_else(::window::default_dpi) as usize,
             )
             .unwrap(),
         );

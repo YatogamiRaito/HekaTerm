@@ -41,7 +41,7 @@ fn derive_struct(input: &DeriveInput, fields: &FieldsNamed) -> Result<TokenStrea
             if f.skip || f.flatten {
                 None
             } else {
-                Some(f.name.to_string())
+                Some(f.name.clone())
             }
         })
         .collect::<Vec<_>>();
@@ -65,7 +65,7 @@ fn derive_struct(input: &DeriveInput, fields: &FieldsNamed) -> Result<TokenStrea
 
     let placements = placements
         .into_iter()
-        .map(|f| f.from_dynamic(&literal))
+        .map(|f| f.build_from_dynamic(&literal))
         .collect::<Vec<_>>();
 
     let bound = parse_quote!(wezterm_dynamic::FromDynamic);
@@ -131,7 +131,7 @@ fn derive_struct(input: &DeriveInput, fields: &FieldsNamed) -> Result<TokenStrea
     };
 
     if info.debug {
-        eprintln!("{}", tokens);
+        eprintln!("{tokens}");
     }
     Ok(tokens)
 }
@@ -154,159 +154,156 @@ fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStrea
         .map(|variant| variant.ident.to_string())
         .collect::<Vec<_>>();
 
-    let from_dynamic = match info.try_from {
-        Some(try_from) => {
-            quote!(
-                use core::convert::TryFrom;
-                let target = <#try_from>::from_dynamic(value, options)?;
-                <#ident>::try_from(target).map_err(|e| wezterm_dynamic::Error::Message(format!("{:#}", e)))
-            )
-        }
-        None => {
-            let units = enumeration
-                .variants
-                .iter()
-                .filter_map(|variant| match &variant.fields {
-                    Fields::Unit => {
-                        let ident = &variant.ident;
-                        let literal = ident.to_string();
-                        Some(quote!(
+    let from_dynamic = if let Some(try_from) = info.try_from {
+        quote!(
+            use core::convert::TryFrom;
+            let target = <#try_from>::from_dynamic(value, options)?;
+            <#ident>::try_from(target).map_err(|e| wezterm_dynamic::Error::Message(format!("{:#}", e)))
+        )
+    } else {
+        let units = enumeration
+            .variants
+            .iter()
+            .filter_map(|variant| match &variant.fields {
+                Fields::Unit => {
+                    let ident = &variant.ident;
+                    let literal = ident.to_string();
+                    Some(quote!(
+                    #literal => {
+                        return Ok(Self::#ident);
+                    }
+                    ))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let variants = enumeration.variants.iter().map(|variant| {
+            let ident = &variant.ident;
+            let literal = ident.to_string();
+
+            match &variant.fields {
+                Fields::Unit => {
+                    // Already handled separately
+                    quote!()
+                }
+                Fields::Named(fields) => {
+                    let var_fields = fields
+                        .named
+                        .iter()
+                        .map(|f| {
+                            let info = attr::field_info(f).unwrap();
+                            info.build_from_dynamic(&literal)
+                        })
+                    .collect::<Vec<_>>();
+
+                    quote!(
                         #literal => {
-                            return Ok(Self::#ident);
+                            match value {
+                                Value::Object(obj) => {
+                                    Ok(Self::#ident {
+                                        #( #var_fields )*
+                                    })
+                                }
+                                other => return Err(wezterm_dynamic::Error::NoConversion {
+                                    source_type: other.variant_name().to_string(),
+                                    dest_type: "Object",
+                                }),
+                            }
                         }
-                        ))
-                    }
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-
-            let variants = enumeration.variants.iter().map(|variant| {
-                let ident = &variant.ident;
-                let literal = ident.to_string();
-
-                match &variant.fields {
-                    Fields::Unit => {
-                        // Already handled separately
-                        quote!()
-                    }
-                    Fields::Named(fields) => {
+                        )
+                }
+                Fields::Unnamed(fields) => {
+                    if fields.unnamed.len() == 1 {
+                        let ty = fields.unnamed.iter().map(|f| &f.ty).next().unwrap();
+                        quote!(
+                            #literal => {
+                                Ok(Self::#ident(<#ty>::from_dynamic(value, options)?))
+                            }
+                            )
+                    } else {
                         let var_fields = fields
-                            .named
+                            .unnamed
                             .iter()
-                            .map(|f| {
-                                let info = attr::field_info(f).unwrap();
-                                info.from_dynamic(&literal)
+                            .enumerate()
+                            .map(|(idx, f)| {
+                                let ty = &f.ty;
+                                quote!(
+                                    <#ty>::from_dynamic(
+                                        arr.get(#idx)
+                                        .ok_or_else(|| wezterm_dynamic::Error::Message(
+                                            format!("missing idx {} of enum struct {}", #idx, #literal)))?,
+                                        options
+                                        )?,
+                                )
                             })
                         .collect::<Vec<_>>();
-
                         quote!(
                             #literal => {
                                 match value {
-                                    Value::Object(obj) => {
-                                        Ok(Self::#ident {
+                                    Value::Array(arr) => {
+                                        Ok(Self::#ident (
                                             #( #var_fields )*
-                                        })
+                                        ))
                                     }
                                     other => return Err(wezterm_dynamic::Error::NoConversion {
                                         source_type: other.variant_name().to_string(),
-                                        dest_type: "Object",
+                                        dest_type: "Array",
                                     }),
                                 }
                             }
                             )
                     }
-                    Fields::Unnamed(fields) => {
-                        if fields.unnamed.len() == 1 {
-                            let ty = fields.unnamed.iter().map(|f| &f.ty).next().unwrap();
-                            quote!(
-                                #literal => {
-                                    Ok(Self::#ident(<#ty>::from_dynamic(value, options)?))
-                                }
-                                )
-                        } else {
-                            let var_fields = fields
-                                .unnamed
-                                .iter()
-                                .enumerate()
-                                .map(|(idx, f)| {
-                                    let ty = &f.ty;
-                                    quote!(
-                                        <#ty>::from_dynamic(
-                                            arr.get(#idx)
-                                            .ok_or_else(|| wezterm_dynamic::Error::Message(
-                                                format!("missing idx {} of enum struct {}", #idx, #literal)))?,
-                                            options
-                                            )?,
-                                    )
-                                })
-                            .collect::<Vec<_>>();
-                            quote!(
-                                #literal => {
-                                    match value {
-                                        Value::Array(arr) => {
-                                            Ok(Self::#ident (
-                                                #( #var_fields )*
-                                            ))
-                                        }
-                                        other => return Err(wezterm_dynamic::Error::NoConversion {
-                                            source_type: other.variant_name().to_string(),
-                                            dest_type: "Array",
-                                        }),
-                                    }
-                                }
-                                )
+                }
+            }
+        }).collect::<Vec<_>>();
+
+        quote!(
+                match value {
+                    Value::String(s) => {
+                        match s.as_str() {
+                            #( #units )*
+                            _ => Err(wezterm_dynamic::Error::InvalidVariantForType {
+                                variant_name: s.clone(),
+                                type_name: #literal,
+                                possible: #ident::variants(),
+                            })
                         }
                     }
-                }
-            }).collect::<Vec<_>>();
+                    Value::Object(place) => {
+                        if place.len() == 1 {
+                            let (name, value) : (&Value, &Value) = place.iter().next().unwrap();
 
-            quote!(
-                    match value {
-                        Value::String(s) => {
-                            match s.as_str() {
-                                #( #units )*
+                            match name {
+                                Value::String(name) => {
+                                    match name.as_str() {
+                                        #( #variants )*
+                                        _ => Err(wezterm_dynamic::Error::InvalidVariantForType {
+                                            variant_name: name.to_string(),
+                                            type_name: #literal,
+                                            possible: #ident::variants(),
+                                        })
+                                    }
+                                }
                                 _ => Err(wezterm_dynamic::Error::InvalidVariantForType {
-                                    variant_name: s.clone(),
+                                    variant_name: name.variant_name().to_string(),
                                     type_name: #literal,
                                     possible: #ident::variants(),
                                 })
                             }
+                        } else {
+                            Err(wezterm_dynamic::Error::IncorrectNumberOfEnumKeys {
+                                type_name: #literal,
+                                num_keys: place.len(),
+                            })
                         }
-                        Value::Object(place) => {
-                            if place.len() == 1 {
-                                let (name, value) : (&Value, &Value) = place.iter().next().unwrap();
-
-                                match name {
-                                    Value::String(name) => {
-                                        match name.as_str() {
-                                            #( #variants )*
-                                            _ => Err(wezterm_dynamic::Error::InvalidVariantForType {
-                                                variant_name: name.to_string(),
-                                                type_name: #literal,
-                                                possible: #ident::variants(),
-                                            })
-                                        }
-                                    }
-                                    _ => Err(wezterm_dynamic::Error::InvalidVariantForType {
-                                        variant_name: name.variant_name().to_string(),
-                                        type_name: #literal,
-                                        possible: #ident::variants(),
-                                    })
-                                }
-                            } else {
-                                Err(wezterm_dynamic::Error::IncorrectNumberOfEnumKeys {
-                                    type_name: #literal,
-                                    num_keys: place.len(),
-                                })
-                            }
-                        }
-                        other => Err(wezterm_dynamic::Error::NoConversion {
-                            source_type: other.variant_name().to_string(),
-                            dest_type: #literal
-                        }),
                     }
-            )
-        }
+                    other => Err(wezterm_dynamic::Error::NoConversion {
+                        source_type: other.variant_name().to_string(),
+                        dest_type: #literal
+                    }),
+                }
+        )
     };
 
     let tokens = quote! {
@@ -327,7 +324,7 @@ fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStrea
     };
 
     if info.debug {
-        eprintln!("{}", tokens);
+        eprintln!("{tokens}");
     }
     Ok(tokens)
 }

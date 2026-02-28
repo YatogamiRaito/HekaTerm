@@ -4,7 +4,7 @@ pub struct BlobManager {}
 
 impl BlobManager {
     /// Store data into the store, de-duplicating it and returning
-    /// a BlobLease that can be used to reference and access it.
+    /// a `BlobLease` that can be used to reference and access it.
     pub fn store(data: &[u8]) -> Result<BlobLease, Error> {
         let storage = get_storage()?;
 

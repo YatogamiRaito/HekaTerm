@@ -7,7 +7,7 @@ use wezterm_client::client::Client;
 pub struct MovePaneToNewTab {
     /// Specify the pane that should be moved.
     /// The default is to use the current pane based on the
-    /// environment variable WEZTERM_PANE.
+    /// environment variable `WEZTERM_PANE`.
     #[arg(long)]
     pane_id: Option<PaneId>,
 
@@ -34,31 +34,25 @@ impl MovePaneToNewTab {
         let pane_id = client.resolve_pane_id(self.pane_id).await?;
         let window_id = if self.new_window {
             None
-        } else {
-            match self.window_id {
-                Some(w) => Some(w),
-                None => {
-                    let panes = client.list_panes().await?;
-                    let mut window_id = None;
-                    'outer_move: for tabroot in panes.tabs {
-                        let mut cursor = tabroot.into_tree().cursor();
+        } else if let Some(w) = self.window_id { Some(w) } else {
+            let panes = client.list_panes().await?;
+            let mut window_id = None;
+            'outer_move: for tabroot in panes.tabs {
+                let mut cursor = tabroot.into_tree().cursor();
 
-                        loop {
-                            if let Some(entry) = cursor.leaf_mut() {
-                                if entry.pane_id == pane_id {
-                                    window_id.replace(entry.window_id);
-                                    break 'outer_move;
-                                }
-                            }
-                            match cursor.preorder_next() {
-                                Ok(c) => cursor = c,
-                                Err(_) => break,
-                            }
+                loop {
+                    if let Some(entry) = cursor.leaf_mut()
+                        && entry.pane_id == pane_id {
+                            window_id.replace(entry.window_id);
+                            break 'outer_move;
                         }
+                    match cursor.preorder_next() {
+                        Ok(c) => cursor = c,
+                        Err(_) => break,
                     }
-                    window_id
                 }
             }
+            window_id
         };
 
         let moved = client
@@ -69,7 +63,7 @@ impl MovePaneToNewTab {
             })
             .await?;
 
-        log::debug!("{:?}", moved);
+        log::debug!("{moved:?}");
         Ok(())
     }
 }

@@ -39,7 +39,7 @@ impl Eq for Object {}
 
 impl Hash for Object {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.inner.lock().unwrap().hash(state)
+        self.inner.lock().unwrap().hash(state);
     }
 }
 
@@ -74,7 +74,7 @@ impl Eq for Array {}
 
 impl Hash for Array {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.inner.lock().unwrap().hash(state)
+        self.inner.lock().unwrap().hash(state);
     }
 }
 
@@ -184,7 +184,7 @@ fn lua_value_to_gvalue_impl(value: LuaValue, visited: &mut HashSet<usize>) -> ml
         }
         LuaValue::Error(e) => return Err(e),
         LuaValue::Table(table) => {
-            if let Ok(true) = table.contains_key(1) {
+            if matches!(table.contains_key(1), Ok(true)) {
                 let mut array = vec![];
                 let pairs = table.clone();
                 for value in table.sequence_values() {
@@ -211,7 +211,7 @@ fn lua_value_to_gvalue_impl(value: LuaValue, visited: &mut HashSet<usize>) -> ml
                 }
 
                 Value::Array(Array {
-                    inner: Arc::new(Mutex::new(array.into())),
+                    inner: Arc::new(Mutex::new(array)),
                 })
             } else {
                 let mut obj = BTreeMap::default();
@@ -228,16 +228,14 @@ fn lua_value_to_gvalue_impl(value: LuaValue, visited: &mut HashSet<usize>) -> ml
                     obj.insert(key, value);
                 }
                 Value::Object(Object {
-                    inner: Arc::new(Mutex::new(obj.into())),
+                    inner: Arc::new(Mutex::new(obj)),
                 })
             }
         }
     })
 }
 
-lazy_static::lazy_static! {
-    static ref GLOBALS: Value = Value::Object(Object{inner:Arc::new(Mutex::new(BTreeMap::new()))});
-}
+static GLOBALS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| Value::Object(Object{inner:Arc::new(Mutex::new(BTreeMap::new()))}));
 
 fn gvalue_to_lua<'lua>(lua: &'lua Lua, value: &Value) -> mlua::Result<LuaValue<'lua>> {
     match value {
@@ -259,7 +257,7 @@ fn gvalue_to_lua<'lua>(lua: &'lua Lua, value: &Value) -> mlua::Result<LuaValue<'
         }
         Value::Bool(b) => Ok(LuaValue::Boolean(*b)),
         Value::Null => Ok(LuaValue::Nil),
-        Value::String(s) => s.to_string().into_lua(lua),
+        Value::String(s) => s.clone().into_lua(lua),
         Value::I64(i) => Ok(LuaValue::Integer(*i)),
         Value::F64(n) => n.into_lua(lua),
     }
@@ -269,15 +267,15 @@ impl UserData for Value {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_meta_method(
             "__wezterm_to_dynamic",
-            |lua: &Lua, this, _: ()| -> mlua::Result<mlua::Value> { gvalue_to_lua(lua, this) },
+            |lua: &Lua, this, (): ()| -> mlua::Result<mlua::Value> { gvalue_to_lua(lua, this) },
         );
         methods.add_meta_method(
             mlua::MetaMethod::Len,
-            |lua: &Lua, this, _: ()| -> mlua::Result<mlua::Value> {
+            |lua: &Lua, this, (): ()| -> mlua::Result<mlua::Value> {
                 match this {
-                    Value::Array(arr) => arr.inner.lock().unwrap().len().into_lua(lua),
-                    Value::Object(obj) => obj.inner.lock().unwrap().len().into_lua(lua),
-                    Value::String(s) => s.to_string().into_lua(lua),
+                    Self::Array(arr) => arr.inner.lock().unwrap().len().into_lua(lua),
+                    Self::Object(obj) => obj.inner.lock().unwrap().len().into_lua(lua),
+                    Self::String(s) => s.clone().into_lua(lua),
                     _ => Err(mlua::Error::external(
                         "invalid type for len operator".to_string(),
                     )),
@@ -286,10 +284,10 @@ impl UserData for Value {
         );
 
         methods.add_meta_method(mlua::MetaMethod::Pairs, |lua, this, ()| match this {
-            Value::Array(_) => {
+            Self::Array(_) => {
                 let stateless_iter = lua.create_function(
-                    |lua, (this, i): (UserDataRef<Value>, usize)| match &*this {
-                        Value::Array(arr) => {
+                    |lua, (this, i): (UserDataRef<Self>, usize)| match &*this {
+                        Self::Array(arr) => {
                             let arr = arr.inner.lock().unwrap();
                             let i = i + 1;
 
@@ -299,19 +297,19 @@ impl UserData for Value {
                                     arr[i - 1].clone().into_lua(lua)?,
                                 ]));
                             }
-                            return Ok(mlua::Variadic::new());
+                            Ok(mlua::Variadic::new())
                         }
                         _ => unreachable!(),
                     },
                 )?;
                 Ok((stateless_iter, this.clone(), 0.into_lua(lua)?))
             }
-            Value::Object(_) => {
+            Self::Object(_) => {
                 let stateless_iter = lua.create_function(
-                    |lua, (this, key): (UserDataRef<Value>, Option<String>)| match &*this {
-                        Value::Object(obj) => {
+                    |lua, (this, key): (UserDataRef<Self>, Option<String>)| match &*this {
+                        Self::Object(obj) => {
                             let obj = obj.inner.lock().unwrap();
-                            let mut iter = obj.iter();
+                            let iter = obj.iter();
 
                             let mut this_is_key = false;
 
@@ -319,7 +317,7 @@ impl UserData for Value {
                                 this_is_key = true;
                             }
 
-                            while let Some((this_key, value)) = iter.next() {
+                            for (this_key, value) in iter {
                                 if this_is_key {
                                     return Ok(mlua::MultiValue::from_vec(vec![
                                         this_key.clone().into_lua(lua)?,
@@ -330,7 +328,7 @@ impl UserData for Value {
                                     this_is_key = true;
                                 }
                             }
-                            return Ok(mlua::MultiValue::new());
+                            Ok(mlua::MultiValue::new())
                         }
                         _ => unreachable!(),
                     },
@@ -346,7 +344,7 @@ impl UserData for Value {
             mlua::MetaMethod::Index,
             |lua: &Lua, this, key: LuaValue| -> mlua::Result<mlua::Value> {
                 match this {
-                    Value::Array(arr) => match key {
+                    Self::Array(arr) => match key {
                         LuaValue::Integer(i) => {
                             if i <= 0 {
                                 return Err(mlua::Error::external(format!(
@@ -363,20 +361,20 @@ impl UserData for Value {
                             };
 
                             match value {
-                                Value::Null => Ok(LuaValue::Nil),
-                                Value::Bool(b) => Ok(LuaValue::Boolean(*b)),
-                                Value::String(s) => s.clone().into_lua(lua),
-                                Value::F64(u) => u.into_lua(lua),
-                                Value::I64(u) => u.into_lua(lua),
-                                Value::Array(_) => value.clone().into_lua(lua),
-                                Value::Object(_) => value.clone().into_lua(lua),
+                                Self::Null => Ok(LuaValue::Nil),
+                                Self::Bool(b) => Ok(LuaValue::Boolean(*b)),
+                                Self::String(s) => s.clone().into_lua(lua),
+                                Self::F64(u) => u.into_lua(lua),
+                                Self::I64(u) => u.into_lua(lua),
+                                Self::Array(_) => value.clone().into_lua(lua),
+                                Self::Object(_) => value.clone().into_lua(lua),
                             }
                         }
                         _ => Err(mlua::Error::external(
                             "can only index arrays using integer values",
                         )),
                     },
-                    Value::Object(obj) => match key {
+                    Self::Object(obj) => match key {
                         LuaValue::String(s) => match s.to_str() {
                             Err(e) => Err(mlua::Error::external(format!(
                                 "can only index objects using unicode strings: {e:#}"
@@ -388,13 +386,13 @@ impl UserData for Value {
                                     Some(v) => v,
                                 };
                                 match value {
-                                    Value::Null => Ok(LuaValue::Nil),
-                                    Value::Bool(b) => Ok(LuaValue::Boolean(*b)),
-                                    Value::String(s) => s.clone().into_lua(lua),
-                                    Value::F64(u) => u.into_lua(lua),
-                                    Value::I64(u) => u.into_lua(lua),
-                                    Value::Array(_) => value.clone().into_lua(lua),
-                                    Value::Object(_) => value.clone().into_lua(lua),
+                                    Self::Null => Ok(LuaValue::Nil),
+                                    Self::Bool(b) => Ok(LuaValue::Boolean(*b)),
+                                    Self::String(s) => s.clone().into_lua(lua),
+                                    Self::F64(u) => u.into_lua(lua),
+                                    Self::I64(u) => u.into_lua(lua),
+                                    Self::Array(_) => value.clone().into_lua(lua),
+                                    Self::Object(_) => value.clone().into_lua(lua),
                                 }
                             }
                         },
@@ -412,7 +410,7 @@ impl UserData for Value {
             mlua::MetaMethod::NewIndex,
             |_, this, (key, value): (LuaValue, LuaValue)| -> mlua::Result<()> {
                 match this {
-                    Value::Array(arr) => match key {
+                    Self::Array(arr) => match key {
                         LuaValue::Integer(i) => {
                             if i <= 0 {
                                 return Err(mlua::Error::external(format!(
@@ -444,7 +442,7 @@ impl UserData for Value {
                             "can only index arrays using integer values",
                         )),
                     },
-                    Value::Object(obj) => match key {
+                    Self::Object(obj) => match key {
                         LuaValue::String(s) => match s.to_str() {
                             Err(e) => Err(mlua::Error::external(format!(
                                 "can only index objects using unicode strings: {e:#}"

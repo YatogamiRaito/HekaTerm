@@ -15,7 +15,9 @@ use alloc::string::String;
 /// of types as Lua and is a superset of the types possible
 /// in TOML and JSON.
 #[derive(Clone, PartialEq, Hash, Eq, Ord, PartialOrd)]
+#[derive(Default)]
 pub enum Value {
+    #[default]
     Null,
     Bool(bool),
     String(String),
@@ -26,16 +28,11 @@ pub enum Value {
     F64(OrderedFloat<f64>),
 }
 
-impl Default for Value {
-    fn default() -> Self {
-        Self::Null
-    }
-}
 
 impl core::fmt::Debug for Value {
     fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
-            Self::String(s) => fmt.write_fmt(format_args!("{:?}", s)),
+            Self::String(s) => fmt.write_fmt(format_args!("{s:?}")),
             Self::Null => fmt.write_str("nil"),
             Self::Bool(i) => i.fmt(fmt),
             Self::I64(i) => i.fmt(fmt),
@@ -48,7 +45,8 @@ impl core::fmt::Debug for Value {
 }
 
 impl Value {
-    pub fn variant_name(&self) -> &str {
+    #[must_use] 
+    pub const fn variant_name(&self) -> &str {
         match self {
             Self::Null => "Null",
             Self::Bool(_) => "Bool",
@@ -61,6 +59,7 @@ impl Value {
         }
     }
 
+    #[must_use] 
     pub fn coerce_unsigned(&self) -> Option<u64> {
         match self {
             Self::U64(u) => Some(*u),
@@ -74,6 +73,7 @@ impl Value {
         }
     }
 
+    #[must_use] 
     pub fn coerce_signed(&self) -> Option<i64> {
         match self {
             Self::I64(u) => Some(*u),
@@ -87,7 +87,8 @@ impl Value {
         }
     }
 
-    pub fn coerce_float(&self) -> Option<f64> {
+    #[must_use] 
+    pub const fn coerce_float(&self) -> Option<f64> {
         match self {
             Self::I64(u) => Some(*u as f64),
             Self::U64(i) => Some(*i as f64),

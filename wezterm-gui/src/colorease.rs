@@ -47,13 +47,10 @@ impl ColorEase {
     }
 
     pub fn intensity_continuous(&mut self) -> (f32, Instant) {
-        match self.intensity_one_shot() {
-            Some(intensity) => intensity,
-            None => {
-                // Start a new cycle
-                self.start.replace(Instant::now());
-                self.intensity_one_shot().expect("just started")
-            }
+        if let Some(intensity) = self.intensity_one_shot() { intensity } else {
+            // Start a new cycle
+            self.start.replace(Instant::now());
+            self.intensity_one_shot().expect("just started")
         }
     }
 
@@ -75,41 +72,38 @@ impl ColorEase {
             }
         };
 
-        match intensity {
-            Some(i) => {
-                let now = Instant::now();
-                let fps = if self.in_function == EasingFunction::Constant
-                    && self.out_function == EasingFunction::Constant
-                {
-                    1
-                } else {
-                    config::configuration().animation_fps as u64
-                };
-                let next = match fps {
-                    1 if elapsed < self.in_duration => {
-                        start + Duration::from_secs_f32(self.in_duration)
+        if let Some(i) = intensity {
+            let now = Instant::now();
+            let fps = if self.in_function == EasingFunction::Constant
+                && self.out_function == EasingFunction::Constant
+            {
+                1
+            } else {
+                u64::from(config::configuration().animation_fps)
+            };
+            let next = match fps {
+                1 if elapsed < self.in_duration => {
+                    start + Duration::from_secs_f32(self.in_duration)
+                }
+                1 => start + Duration::from_secs_f32(self.in_duration + self.out_duration),
+                _ => {
+                    let frame_interval = 1000 / fps as u64;
+                    let elapsed = (elapsed * 1000.).ceil() as u64;
+                    let remain = elapsed % frame_interval;
+                    if remain != 0
+                        && self.last_render.elapsed() >= Duration::from_millis(frame_interval)
+                    {
+                        now + Duration::from_millis(remain)
+                    } else {
+                        now + Duration::from_millis(frame_interval)
                     }
-                    1 => start + Duration::from_secs_f32(self.in_duration + self.out_duration),
-                    _ => {
-                        let frame_interval = 1000 / fps as u64;
-                        let elapsed = (elapsed * 1000.).ceil() as u64;
-                        let remain = elapsed % frame_interval;
-                        if remain != 0
-                            && self.last_render.elapsed() >= Duration::from_millis(frame_interval)
-                        {
-                            now + Duration::from_millis(remain)
-                        } else {
-                            now + Duration::from_millis(frame_interval)
-                        }
-                    }
-                };
-                self.last_render = now;
-                Some((i, next))
-            }
-            None => {
-                self.start.take();
-                None
-            }
+                }
+            };
+            self.last_render = now;
+            Some((i, next))
+        } else {
+            self.start.take();
+            None
         }
     }
 }
@@ -122,7 +116,7 @@ pub struct ColorEaseUniform {
 }
 
 impl From<ColorEase> for ColorEaseUniform {
-    fn from(ease: ColorEase) -> ColorEaseUniform {
+    fn from(ease: ColorEase) -> Self {
         Self {
             in_duration_ms: (ease.in_duration * 1000.).ceil() as u32,
             out_duration_ms: (ease.out_duration * 1000.).ceil() as u32,

@@ -56,7 +56,7 @@ impl Vertex {
     6 => Float32,
     ];
 
-    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+    pub const fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
@@ -89,7 +89,7 @@ pub trait QuadTrait {
     }
 
     /// Mark this quad as a background image.
-    /// Mutually exclusive with set_has_color.
+    /// Mutually exclusive with `set_has_color`.
     fn set_is_background_image(&mut self) {
         self.set_has_color_impl(IS_BG_IMAGE);
     }
@@ -100,7 +100,7 @@ pub trait QuadTrait {
 
     fn set_fg_color(&mut self, color: LinearRgba);
 
-    /// Must be called after set_fg_color
+    /// Must be called after `set_fg_color`
     fn set_alt_color_and_mix_value(&mut self, color: LinearRgba, mix_value: f32);
 
     fn set_hsv(&mut self, hsv: Option<HsbTransform>);
@@ -112,7 +112,7 @@ pub enum QuadImpl<'a> {
     Boxed(&'a mut BoxedQuad),
 }
 
-impl<'a> QuadTrait for QuadImpl<'a> {
+impl QuadTrait for QuadImpl<'_> {
     fn set_texture_discrete(&mut self, x1: f32, x2: f32, y1: f32, y2: f32) {
         match self {
             Self::Vert(q) => q.set_texture_discrete(x1, x2, y1, y2),
@@ -161,7 +161,7 @@ pub struct Quad<'a> {
     pub(crate) vert: &'a mut [Vertex],
 }
 
-impl<'a> QuadTrait for Quad<'a> {
+impl QuadTrait for Quad<'_> {
     fn set_texture_discrete(&mut self, x1: f32, x2: f32, y1: f32, y2: f32) {
         self.vert[V_TOP_LEFT].tex = [x1, y1];
         self.vert[V_TOP_RIGHT].tex = [x2, y1];
@@ -182,7 +182,7 @@ impl<'a> QuadTrait for Quad<'a> {
         self.set_alt_color_and_mix_value(color, 0.);
     }
 
-    /// Must be called after set_fg_color
+    /// Must be called after `set_fg_color`
     fn set_alt_color_and_mix_value(&mut self, color: LinearRgba, mix_value: f32) {
         for v in self.vert.iter_mut() {
             v.alt_color = color.into();
@@ -192,8 +192,7 @@ impl<'a> QuadTrait for Quad<'a> {
 
     fn set_hsv(&mut self, hsv: Option<HsbTransform>) {
         let (h, s, v) = hsv
-            .map(|t| (t.hue, t.saturation, t.brightness))
-            .unwrap_or((1., 1., 1.));
+            .map_or((1., 1., 1.), |t| (t.hue, t.saturation, t.brightness));
         for vert in self.vert.iter_mut() {
             vert.hsv = [h, s, v];
         }
@@ -217,7 +216,7 @@ pub trait TripleLayerQuadAllocatorTrait {
     fn extend_with(&mut self, layer_num: usize, vertices: &[Vertex]);
 }
 
-/// We prefer to allocate a quad at a time for HeapQuadAllocator
+/// We prefer to allocate a quad at a time for `HeapQuadAllocator`
 /// because we tend to end up with fairly large arrays of Vertex
 /// and the total amount of contiguous memory is in the MB range,
 /// which is a bit gnarly to reallocate, and can waste several MB
@@ -251,8 +250,7 @@ impl QuadTrait for BoxedQuad {
     }
     fn set_hsv(&mut self, hsv: Option<HsbTransform>) {
         let (h, s, v) = hsv
-            .map(|t| (t.hue, t.saturation, t.brightness))
-            .unwrap_or((1., 1., 1.));
+            .map_or((1., 1., 1.), |t| (t.hue, t.saturation, t.brightness));
         self.hsv = [h, s, v];
     }
 
@@ -262,7 +260,7 @@ impl QuadTrait for BoxedQuad {
 }
 
 impl BoxedQuad {
-    fn from_vertices(verts: &[Vertex; VERTICES_PER_CELL]) -> Self {
+    const fn from_vertices(verts: &[Vertex; VERTICES_PER_CELL]) -> Self {
         let [x1, y1] = verts[V_TOP_LEFT].tex;
         let [x2, y2] = verts[V_BOT_RIGHT].tex;
 
@@ -310,9 +308,9 @@ impl BoxedQuad {
 
 #[derive(Default)]
 pub struct HeapQuadAllocator {
-    layer0: Vec<Box<BoxedQuad>>,
-    layer1: Vec<Box<BoxedQuad>>,
-    layer2: Vec<Box<BoxedQuad>>,
+    layer0: Vec<BoxedQuad>,
+    layer1: Vec<BoxedQuad>,
+    layer2: Vec<BoxedQuad>,
 }
 
 impl std::fmt::Debug for HeapQuadAllocator {
@@ -343,7 +341,7 @@ impl TripleLayerQuadAllocatorTrait for HeapQuadAllocator {
             _ => unreachable!(),
         };
 
-        quads.push(Box::new(BoxedQuad::default()));
+        quads.push(BoxedQuad::default());
 
         let quad = quads.last_mut().unwrap();
         Ok(QuadImpl::Boxed(quad))
@@ -369,17 +367,17 @@ impl TripleLayerQuadAllocatorTrait for HeapQuadAllocator {
             unsafe { std::slice::from_raw_parts(vertices.as_ptr().cast(), vertices.len() / 4) };
 
         for quad in src_quads {
-            dest_quads.push(Box::new(BoxedQuad::from_vertices(quad)));
+            dest_quads.push(BoxedQuad::from_vertices(quad));
         }
     }
 }
 
 pub enum TripleLayerQuadAllocator<'a> {
-    Gpu(BorrowedLayers),
+    Gpu(Box<BorrowedLayers>),
     Heap(&'a mut HeapQuadAllocator),
 }
 
-impl<'a> TripleLayerQuadAllocatorTrait for TripleLayerQuadAllocator<'a> {
+impl TripleLayerQuadAllocatorTrait for TripleLayerQuadAllocator<'_> {
     fn allocate(&mut self, layer_num: usize) -> anyhow::Result<QuadImpl<'_>> {
         match self {
             Self::Gpu(b) => b.allocate(layer_num),

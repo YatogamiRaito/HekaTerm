@@ -1,6 +1,7 @@
 use bitflags::bitflags;
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     struct FileTypeFlags: u32 {
         const DIR = 0o040000;
         const FILE = 0o100000;
@@ -9,6 +10,7 @@ bitflags! {
 }
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     struct FilePermissionFlags: u32 {
         const OWNER_READ = 0o400;
         const OWNER_WRITE = 0o200;
@@ -33,22 +35,26 @@ pub enum FileType {
 
 impl FileType {
     /// Returns true if file is a type of directory
-    pub fn is_dir(self) -> bool {
+    #[must_use] 
+    pub const fn is_dir(self) -> bool {
         matches!(self, Self::Dir)
     }
 
     /// Returns true if file is a type of regular file
-    pub fn is_file(self) -> bool {
+    #[must_use] 
+    pub const fn is_file(self) -> bool {
         matches!(self, Self::File)
     }
 
     /// Returns true if file is a type of symlink
-    pub fn is_symlink(self) -> bool {
+    #[must_use] 
+    pub const fn is_symlink(self) -> bool {
         matches!(self, Self::Symlink)
     }
 
     /// Create from a unix mode bitset
-    pub fn from_unix_mode(mode: u32) -> Self {
+    #[must_use] 
+    pub const fn from_unix_mode(mode: u32) -> Self {
         let flags = FileTypeFlags::from_bits_truncate(mode);
         if flags.contains(FileTypeFlags::DIR) {
             Self::Dir
@@ -62,15 +68,16 @@ impl FileType {
     }
 
     /// Convert to a unix mode bitset
-    pub fn to_unix_mode(self) -> u32 {
+    #[must_use] 
+    pub const fn to_unix_mode(self) -> u32 {
         let flags = match self {
-            FileType::Dir => FileTypeFlags::DIR,
-            FileType::File => FileTypeFlags::FILE,
-            FileType::Symlink => FileTypeFlags::SYMLINK,
-            FileType::Other => FileTypeFlags::empty(),
+            Self::Dir => FileTypeFlags::DIR,
+            Self::File => FileTypeFlags::FILE,
+            Self::Symlink => FileTypeFlags::SYMLINK,
+            Self::Other => FileTypeFlags::empty(),
         };
 
-        flags.bits
+        flags.bits()
     }
 }
 
@@ -92,12 +99,14 @@ pub struct FilePermissions {
 
 impl FilePermissions {
     /// Returns true if all write permissions (owner, group, other) are false.
-    pub fn is_readonly(self) -> bool {
+    #[must_use] 
+    pub const fn is_readonly(self) -> bool {
         !(self.owner_write || self.group_write || self.other_write)
     }
 
     /// Create from a unix mode bitset
-    pub fn from_unix_mode(mode: u32) -> Self {
+    #[must_use] 
+    pub const fn from_unix_mode(mode: u32) -> Self {
         let flags = FilePermissionFlags::from_bits_truncate(mode);
         Self {
             owner_read: flags.contains(FilePermissionFlags::OWNER_READ),
@@ -113,6 +122,7 @@ impl FilePermissions {
     }
 
     /// Convert to a unix mode bitset
+    #[must_use] 
     pub fn to_unix_mode(self) -> u32 {
         let mut flags = FilePermissionFlags::empty();
 
@@ -146,7 +156,7 @@ impl FilePermissions {
             flags.insert(FilePermissionFlags::OTHER_EXEC);
         }
 
-        flags.bits
+        flags.bits()
     }
 }
 
@@ -177,17 +187,20 @@ pub struct Metadata {
 
 impl Metadata {
     /// Returns true if metadata is for a directory
-    pub fn is_dir(self) -> bool {
+    #[must_use] 
+    pub const fn is_dir(self) -> bool {
         self.ty.is_dir()
     }
 
     /// Returns true if metadata is for a regular file
-    pub fn is_file(self) -> bool {
+    #[must_use] 
+    pub const fn is_file(self) -> bool {
         self.ty.is_file()
     }
 
     /// Returns true if metadata is for a symlink
-    pub fn is_symlink(self) -> bool {
+    #[must_use] 
+    pub const fn is_symlink(self) -> bool {
         self.ty.is_symlink()
     }
 }
@@ -252,7 +265,7 @@ impl Default for RenameOptions {
 /// Contains libssh2-specific implementations
 #[cfg(feature = "ssh2")]
 mod ssh2_impl {
-    use super::*;
+    use super::{OpenFileType, RenameOptions, OpenOptions, WriteMode, FileType, Metadata, FilePermissions};
     use ::ssh2::{
         FileStat as Ssh2FileStat, FileType as Ssh2FileType, OpenFlags as Ssh2OpenFlags,
         OpenType as Ssh2OpenType, RenameFlags as Ssh2RenameFlags,
@@ -353,7 +366,7 @@ mod ssh2_impl {
 
 #[cfg(feature = "libssh-rs")]
 mod libssh_impl {
-    use super::*;
+    use super::{FileType, Metadata, FilePermissions};
     use std::time::SystemTime;
 
     impl From<libssh_rs::FileType> for FileType {
@@ -382,8 +395,7 @@ mod libssh_impl {
             Self {
                 ty: stat
                     .file_type()
-                    .map(FileType::from)
-                    .unwrap_or(FileType::Other),
+                    .map_or(FileType::Other, FileType::from),
                 permissions: stat.permissions().map(FilePermissions::from_unix_mode),
                 size: stat.len(),
                 uid: stat.uid(),
@@ -394,15 +406,15 @@ mod libssh_impl {
         }
     }
 
-    impl Into<libssh_rs::SetAttributes> for Metadata {
-        fn into(self) -> libssh_rs::SetAttributes {
-            let size = self.size;
-            let uid_gid = match (self.uid, self.gid) {
+    impl From<Metadata> for libssh_rs::SetAttributes {
+        fn from(val: Metadata) -> Self {
+            let size = val.size;
+            let uid_gid = match (val.uid, val.gid) {
                 (Some(uid), Some(gid)) => Some((uid, gid)),
                 _ => None,
             };
-            let permissions = self.permissions.map(FilePermissions::to_unix_mode);
-            let atime_mtime = match (self.accessed, self.modified) {
+            let permissions = val.permissions.map(FilePermissions::to_unix_mode);
+            let atime_mtime = match (val.accessed, val.modified) {
                 (Some(a), Some(m)) => {
                     let a = unix_to_sys(a);
                     let m = unix_to_sys(m);
@@ -410,7 +422,7 @@ mod libssh_impl {
                 }
                 _ => None,
             };
-            libssh_rs::SetAttributes {
+            Self {
                 size,
                 uid_gid,
                 permissions,

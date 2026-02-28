@@ -14,7 +14,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use config::ConfigHandle;
-use promise::*;
+use promise::Future;
 use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
 };
@@ -36,20 +36,20 @@ pub enum Window {
 }
 
 impl Connection {
-    pub(crate) fn create_new() -> anyhow::Result<Connection> {
+    pub(crate) fn create_new() -> anyhow::Result<Self> {
         #[cfg(feature = "wayland")]
         if config::configuration().enable_wayland {
             match WaylandConnection::create_new() {
                 Ok(w) => {
                     log::debug!("Using wayland connection!");
-                    return Ok(Connection::Wayland(Rc::new(w)));
+                    return Ok(Self::Wayland(Rc::new(w)));
                 }
                 Err(e) => {
-                    log::debug!("Failed to init wayland: {}", e);
+                    log::debug!("Failed to init wayland: {e}");
                 }
             }
         }
-        Ok(Connection::X11(XConnection::create_new()?))
+        Ok(Self::X11(XConnection::create_new()?))
     }
 
     pub async fn new_window<F>(
@@ -184,9 +184,9 @@ impl Window {
         config: Option<&ConfigHandle>,
         font_config: Rc<FontConfiguration>,
         event_handler: F,
-    ) -> anyhow::Result<Window>
+    ) -> anyhow::Result<Self>
     where
-        F: 'static + FnMut(WindowEvent, &Window),
+        F: 'static + FnMut(WindowEvent, &Self),
     {
         Connection::get()
             .unwrap()

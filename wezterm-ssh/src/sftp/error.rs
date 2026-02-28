@@ -64,12 +64,14 @@ pub enum SftpError {
 
 impl SftpError {
     /// Produces an SFTP error from the given code if it matches a known error type
-    pub fn from_error_code(code: i32) -> Option<SftpError> {
+    #[must_use] 
+    pub fn from_error_code(code: i32) -> Option<Self> {
         Self::try_from(code).ok()
     }
 
     /// Converts into an error code
-    pub fn to_error_code(self) -> i32 {
+    #[must_use] 
+    pub const fn to_error_code(self) -> i32 {
         self as i32
     }
 }

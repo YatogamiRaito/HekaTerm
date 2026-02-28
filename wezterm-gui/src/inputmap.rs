@@ -29,7 +29,7 @@ impl InputMap {
 
         let leader = config.leader.as_ref().map(|leader| {
             (
-                leader.key.key.resolve(config.key_map_preference).clone(),
+                leader.key.key.resolve(config.key_map_preference),
                 leader.key.mods,
                 Duration::from_millis(leader.timeout_milliseconds),
             )
@@ -45,7 +45,7 @@ impl InputMap {
             };
         }
 
-        use KeyAssignment::*;
+        use KeyAssignment::{ScrollByCurrentEventWheelDelta, SelectTextAtMouseCursor, ExtendSelectionToMouseCursor, CompleteSelectionOrOpenLinkAtMouseCursor, CompleteSelection, PasteFrom, StartWindowDrag};
 
         if !config.disable_default_key_bindings {
             for (mods, code, action) in CommandDef::default_key_assignments(config) {
@@ -384,18 +384,18 @@ impl InputMap {
 
         Self {
             keys,
-            leader,
             mouse,
+            leader,
         }
     }
 
     /// Given an action, return the corresponding set of application-wide key assignments that are
     /// mapped to it.
-    /// If any key_tables reference a given combination, then that combination
+    /// If any `key_tables` reference a given combination, then that combination
     /// is removed from the list.
     /// This is used to figure out whether an application-wide keyboard shortcut
     /// can be safely configured for this action, without interfering with any
-    /// transient key_table mappings.
+    /// transient `key_table` mappings.
     #[allow(dead_code)]
     pub fn locate_app_wide_key_assignment(
         &self,
@@ -408,7 +408,7 @@ impl InputMap {
                 continue;
             }
             if entry.action == *action {
-                candidates.push((key.clone(), mods.clone()));
+                candidates.push((key.clone(), *mods));
             }
         }
 
@@ -426,11 +426,10 @@ impl InputMap {
     }
 
     pub fn is_leader(&self, key: &KeyCode, mods: Modifiers) -> Option<std::time::Duration> {
-        if let Some((leader_key, leader_mods, timeout)) = self.leader.as_ref() {
-            if *leader_key == *key && *leader_mods == mods.remove_positional_mods() {
-                return Some(timeout.clone());
+        if let Some((leader_key, leader_mods, timeout)) = self.leader.as_ref()
+            && *leader_key == *key && *leader_mods == mods.remove_positional_mods() {
+                return Some(*timeout);
             }
-        }
         None
     }
 
@@ -480,11 +479,10 @@ impl InputMap {
         table_names.sort();
         println!("  key_tables = {{");
         for name in table_names {
-            if let Some(wanted_table) = key_table {
-                if name != wanted_table {
+            if let Some(wanted_table) = key_table
+                && name != wanted_table {
                     continue;
                 }
-            }
             if let Some(table) = self.keys.by_name.get(name) {
                 println!("    {name} = {{");
                 show_key_table_as_lua(table, 6);
@@ -575,12 +573,12 @@ fn section_header(title: &str) {
 
 pub fn ui_key(key: &KeyCode, ui_key_cap_rendering: UIKeyCapRendering) -> String {
     match key {
-        KeyCode::Char('\x1b') | KeyCode::Char('\x7f')
+        KeyCode::Char('\x1b' | '\x7f')
             if ui_key_cap_rendering == UIKeyCapRendering::AppleSymbols =>
         {
             "\u{238b}".to_string()
         }
-        KeyCode::Char('\x1b') | KeyCode::Char('\x7f') => "Esc".to_string(),
+        KeyCode::Char('\x1b' | '\x7f') => "Esc".to_string(),
         KeyCode::Char('\x08') if ui_key_cap_rendering == UIKeyCapRendering::AppleSymbols => {
             "\u{232b}".to_string()
         }
@@ -635,7 +633,7 @@ pub fn human_key(key: &KeyCode) -> String {
         KeyCode::Char(c) => c.to_string(),
         KeyCode::Function(n) => format!("F{n}"),
         KeyCode::Numpad(n) => format!("Numpad{n}"),
-        KeyCode::Physical(phys) => format!("{} (Physical)", phys.to_string()),
+        KeyCode::Physical(phys) => format!("{} (Physical)", phys),
         _ => format!("{key:?}"),
     }
 }
@@ -652,7 +650,7 @@ fn lua_key_code(key: &KeyCode) -> String {
         KeyCode::Char(c) => c.to_string(),
         KeyCode::Function(n) => format!("F{n}"),
         KeyCode::Numpad(n) => format!("Numpad{n}"),
-        KeyCode::Physical(phys) => format!("phys:{}", phys.to_string()),
+        KeyCode::Physical(phys) => format!("phys:{}", phys),
         _ => format!("{key:?}"),
     }
 }
@@ -671,7 +669,7 @@ fn luaify(value: Value, is_top: bool) -> String {
             format!("wat {a:?}")
         }
         Value::Object(o) if is_top => {
-            for (k, v) in o {
+            if let Some((k, v)) = o.into_iter().next() {
                 let k = match k {
                     Value::String(s) => s,
                     _ => unreachable!(),
@@ -773,7 +771,7 @@ fn lua_key(key: &KeyCode, mods: Modifiers, action: &KeyAssignment) -> String {
     let key = lua_key_code(key);
     let key = quote_lua_string(&key);
 
-    let mods = format!("{mods:?}").replace(" ", "");
+    let mods = format!("{mods:?}").replace(' ', "");
 
     format!("{{ key = {key}, mods = '{mods}', action = {action} }}")
 }

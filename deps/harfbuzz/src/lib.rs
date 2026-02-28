@@ -83,7 +83,7 @@ unsafe extern "C" {
     pub fn hb_language_matches(language: hb_language_t, specific: hb_language_t) -> hb_bool_t;
 }
 impl hb_script_t {
-    pub const _HB_SCRIPT_MAX_VALUE_SIGNED: hb_script_t = hb_script_t::_HB_SCRIPT_MAX_VALUE;
+    pub const _HB_SCRIPT_MAX_VALUE_SIGNED: Self = Self::_HB_SCRIPT_MAX_VALUE;
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -2798,8 +2798,8 @@ unsafe extern "C" {
     pub fn hb_buffer_get_flags(buffer: *const hb_buffer_t) -> hb_buffer_flags_t;
 }
 impl hb_buffer_cluster_level_t {
-    pub const HB_BUFFER_CLUSTER_LEVEL_DEFAULT: hb_buffer_cluster_level_t =
-        hb_buffer_cluster_level_t::HB_BUFFER_CLUSTER_LEVEL_MONOTONE_GRAPHEMES;
+    pub const HB_BUFFER_CLUSTER_LEVEL_DEFAULT: Self =
+        Self::HB_BUFFER_CLUSTER_LEVEL_MONOTONE_GRAPHEMES;
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -3551,22 +3551,22 @@ pub type FT_Size = *mut FT_SizeRec_;
 pub type FT_GlyphSlot = *mut FT_GlyphSlotRec_;
 pub type FT_CharMap = *mut FT_CharMapRec_;
 impl FT_Encoding_ {
-    pub const FT_ENCODING_GB2312: FT_Encoding_ = FT_Encoding_::FT_ENCODING_PRC;
+    pub const FT_ENCODING_GB2312: Self = Self::FT_ENCODING_PRC;
 }
 impl FT_Encoding_ {
-    pub const FT_ENCODING_MS_SJIS: FT_Encoding_ = FT_Encoding_::FT_ENCODING_SJIS;
+    pub const FT_ENCODING_MS_SJIS: Self = Self::FT_ENCODING_SJIS;
 }
 impl FT_Encoding_ {
-    pub const FT_ENCODING_MS_GB2312: FT_Encoding_ = FT_Encoding_::FT_ENCODING_PRC;
+    pub const FT_ENCODING_MS_GB2312: Self = Self::FT_ENCODING_PRC;
 }
 impl FT_Encoding_ {
-    pub const FT_ENCODING_MS_BIG5: FT_Encoding_ = FT_Encoding_::FT_ENCODING_BIG5;
+    pub const FT_ENCODING_MS_BIG5: Self = Self::FT_ENCODING_BIG5;
 }
 impl FT_Encoding_ {
-    pub const FT_ENCODING_MS_WANSUNG: FT_Encoding_ = FT_Encoding_::FT_ENCODING_WANSUNG;
+    pub const FT_ENCODING_MS_WANSUNG: Self = Self::FT_ENCODING_WANSUNG;
 }
 impl FT_Encoding_ {
-    pub const FT_ENCODING_MS_JOHAB: FT_Encoding_ = FT_Encoding_::FT_ENCODING_JOHAB;
+    pub const FT_ENCODING_MS_JOHAB: Self = Self::FT_ENCODING_JOHAB;
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]

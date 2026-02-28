@@ -1,4 +1,4 @@
-pub(crate) fn prefer_swrast() -> bool {
+pub fn prefer_swrast() -> bool {
     #[cfg(windows)]
     {
         if crate::os::windows::is_running_in_rdp_session() {

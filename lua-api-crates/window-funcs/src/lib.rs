@@ -79,7 +79,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     window_mod.set(
         "screens",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             let conn = get_conn()?;
             let screens: Screens = conn
                 .screens()
@@ -91,7 +91,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     window_mod.set(
         "get_appearance",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             Ok(match Connection::get() {
                 Some(conn) => conn.get_appearance().to_string(),
                 None => {

@@ -74,18 +74,18 @@ enum Path<L, N> {
     /// The current position is the top of the tree
     Top,
     /// The current position is the left hand side of its parent node;
-    /// Cursor::it holds the left node of the tree with the fields here
-    /// in Path::Left representing the partially constructed state of
-    /// the parent Tree::Node
+    /// `Cursor::it` holds the left node of the tree with the fields here
+    /// in `Path::Left` representing the partially constructed state of
+    /// the parent `Tree::Node`
     Left {
         right: Box<Tree<L, N>>,
         data: Option<N>,
         up: Box<Self>,
     },
     /// The current position is the right hand side of its parent node;
-    /// Cursor::it holds the right node of the tree with the fields here
-    /// in Path::Right representing the partially constructed state of
-    /// the parent Tree::Node
+    /// `Cursor::it` holds the right node of the tree with the fields here
+    /// in `Path::Right` representing the partially constructed state of
+    /// the parent `Tree::Node`
     Right {
         left: Box<Tree<L, N>>,
         data: Option<N>,
@@ -159,11 +159,11 @@ impl<'a, L, N> std::iter::Iterator for ParentIterator<'a, L, N> {
         match self.path {
             Path::Top => None,
             Path::Left { data, up, .. } => {
-                self.path = &*up;
+                self.path = up;
                 Some((PathBranch::IsLeft, data))
             }
             Path::Right { data, up, .. } => {
-                self.path = &*up;
+                self.path = up;
                 Some((PathBranch::IsRight, data))
             }
         }
@@ -173,12 +173,13 @@ impl<'a, L, N> std::iter::Iterator for ParentIterator<'a, L, N> {
 impl<L, N> Tree<L, N> {
     /// Construct a new empty tree
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    #[must_use] 
+    pub const fn new() -> Self {
         Self::Empty
     }
 
     /// Returns true if the tree is empty
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
 
@@ -210,25 +211,30 @@ impl<L, N> Cursor<L, N> {
     }
 
     /// References the subtree at the current cursor position
+    #[must_use] 
     pub fn subtree(&self) -> &Tree<L, N> {
-        &*self.it
+        &self.it
     }
 
     /// Returns true if the current position is a leaf node
+    #[must_use] 
     pub fn is_leaf(&self) -> bool {
         matches!(&*self.it, Tree::Leaf(_))
     }
 
     /// Returns true if the current position is the left child of its parent
+    #[must_use] 
     pub fn is_left(&self) -> bool {
         matches!(&*self.path, Path::Left { .. })
     }
 
     /// Returns true if the current position is the right child of its parent
+    #[must_use] 
     pub fn is_right(&self) -> bool {
         matches!(&*self.path, Path::Right { .. })
     }
 
+    #[must_use] 
     pub fn is_top(&self) -> bool {
         matches!(&*self.path, Path::Top)
     }
@@ -271,6 +277,7 @@ impl<L, N> Cursor<L, N> {
     /// Return an iterator that will visit the chain of nodes leading
     /// to the root from the current position and yield their node
     /// data at each step of iteration.
+    #[must_use] 
     pub fn path_to_root(&self) -> ParentIterator<'_, L, N> {
         ParentIterator { path: &*self.path }
     }
@@ -544,6 +551,7 @@ impl<L, N> Cursor<L, N> {
     }
 
     /// Consume the cursor and return the root of the Tree
+    #[must_use] 
     pub fn tree(mut self) -> Tree<L, N> {
         loop {
             self = match self.go_up() {

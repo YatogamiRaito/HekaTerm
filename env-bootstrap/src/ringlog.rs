@@ -14,9 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use termwiz::istty::IsTty;
 
-lazy_static::lazy_static! {
-    static ref RINGS: Mutex<Rings> = Mutex::new(Rings::new());
-}
+static RINGS: std::sync::LazyLock<Mutex<Rings>> = std::sync::LazyLock::new(|| Mutex::new(Rings::new()));
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Entry {
@@ -52,7 +50,7 @@ impl LevelRing {
     }
 
     // Returns the number of entries in the ring
-    fn len(&self) -> usize {
+    const fn len(&self) -> usize {
         if self.last >= self.first {
             self.last - self.first
         } else {
@@ -61,7 +59,7 @@ impl LevelRing {
         }
     }
 
-    fn rolling_inc(&self, value: usize) -> usize {
+    const fn rolling_inc(&self, value: usize) -> usize {
         let incremented = value + 1;
         if incremented >= self.entries.len() {
             0
@@ -191,39 +189,25 @@ impl log::Log for Logger {
                 // Direct `write!` will `write()` every single padding space as individual syscall
                 // which makes terminal with tracing logs enabled unusably slow.
                 let logline = format!(
-                    "{}  {level_color}{:6}{reset} {target_color}{:padding$}{reset} > {}\n",
-                    ts,
-                    level,
-                    target,
-                    msg,
-                    padding = padding,
-                    level_color = level_color,
-                    reset = reset,
-                    target_color = target_color
+                    "{ts}  {level_color}{level:6}{reset} {target_color}{target:padding$}{reset} > {msg}\n"
                 );
                 let _ = stderr.write_all(logline.as_bytes());
                 let _ = stderr.flush();
             }
 
             let mut file = self.file.lock().unwrap();
-            if file.is_none() {
-                if let Ok(f) = std::fs::OpenOptions::new()
+            if file.is_none()
+                && let Ok(f) = std::fs::OpenOptions::new()
                     .append(true)
                     .create(true)
                     .open(&self.file_name)
                 {
                     file.replace(BufWriter::new(f));
                 }
-            }
             if let Some(file) = file.as_mut() {
                 let _ = writeln!(
                     file,
-                    "{}  {:6} {:padding$} > {}",
-                    ts,
-                    level,
-                    target,
-                    msg,
-                    padding = padding
+                    "{ts}  {level:6} {target:padding$} > {msg}"
                 );
                 let _ = file.flush();
             }
@@ -242,21 +226,15 @@ fn prune_old_logs() {
     let one_week = std::time::Duration::from_secs(86400 * 7);
     if let Ok(dir) = std::fs::read_dir(&*config::RUNTIME_DIR) {
         for entry in dir {
-            if let Ok(entry) = entry {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.contains("-log-") {
-                        if let Ok(meta) = entry.metadata() {
-                            if let Ok(modified) = meta.modified() {
-                                if let Ok(elapsed) = modified.elapsed() {
-                                    if elapsed > one_week {
+            if let Ok(entry) = entry
+                && let Some(name) = entry.file_name().to_str()
+                    && name.contains("-log-")
+                        && let Ok(meta) = entry.metadata()
+                            && let Ok(modified) = meta.modified()
+                                && let Ok(elapsed) = modified.elapsed()
+                                    && elapsed > one_week {
                                         let _ = std::fs::remove_file(entry.path());
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }

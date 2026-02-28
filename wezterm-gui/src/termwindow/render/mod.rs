@@ -1,11 +1,11 @@
 use crate::colorease::ColorEase;
-use crate::customglyph::{BlockKey, *};
+use crate::customglyph::{BlockKey, Poly};
 use crate::glyphcache::{CachedGlyph, GlyphCache};
 use crate::quad::{
     HeapQuadAllocator, QuadAllocator, QuadImpl, QuadTrait, TripleLayerQuadAllocator,
     TripleLayerQuadAllocatorTrait,
 };
-use crate::shapecache::*;
+use crate::shapecache::ShapeCacheKeyTrait;
 use crate::termwindow::render::paint::AllowImage;
 use crate::termwindow::{BorrowedShapeCacheKey, RenderState, ShapedInfo, TermWindowNotif};
 use crate::utilsprites::RenderMetrics;
@@ -58,7 +58,7 @@ pub struct LineQuadCacheKey {
     pub config_generation: usize,
     pub shape_generation: usize,
     pub quad_generation: usize,
-    /// Only set if cursor.y == stable_row
+    /// Only set if cursor.y == `stable_row`
     pub composing: Option<String>,
     pub selection: Range<usize>,
     pub shape_hash: [u8; 16],
@@ -68,7 +68,7 @@ pub struct LineQuadCacheKey {
     pub pane_id: PaneId,
     pub pane_is_active: bool,
     /// A cursor position with the y value fixed at 0.
-    /// Only is_some() if the y value matches this row.
+    /// Only `is_some()` if the y value matches this row.
     pub cursor: Option<CursorProperties>,
     pub reverse_video: bool,
     pub password_input: bool,
@@ -225,7 +225,7 @@ pub struct ClusterStyleCache<'a> {
 impl crate::TermWindow {
     pub fn update_next_frame_time(&self, next_due: Option<Instant>) {
         if next_due.is_some() {
-            update_next_frame_time(&mut *self.has_animation.borrow_mut(), next_due);
+            update_next_frame_time(&mut self.has_animation.borrow_mut(), next_due);
         }
     }
 
@@ -236,8 +236,8 @@ impl crate::TermWindow {
         target: VisualBellTarget,
     ) -> Option<f32> {
         let mut per_pane = self.pane_state(pane.pane_id());
-        if let Some(ringing) = per_pane.bell_start {
-            if config.visual_bell.target == target {
+        if let Some(ringing) = per_pane.bell_start
+            && config.visual_bell.target == target {
                 let mut color_ease = ColorEase::new(
                     config.visual_bell.fade_in_duration_ms,
                     config.visual_bell.fade_in_function,
@@ -258,7 +258,6 @@ impl crate::TermWindow {
                     }
                 }
             }
-        }
         None
     }
 
@@ -274,10 +273,10 @@ impl crate::TermWindow {
         let top_offset = self.dimensions.pixel_height as f32 / 2.;
         let gl_state = self.render_state.as_ref().unwrap();
         quad.set_position(
-            rect.min_x() as f32 - left_offset,
-            rect.min_y() as f32 - top_offset,
-            rect.max_x() as f32 - left_offset,
-            rect.max_y() as f32 - top_offset,
+            rect.min_x() - left_offset,
+            rect.min_y() - top_offset,
+            rect.max_x() - left_offset,
+            rect.max_y() - top_offset,
         );
         quad.set_texture(gl_state.util_sprites.filled_box.texture_coords());
         quad.set_is_background();
@@ -317,8 +316,8 @@ impl crate::TermWindow {
         quad.set_position(
             point.x - left_offset,
             point.y - top_offset,
-            (point.x + cell_size.width as f32) - left_offset,
-            (point.y + cell_size.height as f32) - top_offset,
+            (point.x + cell_size.width) - left_offset,
+            (point.y + cell_size.height) - top_offset,
         );
         quad.set_texture(sprite);
         quad.set_fg_color(color);
@@ -484,8 +483,8 @@ impl crate::TermWindow {
         let texture_width = sprite.texture.width() as f32;
         let texture_height = sprite.texture.height() as f32;
         let origin = TextureCoord::new(
-            (sprite.coords.origin.x as f32 + (*top_left.x * width as f32)) / texture_width,
-            (sprite.coords.origin.y as f32 + (*top_left.y * height as f32)) / texture_height,
+            (*top_left.x).mul_add(width as f32, sprite.coords.origin.x as f32) / texture_width,
+            (*top_left.y).mul_add(height as f32, sprite.coords.origin.y as f32) / texture_height,
         );
 
         let size = TextureSize::new(
@@ -500,17 +499,15 @@ impl crate::TermWindow {
         let cell_height = params.render_metrics.cell_size.height as f32;
         let pos_y = (self.dimensions.pixel_height as f32 / -2.) + params.top_pixel_y;
 
-        let pos_x = (self.dimensions.pixel_width as f32 / -2.)
-            + params.left_pixel_x
-            + (cell_idx as f32 * cell_width);
+        let pos_x = (cell_idx as f32).mul_add(cell_width, (self.dimensions.pixel_width as f32 / -2.) + params.left_pixel_x);
 
         let (padding_left, padding_top, padding_right, padding_bottom) = image.padding();
 
         quad.set_position(
-            pos_x + padding_left as f32,
-            pos_y + padding_top as f32,
-            pos_x + cell_width + padding_left as f32 - padding_right as f32,
-            pos_y + cell_height + padding_top as f32 - padding_bottom as f32,
+            pos_x + f32::from(padding_left),
+            pos_y + f32::from(padding_top),
+            pos_x + cell_width + f32::from(padding_left) - f32::from(padding_right),
+            pos_y + cell_height + f32::from(padding_top) - f32::from(padding_bottom),
         );
         quad.set_hsv(hsv);
         quad.set_fg_color(glyph_color);
@@ -550,8 +547,7 @@ impl crate::TermWindow {
                     .config
                     .resolved_palette
                     .visual_bell
-                    .map(|c| c.to_linear())
-                    .unwrap_or(fg_color);
+                    .map_or(fg_color, |c| c.to_linear());
 
                 return ComputeCellFgBgResult {
                     fg_color,
@@ -583,8 +579,7 @@ impl crate::TermWindow {
                     .config
                     .resolved_palette
                     .compose_cursor
-                    .map(|c| c.to_linear())
-                    .unwrap_or(bg_color);
+                    .map_or(bg_color, |c| c.to_linear());
 
                 return ComputeCellFgBgResult {
                     fg_color,
@@ -740,8 +735,8 @@ impl crate::TermWindow {
         let mut glyphs = Vec::with_capacity(infos.len());
         let mut iter = infos.iter().peekable();
         while let Some(info) = iter.next() {
-            if self.config.custom_block_glyphs {
-                if info.only_char.and_then(BlockKey::from_char).is_some() {
+            if self.config.custom_block_glyphs
+                && info.only_char.and_then(BlockKey::from_char).is_some() {
                     // Don't bother rendering the glyph from the font, as it can
                     // have incorrect advance metrics.
                     // Instead, just use our pixel-perfect cell metrics
@@ -758,7 +753,6 @@ impl crate::TermWindow {
                     }));
                     continue;
                 }
-            }
 
             let followed_by_space = match iter.peek() {
                 Some(next_info) => next_info.is_space,
@@ -767,7 +761,7 @@ impl crate::TermWindow {
 
             glyphs.push(glyph_cache.cached_glyph(
                 info,
-                &style,
+                style,
                 followed_by_space,
                 font,
                 metrics,
@@ -801,20 +795,22 @@ impl crate::TermWindow {
                 };
                 let window = self.window.as_ref().unwrap().clone();
 
-                let presentation_width = PresentationWidth::with_cluster(&cluster);
+                let presentation_width = PresentationWidth::with_cluster(cluster);
 
                 match font.shape(
                     &cluster.text,
                     move || window.notify(TermWindowNotif::InvalidateShapeCache),
                     BlockKey::filter_out_synthetic,
-                    Some(cluster.presentation),
-                    cluster.direction,
-                    None, // FIXME: need more paragraph context
-                    Some(&presentation_width),
+                    wezterm_font::shaper::ShapeContext {
+                        presentation: Some(cluster.presentation),
+                        direction: cluster.direction,
+                        range: None, // FIXME: need more paragraph context
+                        presentation_width: Some(&presentation_width),
+                    },
                 ) {
                     Ok(info) => {
                         let glyphs = self.glyph_infos_to_glyphs(
-                            &style,
+                            style,
                             &mut gl_state.glyph_cache.borrow_mut(),
                             &info,
                             &font,
@@ -824,7 +820,7 @@ impl crate::TermWindow {
 
                         self.shape_cache
                             .borrow_mut()
-                            .put(key.to_owned(), Ok(Rc::clone(&shaped)));
+                            .put(key.into_owned(), Ok(Rc::clone(&shaped)));
                         shaped
                     }
                     Err(err) => {
@@ -832,8 +828,8 @@ impl crate::TermWindow {
                             return Err(err);
                         }
 
-                        let res = anyhow!("shaper error: {}", err);
-                        self.shape_cache.borrow_mut().put(key.to_owned(), Err(err));
+                        let res = anyhow!("shaper error: {err}");
+                        self.shape_cache.borrow_mut().put(key.into_owned(), Err(err));
                         return Err(res);
                     }
                 }
@@ -854,7 +850,7 @@ impl crate::TermWindow {
     ) -> Option<anyhow::Result<Rc<Vec<ShapedInfo>>>> {
         match self.shape_cache.borrow_mut().get(key) {
             Some(Ok(info)) => Some(Ok(Rc::clone(info))),
-            Some(Err(err)) => Some(Err(anyhow!("cached shaper error: {}", err))),
+            Some(Err(err)) => Some(Err(anyhow!("cached shaper error: {err}"))),
             None => None,
         }
     }
@@ -872,8 +868,8 @@ impl crate::TermWindow {
     fn shape_hash_for_line(&mut self, line: &Line) -> [u8; 16] {
         let seqno = line.current_seqno();
         let mut id = None;
-        if let Some(cached_arc) = line.get_appdata() {
-            if let Some(line_state) = cached_arc.downcast_ref::<CachedLineState>() {
+        if let Some(cached_arc) = line.get_appdata()
+            && let Some(line_state) = cached_arc.downcast_ref::<CachedLineState>() {
                 if line_state.seqno == seqno {
                     // Touch the LRU
                     self.line_state_cache.borrow_mut().get(&line_state.id);
@@ -881,7 +877,6 @@ impl crate::TermWindow {
                 }
                 id.replace(line_state.id);
             }
-        }
 
         let id = id.unwrap_or_else(|| {
             let id = self.next_line_state_id;

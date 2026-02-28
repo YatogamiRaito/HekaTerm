@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 //! # Terminal Wizardry
 //!
 //! This is a rust crate that provides a number of support functions

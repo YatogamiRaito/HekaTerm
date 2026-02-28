@@ -2,15 +2,15 @@
 //! unique-within-threshold colors.
 //! The technique used is to convert the colors to the
 //! LAB colorspace, which is a perceptually uniform colorspace,
-//! and then apply DeltaE to measure the difference between
+//! and then apply `DeltaE` to measure the difference between
 //! color candidates.
 //! This is computationally expensive so a couple of techniques
 //! are used to minimize the search space:
 //! * fuzziness is used to avoid looking at every pixel
 //! * The image is resized smaller to reduce the total number
 //!   of pixel candidates
-//! The results are cached to avoid recomputing on each
-//! evaluation of the config file.
+//!   The results are cached to avoid recomputing on each
+//!   evaluation of the config file.
 use crate::ColorWrap;
 use config::lua::mlua::{self, Lua};
 use config::SrgbaTuple;
@@ -76,35 +76,35 @@ impl std::hash::Hash for ExtractColorParams {
     }
 }
 
-fn default_threshold() -> f32 {
+const fn default_threshold() -> f32 {
     50.
 }
 
-fn default_min_brightness() -> f32 {
+const fn default_min_brightness() -> f32 {
     0.
 }
 
-fn default_min_contrast() -> f32 {
+const fn default_min_contrast() -> f32 {
     0.0
 }
 
-fn default_max_brightness() -> f32 {
+const fn default_max_brightness() -> f32 {
     90.0
 }
 
-fn default_num_colors() -> usize {
+const fn default_num_colors() -> usize {
     16
 }
 
-fn default_fuzziness() -> usize {
+const fn default_fuzziness() -> usize {
     5
 }
 
-fn default_max_width() -> u16 {
+const fn default_max_width() -> u16 {
     640
 }
 
-fn default_max_height() -> u16 {
+const fn default_max_height() -> u16 {
     480
 }
 
@@ -128,9 +128,7 @@ struct CachedAnalysis {
     colors: Vec<ColorWrap>,
 }
 
-lazy_static::lazy_static! {
-    static ref IMG_COLOR_CACHE: Mutex<LruCache<(String, ExtractColorParams), CachedAnalysis>> = Mutex::new(LruCache::new(NonZeroUsize::new(16).unwrap()));
-}
+static IMG_COLOR_CACHE: std::sync::LazyLock<Mutex<LruCache<(String, ExtractColorParams), CachedAnalysis>>> = std::sync::LazyLock::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(16).unwrap())));
 
 fn color_diff_lab(a: &LabValue, b: &LabValue) -> f32 {
     *deltae::DeltaE::new(a, b, deltae::DEMethod::DE2000).value()
@@ -178,8 +176,8 @@ fn extract_distinct_colors_lab(
     }
 }
 
-pub fn extract_colors_from_image<'lua>(
-    _: &'lua Lua,
+pub fn extract_colors_from_image(
+    _: &Lua,
     (file_name, params): (String, Option<ExtractColorParams>),
 ) -> mlua::Result<Vec<ColorWrap>> {
     let params = params.unwrap_or_default();

@@ -6,7 +6,7 @@ use std::fmt;
 use std::result::Result;
 pub use wezterm_cell::color::{AnsiColor, ColorAttribute, RgbColor, SrgbaTuple};
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Palette256(pub [SrgbaTuple; 256]);
 
 #[cfg(feature = "use_serde")]
@@ -21,7 +21,7 @@ impl Serialize for Palette256 {
 
 #[cfg(feature = "use_serde")]
 impl<'de> Deserialize<'de> for Palette256 {
-    fn deserialize<D>(deserializer: D) -> Result<Palette256, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -69,31 +69,31 @@ impl fmt::Debug for Palette256 {
 }
 
 impl ColorPalette {
-    pub fn resolve_fg(&self, color: ColorAttribute) -> SrgbaTuple {
+    #[must_use] 
+    pub const fn resolve_fg(&self, color: ColorAttribute) -> SrgbaTuple {
         match color {
             ColorAttribute::Default => self.foreground,
             ColorAttribute::PaletteIndex(idx) => self.colors.0[idx as usize],
             ColorAttribute::TrueColorWithPaletteFallback(color, _)
-            | ColorAttribute::TrueColorWithDefaultFallback(color) => color.into(),
+            | ColorAttribute::TrueColorWithDefaultFallback(color) => color,
         }
     }
-    pub fn resolve_bg(&self, color: ColorAttribute) -> SrgbaTuple {
+    #[must_use] 
+    pub const fn resolve_bg(&self, color: ColorAttribute) -> SrgbaTuple {
         match color {
             ColorAttribute::Default => self.background,
             ColorAttribute::PaletteIndex(idx) => self.colors.0[idx as usize],
             ColorAttribute::TrueColorWithPaletteFallback(color, _)
-            | ColorAttribute::TrueColorWithDefaultFallback(color) => color.into(),
+            | ColorAttribute::TrueColorWithDefaultFallback(color) => color,
         }
     }
 }
 
-lazy_static::lazy_static! {
-    static ref DEFAULT_PALETTE: ColorPalette = ColorPalette::compute_default();
-}
+static DEFAULT_PALETTE: std::sync::LazyLock<ColorPalette> = std::sync::LazyLock::new(ColorPalette::compute_default);
 
 impl Default for ColorPalette {
     /// Construct a default color palette
-    fn default() -> ColorPalette {
+    fn default() -> Self {
         DEFAULT_PALETTE.clone()
     }
 }
@@ -169,7 +169,7 @@ impl ColorPalette {
 
         let cursor_bg = RgbColor::new_8bpc(0x52, 0xad, 0x70).into();
         let cursor_border = RgbColor::new_8bpc(0x52, 0xad, 0x70).into();
-        let cursor_fg = colors[AnsiColor::Black as usize].into();
+        let cursor_fg = colors[AnsiColor::Black as usize];
 
         let selection_fg = SrgbaTuple(0., 0., 0., 0.);
         let selection_bg = SrgbaTuple(0.5, 0.4, 0.6, 0.5);
@@ -177,7 +177,7 @@ impl ColorPalette {
         let scrollbar_thumb = RgbColor::new_8bpc(0x22, 0x22, 0x22).into();
         let split = RgbColor::new_8bpc(0x44, 0x44, 0x44).into();
 
-        ColorPalette {
+        Self {
             colors: Palette256(colors),
             foreground,
             background,

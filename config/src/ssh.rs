@@ -6,33 +6,29 @@ use std::str::FromStr;
 use wezterm_dynamic::{FromDynamic, ToDynamic};
 
 #[derive(Debug, Clone, Copy, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum SshBackend {
     Ssh2,
+    #[default]
     LibSsh,
 }
 
-impl Default for SshBackend {
-    fn default() -> Self {
-        Self::LibSsh
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum SshMultiplexing {
+    #[default]
     WezTerm,
     None,
     // TODO: Tmux-cc in the future?
 }
 
-impl Default for SshMultiplexing {
-    fn default() -> Self {
-        Self::WezTerm
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum Shell {
     /// Unknown command shell: no assumptions can be made
+    #[default]
     Unknown,
 
     /// Posix shell compliant, such that `cd DIR ; exec CMD` behaves
@@ -41,11 +37,6 @@ pub enum Shell {
     // TODO: Cmd, PowerShell in the future?
 }
 
-impl Default for Shell {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
 
 #[derive(Default, Debug, Clone, FromDynamic, ToDynamic)]
 pub struct SshDomain {
@@ -84,7 +75,7 @@ pub struct SshDomain {
     /// The path to the wezterm binary on the remote host
     pub remote_wezterm_path: Option<String>,
     /// Override the entire `wezterm cli proxy` invocation that would otherwise
-    /// be computed from remote_wezterm_path and other information.
+    /// be computed from `remote_wezterm_path` and other information.
     pub override_proxy_command: Option<String>,
 
     pub ssh_backend: Option<SshBackend>,
@@ -96,7 +87,7 @@ pub struct SshDomain {
     #[dynamic(default)]
     pub multiplexing: SshMultiplexing,
 
-    /// ssh_config option values
+    /// `ssh_config` option values
     #[dynamic(default)]
     pub ssh_option: HashMap<String, String>,
 
@@ -108,6 +99,7 @@ pub struct SshDomain {
 impl_lua_conversion_dynamic!(SshDomain);
 
 impl SshDomain {
+    #[must_use] 
     pub fn default_domains() -> Vec<Self> {
         let mut config = wezterm_ssh::Config::new();
         config.add_default_config_files();
@@ -117,18 +109,18 @@ impl SshDomain {
         for host in config.enumerate_hosts() {
             plain_ssh.push(Self {
                 name: format!("SSH:{host}"),
-                remote_address: host.to_string(),
+                remote_address: host.clone(),
                 multiplexing: SshMultiplexing::None,
                 local_echo_threshold_ms: default_local_echo_threshold_ms(),
-                ..SshDomain::default()
+                ..Self::default()
             });
 
             mux_ssh.push(Self {
                 name: format!("SSHMUX:{host}"),
-                remote_address: host.to_string(),
+                remote_address: host.clone(),
                 multiplexing: SshMultiplexing::WezTerm,
                 local_echo_threshold_ms: default_local_echo_threshold_ms(),
-                ..SshDomain::default()
+                ..Self::default()
             });
         }
 
@@ -159,7 +151,7 @@ pub fn username_from_env() -> anyhow::Result<String> {
     #[cfg(windows)]
     const USER: &str = "USERNAME";
 
-    std::env::var(USER).with_context(|| format!("while resolving {} env var", USER))
+    std::env::var(USER).with_context(|| format!("while resolving {USER} env var"))
 }
 
 impl FromStr for SshParameters {
@@ -179,7 +171,7 @@ impl FromStr for SshParameters {
                 host_and_port: parts[0].to_string(),
             })
         } else {
-            bail!("failed to parse ssh parameters from `{}`", s);
+            bail!("failed to parse ssh parameters from `{s}`");
         }
     }
 }

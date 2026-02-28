@@ -61,7 +61,7 @@ pub struct Header {
 impl Header {
     fn new(config: &ConfigHandle, size: PtySize, prog: &[&OsStr]) -> Self {
         let mut env = HashMap::new();
-        env.insert("TERM".to_string(), config.term.to_string());
+        env.insert("TERM".to_string(), config.term.clone());
         env.insert(
             "WEZTERM_VERSION".to_string(),
             config::wezterm_version().to_string(),
@@ -99,7 +99,7 @@ impl Header {
             Some(shell_words::join(&args))
         };
 
-        Header {
+        Self {
             version: 2,
             height: size.rows.into(),
             width: size.cols.into(),
@@ -127,7 +127,7 @@ pub struct Event(pub f32, pub String, pub String);
 
 impl Event {
     fn log_output<W: Write>(mut w: W, elapsed: f32, output: &str) -> std::io::Result<()> {
-        let event = Event(elapsed, "o".to_string(), output.to_string());
+        let event = Self(elapsed, "o".to_string(), output.to_string());
         writeln!(w, "{}", serde_json::to_string(&event)?)
     }
 }
@@ -246,7 +246,7 @@ mod win {
 
 #[cfg(unix)]
 mod unix {
-    use super::*;
+    use super::{Context, FileDescriptor, PtySize, Write};
     use std::os::unix::io::AsRawFd;
     use termios::{cfmakeraw, tcsetattr, Termios, TCSAFLUSH};
 
@@ -302,10 +302,10 @@ mod unix {
             let size = unsafe { size.assume_init() };
 
             Ok(PtySize {
-                rows: size.ws_row.into(),
-                cols: size.ws_col.into(),
-                pixel_width: size.ws_xpixel.into(),
-                pixel_height: size.ws_ypixel.into(),
+                rows: size.ws_row,
+                cols: size.ws_col,
+                pixel_width: size.ws_xpixel,
+                pixel_height: size.ws_ypixel,
             })
         }
 
@@ -338,7 +338,7 @@ enum Message {
 #[derive(Debug, Parser, Clone)]
 pub struct RecordCommand {
     /// Start in the specified directory, instead of
-    /// the default_cwd defined by your wezterm configuration
+    /// the `default_cwd` defined by your wezterm configuration
     #[arg(long)]
     cwd: Option<std::path::PathBuf>,
 
@@ -347,7 +347,7 @@ pub struct RecordCommand {
     #[arg(short)]
     outfile: Option<std::path::PathBuf>,
 
-    /// Start prog instead of the default_prog defined by your
+    /// Start prog instead of the `default_prog` defined by your
     /// wezterm configuration
     #[arg(value_parser)]
     prog: Vec<OsString>,
@@ -355,7 +355,7 @@ pub struct RecordCommand {
 
 impl RecordCommand {
     pub fn run(&self, config: ConfigHandle) -> anyhow::Result<()> {
-        let prog = self.prog.iter().map(|s| s.as_os_str()).collect::<Vec<_>>();
+        let prog = self.prog.iter().map(std::ffi::OsString::as_os_str).collect::<Vec<_>>();
 
         let mut tty = Tty::new()?;
         let size = tty.get_size()?;
@@ -491,7 +491,7 @@ impl RecordCommand {
         }
 
         tty.set_cooked()?;
-        eprintln!("Child status: {:?}", child_status);
+        eprintln!("Child status: {child_status:?}");
         cast_file.flush()?;
         eprintln!("*** Finished recording to {}", cast_file_name.display());
 
@@ -536,7 +536,7 @@ impl PlayCommand {
                 if event.1 != "o" {
                     continue;
                 }
-                std::io::stdout().write_all(&event.2.as_bytes())?;
+                std::io::stdout().write_all(event.2.as_bytes())?;
             }
 
             return Ok(());
@@ -553,7 +553,7 @@ impl PlayCommand {
                 if event.1 != "o" {
                     continue;
                 }
-                sent_parser.parse(&event.2.as_bytes(), |act| sent_actions.push(act));
+                sent_parser.parse(event.2.as_bytes(), |act| sent_actions.push(act));
             }
             drop(tx);
         } else {
@@ -602,8 +602,8 @@ impl PlayCommand {
                 let duration = target.saturating_duration_since(Instant::now());
                 std::thread::sleep(duration);
 
-                tty.write_all(&event.2.as_bytes())?;
-                sent_parser.parse(&event.2.as_bytes(), |act| sent_actions.push(act));
+                tty.write_all(event.2.as_bytes())?;
+                sent_parser.parse(event.2.as_bytes(), |act| sent_actions.push(act));
             }
 
             std::thread::sleep(Duration::from_millis(100));
@@ -614,7 +614,7 @@ impl PlayCommand {
         if self.explain || self.explain_only {
             println!("> SENT");
             for s in summarize(sent_actions) {
-                println!("\t{:?}", s);
+                println!("\t{s:?}");
             }
         }
 
@@ -628,9 +628,9 @@ impl PlayCommand {
                     Message::Stdin(data) => {
                         if self.explain {
                             let answer_back = String::from_utf8_lossy(&data);
-                            println!("\t{:?}", answer_back);
+                            println!("\t{answer_back:?}");
                             parser.parse(&data, |action| {
-                                println!("\t{:?}", action);
+                                println!("\t{action:?}");
                             });
                         }
                     }

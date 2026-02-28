@@ -1,4 +1,4 @@
-use super::*;
+use super::{get_mux, get_or_create_module, mlua, Arc, LuaValue, Mux, MuxPane, MuxTab, MuxTabInfo, SpawnTab, ToDynamic, UserData, UserDataMethods, Window, WindowId};
 use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard};
 
 #[derive(Clone, Copy, Debug)]
@@ -24,15 +24,15 @@ impl MuxWindow {
 
 impl UserData for MuxWindow {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, _: ()| {
+        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, (): ()| {
             Ok(format!(
                 "MuxWindow(mux_window_id:{}, pid:{})",
                 this.0,
                 unsafe { libc::getpid() }
             ))
         });
-        methods.add_method("window_id", |_, this, _: ()| Ok(this.0));
-        methods.add_async_method("gui_window", |lua, this, _: ()| async move {
+        methods.add_method("window_id", |_, this, (): ()| Ok(this.0));
+        methods.add_async_method("gui_window", |lua, this, (): ()| async move {
             // Weakly bound to the gui module; mux cannot hard-depend
             // on wezterm-gui, but we can runtime resolve the appropriate module
             let wezterm_mod = get_or_create_module(lua, "wezterm")
@@ -41,7 +41,7 @@ impl UserData for MuxWindow {
             let func: mlua::Function = gui.get("gui_window_for_mux_window")?;
             func.call_async::<_, mlua::Value>(this.0).await
         });
-        methods.add_method("get_workspace", |_, this, _: ()| {
+        methods.add_method("get_workspace", |_, this, (): ()| {
             let mux = get_mux()?;
             let window = this.resolve(&mux)?;
             Ok(window.get_workspace().to_string())
@@ -49,12 +49,13 @@ impl UserData for MuxWindow {
         methods.add_method("set_workspace", |_, this, new_name: String| {
             let mux = get_mux()?;
             let mut window = this.resolve_mut(&mux)?;
-            Ok(window.set_workspace(&new_name))
+            let _: () = window.set_workspace(&new_name);
+            Ok(())
         });
         methods.add_async_method("spawn_tab", |_, this, spawn: SpawnTab| async move {
             spawn.spawn(this).await
         });
-        methods.add_method("get_title", |_, this, _: ()| {
+        methods.add_method("get_title", |_, this, (): ()| {
             let mux = get_mux()?;
             let window = this.resolve(&mux)?;
             Ok(window.get_title().to_string())
@@ -62,9 +63,10 @@ impl UserData for MuxWindow {
         methods.add_method("set_title", |_, this, title: String| {
             let mux = get_mux()?;
             let mut window = this.resolve_mut(&mux)?;
-            Ok(window.set_title(&title))
+            let _: () = window.set_title(&title);
+            Ok(())
         });
-        methods.add_method("tabs", |_, this, _: ()| {
+        methods.add_method("tabs", |_, this, (): ()| {
             let mux = get_mux()?;
             let window = this.resolve(&mux)?;
             Ok(window
@@ -72,7 +74,7 @@ impl UserData for MuxWindow {
                 .map(|tab| MuxTab(tab.tab_id()))
                 .collect::<Vec<MuxTab>>())
         });
-        methods.add_method("tabs_with_info", |lua, this, _: ()| {
+        methods.add_method("tabs_with_info", |lua, this, (): ()| {
             let mux = get_mux()?;
             let window = this.resolve(&mux)?;
             let result = lua.create_table()?;
@@ -83,22 +85,19 @@ impl UserData for MuxWindow {
                     is_active: index == active_idx,
                 };
                 let info = luahelper::dynamic_to_lua_value(lua, info.to_dynamic())?;
-                match &info {
-                    LuaValue::Table(t) => {
-                        t.set("tab", MuxTab(tab.tab_id()))?;
-                    }
-                    _ => {}
+                if let LuaValue::Table(t) = &info {
+                    t.set("tab", MuxTab(tab.tab_id()))?;
                 }
                 result.set(index + 1, info)?;
             }
             Ok(result)
         });
-        methods.add_method("active_tab", |_, this, _: ()| {
+        methods.add_method("active_tab", |_, this, (): ()| {
             let mux = get_mux()?;
             let window = this.resolve(&mux)?;
             Ok(window.get_active().map(|tab| MuxTab(tab.tab_id())))
         });
-        methods.add_method("active_pane", |_, this, _: ()| {
+        methods.add_method("active_pane", |_, this, (): ()| {
             let mux = get_mux()?;
             let window = this.resolve(&mux)?;
             Ok(window

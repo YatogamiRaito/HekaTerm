@@ -3,14 +3,14 @@ use crate::color::{AnsiColor, ColorSpec, RgbColor, SrgbaTuple};
 use bitflags::bitflags;
 use core::convert::TryInto;
 use core::fmt::{Display, Error as FmtError, Formatter};
-use num_derive::*;
+use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::{FromPrimitive, ToPrimitive};
 #[cfg(feature = "use_serde")]
 use serde::{Deserialize, Serialize};
 use wezterm_dynamic::{FromDynamic, ToDynamic};
 use wezterm_input_types::Modifiers;
 
-use crate::allocate::*;
+use crate::allocate::{ToString, Box, Vec, String};
 
 pub use vtparse::CsiParam;
 
@@ -27,9 +27,9 @@ pub enum Blink {
 /// Allow converting to boolean; true means some kind of
 /// blink, false means none.  This is used in some
 /// generic code to determine whether to enable blink.
-impl Into<bool> for Blink {
-    fn into(self) -> bool {
-        self != Blink::None
+impl From<Blink> for bool {
+    fn from(val: Blink) -> Self {
+        val != Blink::None
     }
 }
 
@@ -40,24 +40,23 @@ impl Into<bool> for Blink {
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum Intensity {
+    #[default]
     Normal = 0,
     Bold = 1,
     Half = 2,
 }
 
-impl Default for Intensity {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 /// Specify just how underlined you want your `Cell` to be
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, FromDynamic, ToDynamic)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum Underline {
     /// The cell is not underlined
+    #[default]
     None = 0,
     /// The cell is underlined with a single line
     Single = 1,
@@ -71,18 +70,13 @@ pub enum Underline {
     Dashed = 5,
 }
 
-impl Default for Underline {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 /// Allow converting to boolean; true means some kind of
 /// underline, false means none.  This is used in some
 /// generic code to determine whether to enable underline.
-impl Into<bool> for Underline {
-    fn into(self) -> bool {
-        self != Underline::None
+impl From<Underline> for bool {
+    fn from(val: Underline) -> Self {
+        val != Underline::None
     }
 }
 
@@ -203,7 +197,7 @@ pub struct Unspecified {
 impl Display for Unspecified {
     fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
         for p in &self.params {
-            write!(f, "{}", p)?;
+            write!(f, "{p}")?;
         }
         write!(f, "{}", self.control)
     }
@@ -217,24 +211,24 @@ impl Display for CSI {
     fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
         write!(f, "\x1b[")?;
         match self {
-            CSI::Sgr(sgr) => sgr.fmt(f)?,
-            CSI::Cursor(c) => c.fmt(f)?,
-            CSI::Edit(e) => e.fmt(f)?,
-            CSI::Mode(mode) => mode.fmt(f)?,
-            CSI::Unspecified(unspec) => unspec.fmt(f)?,
-            CSI::Mouse(mouse) => mouse.fmt(f)?,
-            CSI::Device(dev) => dev.fmt(f)?,
-            CSI::Window(window) => window.fmt(f)?,
-            CSI::Keyboard(Keyboard::SetKittyState { flags, mode }) => {
-                write!(f, "={};{}u", flags.bits(), *mode as u16)?
+            Self::Sgr(sgr) => sgr.fmt(f)?,
+            Self::Cursor(c) => c.fmt(f)?,
+            Self::Edit(e) => e.fmt(f)?,
+            Self::Mode(mode) => mode.fmt(f)?,
+            Self::Unspecified(unspec) => unspec.fmt(f)?,
+            Self::Mouse(mouse) => mouse.fmt(f)?,
+            Self::Device(dev) => dev.fmt(f)?,
+            Self::Window(window) => window.fmt(f)?,
+            Self::Keyboard(Keyboard::SetKittyState { flags, mode }) => {
+                write!(f, "={};{}u", flags.bits(), *mode as u16)?;
             }
-            CSI::Keyboard(Keyboard::PushKittyState { flags, mode }) => {
-                write!(f, ">{};{}u", flags.bits(), *mode as u16)?
+            Self::Keyboard(Keyboard::PushKittyState { flags, mode }) => {
+                write!(f, ">{};{}u", flags.bits(), *mode as u16)?;
             }
-            CSI::Keyboard(Keyboard::PopKittyState(n)) => write!(f, "<{}u", *n)?,
-            CSI::Keyboard(Keyboard::QueryKittySupport) => write!(f, "?u")?,
-            CSI::Keyboard(Keyboard::ReportKittyState(flags)) => write!(f, "?{}u", flags.bits())?,
-            CSI::SelectCharacterPath(path, n) => {
+            Self::Keyboard(Keyboard::PopKittyState(n)) => write!(f, "<{}u", *n)?,
+            Self::Keyboard(Keyboard::QueryKittySupport) => write!(f, "?u")?,
+            Self::Keyboard(Keyboard::ReportKittyState(flags)) => write!(f, "?{}u", flags.bits())?,
+            Self::SelectCharacterPath(path, n) => {
                 let a = match path {
                     CharacterPath::ImplementationDefault => 0,
                     CharacterPath::LeftToRightOrTopToBottom => 1,
@@ -242,17 +236,19 @@ impl Display for CSI {
                 };
                 match (a, n) {
                     (0, 0) => write!(f, " k")?,
-                    (a, 0) => write!(f, "{} k", a)?,
-                    (a, n) => write!(f, "{};{} k", a, n)?,
+                    (a, 0) => write!(f, "{a} k")?,
+                    (a, n) => write!(f, "{a};{n} k")?,
                 }
             }
-        };
+        }
         Ok(())
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Default)]
 pub enum CursorStyle {
+    #[default]
     Default = 0,
     BlinkingBlock = 1,
     SteadyBlock = 2,
@@ -262,11 +258,6 @@ pub enum CursorStyle {
     SteadyBar = 6,
 }
 
-impl Default for CursorStyle {
-    fn default() -> CursorStyle {
-        CursorStyle::Default
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum DeviceAttributeCodes {
@@ -297,18 +288,19 @@ pub struct DeviceAttributeFlags {
 
 impl DeviceAttributeFlags {
     fn emit(&self, f: &mut Formatter, leader: &str) -> Result<(), FmtError> {
-        write!(f, "{}", leader)?;
+        write!(f, "{leader}")?;
         for item in &self.attributes {
             match item {
-                DeviceAttribute::Code(c) => write!(f, ";{}", c.to_u16().ok_or_else(|| FmtError)?)?,
-                DeviceAttribute::Unspecified(param) => write!(f, ";{}", param)?,
+                DeviceAttribute::Code(c) => write!(f, ";{}", c.to_u16().ok_or(FmtError)?)?,
+                DeviceAttribute::Unspecified(param) => write!(f, ";{param}")?,
             }
         }
         write!(f, "c")?;
         Ok(())
     }
 
-    pub fn new(attributes: Vec<DeviceAttribute>) -> Self {
+    #[must_use] 
+    pub const fn new(attributes: Vec<DeviceAttribute>) -> Self {
         Self { attributes }
     }
 
@@ -318,10 +310,10 @@ impl DeviceAttributeFlags {
             match i {
                 CsiParam::Integer(p) => match FromPrimitive::from_i64(*p) {
                     Some(c) => attributes.push(DeviceAttribute::Code(c)),
-                    None => attributes.push(DeviceAttribute::Unspecified(i.clone())),
+                    None => attributes.push(DeviceAttribute::Unspecified(*i)),
                 },
                 CsiParam::P(b';') => {}
-                _ => attributes.push(DeviceAttribute::Unspecified(i.clone())),
+                _ => attributes.push(DeviceAttribute::Unspecified(*i)),
             }
         }
         Self { attributes }
@@ -352,7 +344,7 @@ impl Display for XtSmGraphicsItem {
             Self::NumberOfColorRegisters => write!(f, "1"),
             Self::SixelGraphicsGeometry => write!(f, "2"),
             Self::RegisGraphicsGeometry => write!(f, "3"),
-            Self::Unspecified(n) => write!(f, "{}", n),
+            Self::Unspecified(n) => write!(f, "{n}"),
         }
     }
 }
@@ -366,7 +358,8 @@ pub enum XtSmGraphicsAction {
 }
 
 impl XtSmGraphicsAction {
-    pub fn to_i64(&self) -> i64 {
+    #[must_use] 
+    pub const fn to_i64(&self) -> i64 {
         match self {
             Self::ReadAttribute => 1,
             Self::ResetToDefault => 2,
@@ -385,7 +378,8 @@ pub enum XtSmGraphicsStatus {
 }
 
 impl XtSmGraphicsStatus {
-    pub fn to_i64(&self) -> i64 {
+    #[must_use] 
+    pub const fn to_i64(&self) -> i64 {
         match self {
             Self::Success => 0,
             Self::InvalidItem => 1,
@@ -403,7 +397,8 @@ pub struct XtSmGraphics {
 }
 
 impl XtSmGraphics {
-    pub fn action(&self) -> Option<XtSmGraphicsAction> {
+    #[must_use] 
+    pub const fn action(&self) -> Option<XtSmGraphicsAction> {
         match self.action_or_status {
             1 => Some(XtSmGraphicsAction::ReadAttribute),
             2 => Some(XtSmGraphicsAction::ResetToDefault),
@@ -413,7 +408,8 @@ impl XtSmGraphics {
         }
     }
 
-    pub fn status(&self) -> Option<XtSmGraphicsStatus> {
+    #[must_use] 
+    pub const fn status(&self) -> Option<XtSmGraphicsStatus> {
         match self.action_or_status {
             0 => Some(XtSmGraphicsStatus::Success),
             1 => Some(XtSmGraphicsStatus::InvalidItem),
@@ -423,9 +419,10 @@ impl XtSmGraphics {
         }
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn parse(params: &[CsiParam]) -> Result<CSI, ()> {
         let params = Cracked::parse(&params[1..])?;
-        Ok(CSI::Device(Box::new(Device::XtSmGraphics(XtSmGraphics {
+        Ok(CSI::Device(Box::new(Device::XtSmGraphics(Self {
             item: match params.get(0).ok_or(())? {
                 CsiParam::Integer(1) => XtSmGraphicsItem::NumberOfColorRegisters,
                 CsiParam::Integer(2) => XtSmGraphicsItem::SixelGraphicsGeometry,
@@ -451,14 +448,14 @@ impl XtSmGraphics {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Device {
     DeviceAttributes(DeviceAttributes),
-    /// DECSTR - https://vt100.net/docs/vt510-rm/DECSTR.html
+    /// DECSTR - <https://vt100.net/docs/vt510-rm/DECSTR.html>
     SoftReset,
     RequestPrimaryDeviceAttributes,
     RequestSecondaryDeviceAttributes,
     RequestTertiaryDeviceAttributes,
     StatusReport,
-    /// https://github.com/mintty/mintty/issues/881
-    /// https://gitlab.gnome.org/GNOME/vte/-/issues/235
+    /// <https://github.com/mintty/mintty/issues/881>
+    /// <https://gitlab.gnome.org/GNOME/vte/-/issues/235>
     RequestTerminalNameAndVersion,
     RequestTerminalParameters(i64),
     XtSmGraphics(XtSmGraphics),
@@ -467,29 +464,29 @@ pub enum Device {
 impl Display for Device {
     fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
         match self {
-            Device::DeviceAttributes(DeviceAttributes::Vt100WithAdvancedVideoOption) => {
-                write!(f, "?1;2c")?
+            Self::DeviceAttributes(DeviceAttributes::Vt100WithAdvancedVideoOption) => {
+                write!(f, "?1;2c")?;
             }
-            Device::DeviceAttributes(DeviceAttributes::Vt101WithNoOptions) => write!(f, "?1;0c")?,
-            Device::DeviceAttributes(DeviceAttributes::Vt102) => write!(f, "?6c")?,
-            Device::DeviceAttributes(DeviceAttributes::Vt220(attr)) => attr.emit(f, "?62")?,
-            Device::DeviceAttributes(DeviceAttributes::Vt320(attr)) => attr.emit(f, "?63")?,
-            Device::DeviceAttributes(DeviceAttributes::Vt420(attr)) => attr.emit(f, "?64")?,
-            Device::SoftReset => write!(f, "!p")?,
-            Device::RequestPrimaryDeviceAttributes => write!(f, "c")?,
-            Device::RequestSecondaryDeviceAttributes => write!(f, ">c")?,
-            Device::RequestTertiaryDeviceAttributes => write!(f, "=c")?,
-            Device::RequestTerminalNameAndVersion => write!(f, ">q")?,
-            Device::RequestTerminalParameters(n) => write!(f, "{};1;1;128;128;1;0x", n + 2)?,
-            Device::StatusReport => write!(f, "5n")?,
-            Device::XtSmGraphics(g) => {
+            Self::DeviceAttributes(DeviceAttributes::Vt101WithNoOptions) => write!(f, "?1;0c")?,
+            Self::DeviceAttributes(DeviceAttributes::Vt102) => write!(f, "?6c")?,
+            Self::DeviceAttributes(DeviceAttributes::Vt220(attr)) => attr.emit(f, "?62")?,
+            Self::DeviceAttributes(DeviceAttributes::Vt320(attr)) => attr.emit(f, "?63")?,
+            Self::DeviceAttributes(DeviceAttributes::Vt420(attr)) => attr.emit(f, "?64")?,
+            Self::SoftReset => write!(f, "!p")?,
+            Self::RequestPrimaryDeviceAttributes => write!(f, "c")?,
+            Self::RequestSecondaryDeviceAttributes => write!(f, ">c")?,
+            Self::RequestTertiaryDeviceAttributes => write!(f, "=c")?,
+            Self::RequestTerminalNameAndVersion => write!(f, ">q")?,
+            Self::RequestTerminalParameters(n) => write!(f, "{};1;1;128;128;1;0x", n + 2)?,
+            Self::StatusReport => write!(f, "5n")?,
+            Self::XtSmGraphics(g) => {
                 write!(f, "?{};{}", g.item, g.action_or_status)?;
                 for v in &g.value {
-                    write!(f, ";{}", v)?;
+                    write!(f, ";{v}")?;
                 }
                 write!(f, "S")?;
             }
-        };
+        }
         Ok(())
     }
 }
@@ -517,16 +514,16 @@ pub enum MouseButton {
 }
 
 impl From<MouseButton> for MouseButtons {
-    fn from(button: MouseButton) -> MouseButtons {
+    fn from(button: MouseButton) -> Self {
         match button {
-            MouseButton::Button1Press | MouseButton::Button1Drag => MouseButtons::LEFT,
-            MouseButton::Button2Press | MouseButton::Button2Drag => MouseButtons::MIDDLE,
-            MouseButton::Button3Press | MouseButton::Button3Drag => MouseButtons::RIGHT,
-            MouseButton::Button4Press => MouseButtons::VERT_WHEEL | MouseButtons::WHEEL_POSITIVE,
-            MouseButton::Button5Press => MouseButtons::VERT_WHEEL,
-            MouseButton::Button6Press => MouseButtons::HORZ_WHEEL | MouseButtons::WHEEL_POSITIVE,
-            MouseButton::Button7Press => MouseButtons::HORZ_WHEEL,
-            _ => MouseButtons::NONE,
+            MouseButton::Button1Press | MouseButton::Button1Drag => Self::LEFT,
+            MouseButton::Button2Press | MouseButton::Button2Drag => Self::MIDDLE,
+            MouseButton::Button3Press | MouseButton::Button3Drag => Self::RIGHT,
+            MouseButton::Button4Press => Self::VERT_WHEEL | Self::WHEEL_POSITIVE,
+            MouseButton::Button5Press => Self::VERT_WHEEL,
+            MouseButton::Button6Press => Self::HORZ_WHEEL | Self::WHEEL_POSITIVE,
+            MouseButton::Button7Press => Self::HORZ_WHEEL,
+            _ => Self::NONE,
         }
     }
 }
@@ -591,63 +588,63 @@ pub enum Window {
 
 fn numstr_or_empty(x: &Option<i64>) -> String {
     match x {
-        Some(x) => format!("{}", x),
-        None => "".to_owned(),
+        Some(x) => format!("{x}"),
+        None => String::new(),
     }
 }
 
 impl Display for Window {
     fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
         match self {
-            Window::DeIconify => write!(f, "1t"),
-            Window::Iconify => write!(f, "2t"),
-            Window::MoveWindow { x, y } => write!(f, "3;{};{}t", x, y),
-            Window::ResizeWindowPixels { width, height } => write!(
+            Self::DeIconify => write!(f, "1t"),
+            Self::Iconify => write!(f, "2t"),
+            Self::MoveWindow { x, y } => write!(f, "3;{x};{y}t"),
+            Self::ResizeWindowPixels { width, height } => write!(
                 f,
                 "4;{};{}t",
                 numstr_or_empty(height),
                 numstr_or_empty(width),
             ),
-            Window::RaiseWindow => write!(f, "5t"),
-            Window::LowerWindow => write!(f, "6t"),
-            Window::RefreshWindow => write!(f, "7t"),
-            Window::ResizeWindowCells { width, height } => write!(
+            Self::RaiseWindow => write!(f, "5t"),
+            Self::LowerWindow => write!(f, "6t"),
+            Self::RefreshWindow => write!(f, "7t"),
+            Self::ResizeWindowCells { width, height } => write!(
                 f,
                 "8;{};{}t",
                 numstr_or_empty(height),
                 numstr_or_empty(width),
             ),
-            Window::RestoreMaximizedWindow => write!(f, "9;0t"),
-            Window::MaximizeWindow => write!(f, "9;1t"),
-            Window::MaximizeWindowVertically => write!(f, "9;2t"),
-            Window::MaximizeWindowHorizontally => write!(f, "9;3t"),
-            Window::UndoFullScreenMode => write!(f, "10;0t"),
-            Window::ChangeToFullScreenMode => write!(f, "10;1t"),
-            Window::ToggleFullScreen => write!(f, "10;2t"),
-            Window::ReportWindowState => write!(f, "11t"),
-            Window::ReportWindowPosition => write!(f, "13t"),
-            Window::ReportTextAreaPosition => write!(f, "13;2t"),
-            Window::ReportTextAreaSizePixels => write!(f, "14t"),
-            Window::ReportWindowSizePixels => write!(f, "14;2t"),
-            Window::ReportScreenSizePixels => write!(f, "15t"),
-            Window::ReportCellSizePixels => write!(f, "16t"),
-            Window::ReportCellSizePixelsResponse { width, height } => write!(
+            Self::RestoreMaximizedWindow => write!(f, "9;0t"),
+            Self::MaximizeWindow => write!(f, "9;1t"),
+            Self::MaximizeWindowVertically => write!(f, "9;2t"),
+            Self::MaximizeWindowHorizontally => write!(f, "9;3t"),
+            Self::UndoFullScreenMode => write!(f, "10;0t"),
+            Self::ChangeToFullScreenMode => write!(f, "10;1t"),
+            Self::ToggleFullScreen => write!(f, "10;2t"),
+            Self::ReportWindowState => write!(f, "11t"),
+            Self::ReportWindowPosition => write!(f, "13t"),
+            Self::ReportTextAreaPosition => write!(f, "13;2t"),
+            Self::ReportTextAreaSizePixels => write!(f, "14t"),
+            Self::ReportWindowSizePixels => write!(f, "14;2t"),
+            Self::ReportScreenSizePixels => write!(f, "15t"),
+            Self::ReportCellSizePixels => write!(f, "16t"),
+            Self::ReportCellSizePixelsResponse { width, height } => write!(
                 f,
                 "6;{};{}t",
                 numstr_or_empty(height),
                 numstr_or_empty(width),
             ),
-            Window::ReportTextAreaSizeCells => write!(f, "18t"),
-            Window::ReportScreenSizeCells => write!(f, "19t"),
-            Window::ReportIconLabel => write!(f, "20t"),
-            Window::ReportWindowTitle => write!(f, "21t"),
-            Window::PushIconAndWindowTitle => write!(f, "22;0t"),
-            Window::PushIconTitle => write!(f, "22;1t"),
-            Window::PushWindowTitle => write!(f, "22;2t"),
-            Window::PopIconAndWindowTitle => write!(f, "23;0t"),
-            Window::PopIconTitle => write!(f, "23;1t"),
-            Window::PopWindowTitle => write!(f, "23;2t"),
-            Window::ChecksumRectangularArea {
+            Self::ReportTextAreaSizeCells => write!(f, "18t"),
+            Self::ReportScreenSizeCells => write!(f, "19t"),
+            Self::ReportIconLabel => write!(f, "20t"),
+            Self::ReportWindowTitle => write!(f, "21t"),
+            Self::PushIconAndWindowTitle => write!(f, "22;0t"),
+            Self::PushIconTitle => write!(f, "22;1t"),
+            Self::PushWindowTitle => write!(f, "22;2t"),
+            Self::PopIconAndWindowTitle => write!(f, "23;0t"),
+            Self::PopIconTitle => write!(f, "23;1t"),
+            Self::PopWindowTitle => write!(f, "23;2t"),
+            Self::ChecksumRectangularArea {
                 request_id,
                 page_number,
                 top,
@@ -656,8 +653,7 @@ impl Display for Window {
                 right,
             } => write!(
                 f,
-                "{};{};{};{};{};{}*y",
-                request_id, page_number, top, left, bottom, right,
+                "{request_id};{page_number};{top};{left};{bottom};{right}*y",
             ),
         }
     }
@@ -682,7 +678,7 @@ pub enum MouseReport {
 impl Display for MouseReport {
     fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
         match self {
-            MouseReport::SGR1006 {
+            Self::SGR1006 {
                 x,
                 y,
                 button,
@@ -723,9 +719,9 @@ impl Display for MouseReport {
                     | MouseButton::None => 'M',
                     _ => 'm',
                 };
-                write!(f, "<{};{};{}{}", b, x, y, trailer)
+                write!(f, "<{b};{x};{y}{trailer}")
             }
-            MouseReport::SGR1016 {
+            Self::SGR1016 {
                 x_pixels,
                 y_pixels,
                 button,
@@ -766,7 +762,7 @@ impl Display for MouseReport {
                     | MouseButton::None => 'M',
                     _ => 'm',
                 };
-                write!(f, "<{};{};{}{}", b, x_pixels, y_pixels, trailer)
+                write!(f, "<{b};{x_pixels};{y_pixels}{trailer}")
             }
         }
     }
@@ -781,12 +777,13 @@ pub enum XtermKeyModifierResource {
 }
 
 impl XtermKeyModifierResource {
-    pub fn parse(value: i64) -> Option<Self> {
+    #[must_use] 
+    pub const fn parse(value: i64) -> Option<Self> {
         Some(match value {
-            0 => XtermKeyModifierResource::Keyboard,
-            1 => XtermKeyModifierResource::CursorKeys,
-            2 => XtermKeyModifierResource::FunctionKeys,
-            4 => XtermKeyModifierResource::OtherKeys,
+            0 => Self::Keyboard,
+            1 => Self::CursorKeys,
+            2 => Self::FunctionKeys,
+            4 => Self::OtherKeys,
             _ => return None,
         })
     }
@@ -829,23 +826,23 @@ impl Display for Mode {
             }};
         }
         match self {
-            Mode::SetDecPrivateMode(mode) => emit!("h", mode),
-            Mode::ResetDecPrivateMode(mode) => emit!("l", mode),
-            Mode::SaveDecPrivateMode(mode) => emit!("s", mode),
-            Mode::RestoreDecPrivateMode(mode) => emit!("r", mode),
-            Mode::QueryDecPrivateMode(DecPrivateMode::Code(mode)) => {
-                write!(f, "?{}$p", mode.to_u16().ok_or_else(|| FmtError)?)
+            Self::SetDecPrivateMode(mode) => emit!("h", mode),
+            Self::ResetDecPrivateMode(mode) => emit!("l", mode),
+            Self::SaveDecPrivateMode(mode) => emit!("s", mode),
+            Self::RestoreDecPrivateMode(mode) => emit!("r", mode),
+            Self::QueryDecPrivateMode(DecPrivateMode::Code(mode)) => {
+                write!(f, "?{}$p", mode.to_u16().ok_or(FmtError)?)
             }
-            Mode::QueryDecPrivateMode(DecPrivateMode::Unspecified(mode)) => {
-                write!(f, "?{}$p", mode)
+            Self::QueryDecPrivateMode(DecPrivateMode::Unspecified(mode)) => {
+                write!(f, "?{mode}$p")
             }
-            Mode::SetMode(mode) => emit_mode!("h", mode),
-            Mode::ResetMode(mode) => emit_mode!("l", mode),
-            Mode::QueryMode(TerminalMode::Code(mode)) => {
-                write!(f, "?{}$p", mode.to_u16().ok_or_else(|| FmtError)?)
+            Self::SetMode(mode) => emit_mode!("h", mode),
+            Self::ResetMode(mode) => emit_mode!("l", mode),
+            Self::QueryMode(TerminalMode::Code(mode)) => {
+                write!(f, "?{}$p", mode.to_u16().ok_or(FmtError)?)
             }
-            Mode::QueryMode(TerminalMode::Unspecified(mode)) => write!(f, "?{}$p", mode),
-            Mode::XtermKeyMode { resource, value } => {
+            Self::QueryMode(TerminalMode::Unspecified(mode)) => write!(f, "?{mode}$p"),
+            Self::XtermKeyMode { resource, value } => {
                 write!(
                     f,
                     ">{}",
@@ -857,7 +854,7 @@ impl Display for Mode {
                     }
                 )?;
                 if let Some(value) = value {
-                    write!(f, ";{}", value)?;
+                    write!(f, ";{value}")?;
                 } else {
                     write!(f, ";")?;
                 }
@@ -875,43 +872,43 @@ pub enum DecPrivateMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum DecPrivateModeCode {
-    /// https://vt100.net/docs/vt510-rm/DECCKM.html
+    /// <https://vt100.net/docs/vt510-rm/DECCKM.html>
     /// This mode is only effective when the terminal is in keypad application mode (see DECKPAM)
     /// and the ANSI/VT52 mode (DECANM) is set (see DECANM). Under these conditions, if the cursor
     /// key mode is reset, the four cursor function keys will send ANSI cursor control commands. If
     /// cursor key mode is set, the four cursor function keys will send application functions.
     ApplicationCursorKeys = 1,
 
-    /// https://vt100.net/docs/vt510-rm/DECANM.html
+    /// <https://vt100.net/docs/vt510-rm/DECANM.html>
     /// Behave like a vt52
     DecAnsiMode = 2,
 
-    /// https://vt100.net/docs/vt510-rm/DECCOLM.html
+    /// <https://vt100.net/docs/vt510-rm/DECCOLM.html>
     Select132Columns = 3,
-    /// https://vt100.net/docs/vt510-rm/DECSCLM.html
+    /// <https://vt100.net/docs/vt510-rm/DECSCLM.html>
     SmoothScroll = 4,
-    /// https://vt100.net/docs/vt510-rm/DECSCNM.html
+    /// <https://vt100.net/docs/vt510-rm/DECSCNM.html>
     ReverseVideo = 5,
-    /// https://vt100.net/docs/vt510-rm/DECOM.html
-    /// When OriginMode is enabled, cursor is constrained to the
+    /// <https://vt100.net/docs/vt510-rm/DECOM.html>
+    /// When `OriginMode` is enabled, cursor is constrained to the
     /// scroll region and its position is relative to the scroll
     /// region.
     OriginMode = 6,
-    /// https://vt100.net/docs/vt510-rm/DECAWM.html
+    /// <https://vt100.net/docs/vt510-rm/DECAWM.html>
     /// When enabled, wrap to next line, Otherwise replace the last
     /// character
     AutoWrap = 7,
-    /// https://vt100.net/docs/vt510-rm/DECARM.html
+    /// <https://vt100.net/docs/vt510-rm/DECARM.html>
     AutoRepeat = 8,
     StartBlinkingCursor = 12,
     ShowCursor = 25,
 
     ReverseWraparound = 45,
 
-    /// https://vt100.net/docs/vt510-rm/DECLRMM.html
+    /// <https://vt100.net/docs/vt510-rm/DECLRMM.html>
     LeftRightMarginMode = 69,
 
-    /// DECSDM - https://vt100.net/dec/ek-vt38t-ug-001.pdf#page=132
+    /// DECSDM - <https://vt100.net/dec/ek-vt38t-ug-001.pdf#page=132>
     SixelDisplayMode = 80,
     /// Enable mouse button press/release reporting
     MouseTracking = 1000,
@@ -972,16 +969,16 @@ pub enum TerminalMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum TerminalModeCode {
-    /// https://vt100.net/docs/vt510-rm/KAM.html
+    /// <https://vt100.net/docs/vt510-rm/KAM.html>
     KeyboardAction = 2,
-    /// https://vt100.net/docs/vt510-rm/IRM.html
+    /// <https://vt100.net/docs/vt510-rm/IRM.html>
     Insert = 4,
     /// <https://terminal-wg.pages.freedesktop.org/bidi/recommendation/escape-sequences.html>
     BiDirectionalSupportMode = 8,
-    /// https://vt100.net/docs/vt510-rm/SRM.html
+    /// <https://vt100.net/docs/vt510-rm/SRM.html>
     /// But in the MS terminal this is cursor blinking.
     SendReceive = 12,
-    /// https://vt100.net/docs/vt510-rm/LNM.html
+    /// <https://vt100.net/docs/vt510-rm/LNM.html>
     AutomaticNewline = 20,
     /// MS terminal cursor visibility
     ShowCursor = 25,
@@ -1067,7 +1064,7 @@ pub enum Cursor {
     },
 
     /// CPR: this is the request from the client.
-    /// The terminal will respond with ActivePositionReport.
+    /// The terminal will respond with `ActivePositionReport`.
     RequestActivePositionReport,
 
     /// SCP - Save Cursor Position.
@@ -1116,7 +1113,7 @@ pub enum Cursor {
         bottom: OneBased,
     },
 
-    /// https://vt100.net/docs/vt510-rm/DECSLRM.html
+    /// <https://vt100.net/docs/vt510-rm/DECSLRM.html>
     SetLeftAndRightMargins {
         left: OneBased,
         right: OneBased,
@@ -1213,7 +1210,7 @@ pub enum Edit {
     /// presentation position is not affected by this control function.
     ///
     /// Also known as Pan Up in DEC:
-    /// https://vt100.net/docs/vt510-rm/SD.html
+    /// <https://vt100.net/docs/vt510-rm/SD.html>
     ScrollDown(u32),
 
     /// SU - SCROLL UP
@@ -1224,7 +1221,7 @@ pub enum Edit {
     /// presentation position is not affected by this control function.
     ScrollUp(u32),
 
-    /// ED - ERASE IN PAGE (XTerm calls this Erase in Display)
+    /// ED - ERASE IN PAGE (`XTerm` calls this Erase in Display)
     EraseInDisplay(EraseInDisplay),
 
     /// REP - Repeat the preceding character n times
@@ -1238,10 +1235,10 @@ trait EncodeCSIParam {
 impl<T: ParamEnum + PartialEq + ToPrimitive> EncodeCSIParam for T {
     fn write_csi(&self, f: &mut Formatter, control: &str) -> Result<(), FmtError> {
         if *self == ParamEnum::default() {
-            write!(f, "{}", control)
+            write!(f, "{control}")
         } else {
-            let value = self.to_i64().ok_or_else(|| FmtError)?;
-            write!(f, "{}{}", value, control)
+            let value = self.to_i64().ok_or(FmtError)?;
+            write!(f, "{value}{control}")
         }
     }
 }
@@ -1249,7 +1246,7 @@ impl<T: ParamEnum + PartialEq + ToPrimitive> EncodeCSIParam for T {
 impl EncodeCSIParam for u32 {
     fn write_csi(&self, f: &mut Formatter, control: &str) -> Result<(), FmtError> {
         if *self == 1 {
-            write!(f, "{}", control)
+            write!(f, "{control}")
         } else {
             write!(f, "{}{}", *self, control)
         }
@@ -1259,7 +1256,7 @@ impl EncodeCSIParam for u32 {
 impl EncodeCSIParam for OneBased {
     fn write_csi(&self, f: &mut Formatter, control: &str) -> Result<(), FmtError> {
         if self.as_one_based() == 1 {
-            write!(f, "{}", control)
+            write!(f, "{control}")
         } else {
             write!(f, "{}{}", *self, control)
         }
@@ -1269,16 +1266,16 @@ impl EncodeCSIParam for OneBased {
 impl Display for Edit {
     fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
         match self {
-            Edit::DeleteCharacter(n) => n.write_csi(f, "P")?,
-            Edit::DeleteLine(n) => n.write_csi(f, "M")?,
-            Edit::EraseCharacter(n) => n.write_csi(f, "X")?,
-            Edit::EraseInLine(n) => n.write_csi(f, "K")?,
-            Edit::InsertCharacter(n) => n.write_csi(f, "@")?,
-            Edit::InsertLine(n) => n.write_csi(f, "L")?,
-            Edit::ScrollDown(n) => n.write_csi(f, "T")?,
-            Edit::ScrollUp(n) => n.write_csi(f, "S")?,
-            Edit::EraseInDisplay(n) => n.write_csi(f, "J")?,
-            Edit::Repeat(n) => n.write_csi(f, "b")?,
+            Self::DeleteCharacter(n) => n.write_csi(f, "P")?,
+            Self::DeleteLine(n) => n.write_csi(f, "M")?,
+            Self::EraseCharacter(n) => n.write_csi(f, "X")?,
+            Self::EraseInLine(n) => n.write_csi(f, "K")?,
+            Self::InsertCharacter(n) => n.write_csi(f, "@")?,
+            Self::InsertLine(n) => n.write_csi(f, "L")?,
+            Self::ScrollDown(n) => n.write_csi(f, "T")?,
+            Self::ScrollUp(n) => n.write_csi(f, "S")?,
+            Self::EraseInDisplay(n) => n.write_csi(f, "J")?,
+            Self::Repeat(n) => n.write_csi(f, "b")?,
         }
         Ok(())
     }
@@ -1287,45 +1284,45 @@ impl Display for Edit {
 impl Display for Cursor {
     fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
         match self {
-            Cursor::BackwardTabulation(n) => n.write_csi(f, "Z")?,
-            Cursor::CharacterAbsolute(col) => col.write_csi(f, "G")?,
-            Cursor::ForwardTabulation(n) => n.write_csi(f, "I")?,
-            Cursor::NextLine(n) => n.write_csi(f, "E")?,
-            Cursor::PrecedingLine(n) => n.write_csi(f, "F")?,
-            Cursor::ActivePositionReport { line, col } => write!(f, "{};{}R", line, col)?,
-            Cursor::Left(n) => n.write_csi(f, "D")?,
-            Cursor::Down(n) => n.write_csi(f, "B")?,
-            Cursor::Right(n) => n.write_csi(f, "C")?,
-            Cursor::Up(n) => n.write_csi(f, "A")?,
-            Cursor::Position { line, col } => write!(f, "{};{}H", line, col)?,
-            Cursor::LineTabulation(n) => n.write_csi(f, "Y")?,
-            Cursor::TabulationControl(n) => n.write_csi(f, "W")?,
-            Cursor::TabulationClear(n) => n.write_csi(f, "g")?,
-            Cursor::CharacterPositionAbsolute(n) => n.write_csi(f, "`")?,
-            Cursor::CharacterPositionBackward(n) => n.write_csi(f, "j")?,
-            Cursor::CharacterPositionForward(n) => n.write_csi(f, "a")?,
-            Cursor::CharacterAndLinePosition { line, col } => write!(f, "{};{}f", line, col)?,
-            Cursor::LinePositionAbsolute(n) => n.write_csi(f, "d")?,
-            Cursor::LinePositionBackward(n) => n.write_csi(f, "k")?,
-            Cursor::LinePositionForward(n) => n.write_csi(f, "e")?,
-            Cursor::SetTopAndBottomMargins { top, bottom } => {
-                if top.as_one_based() == 1 && bottom.as_one_based() == u32::max_value() {
+            Self::BackwardTabulation(n) => n.write_csi(f, "Z")?,
+            Self::CharacterAbsolute(col) => col.write_csi(f, "G")?,
+            Self::ForwardTabulation(n) => n.write_csi(f, "I")?,
+            Self::NextLine(n) => n.write_csi(f, "E")?,
+            Self::PrecedingLine(n) => n.write_csi(f, "F")?,
+            Self::ActivePositionReport { line, col } => write!(f, "{line};{col}R")?,
+            Self::Left(n) => n.write_csi(f, "D")?,
+            Self::Down(n) => n.write_csi(f, "B")?,
+            Self::Right(n) => n.write_csi(f, "C")?,
+            Self::Up(n) => n.write_csi(f, "A")?,
+            Self::Position { line, col } => write!(f, "{line};{col}H")?,
+            Self::LineTabulation(n) => n.write_csi(f, "Y")?,
+            Self::TabulationControl(n) => n.write_csi(f, "W")?,
+            Self::TabulationClear(n) => n.write_csi(f, "g")?,
+            Self::CharacterPositionAbsolute(n) => n.write_csi(f, "`")?,
+            Self::CharacterPositionBackward(n) => n.write_csi(f, "j")?,
+            Self::CharacterPositionForward(n) => n.write_csi(f, "a")?,
+            Self::CharacterAndLinePosition { line, col } => write!(f, "{line};{col}f")?,
+            Self::LinePositionAbsolute(n) => n.write_csi(f, "d")?,
+            Self::LinePositionBackward(n) => n.write_csi(f, "k")?,
+            Self::LinePositionForward(n) => n.write_csi(f, "e")?,
+            Self::SetTopAndBottomMargins { top, bottom } => {
+                if top.as_one_based() == 1 && bottom.as_one_based() == u32::MAX {
                     write!(f, "r")?;
                 } else {
-                    write!(f, "{};{}r", top, bottom)?;
+                    write!(f, "{top};{bottom}r")?;
                 }
             }
-            Cursor::SetLeftAndRightMargins { left, right } => {
-                if left.as_one_based() == 1 && right.as_one_based() == u32::max_value() {
+            Self::SetLeftAndRightMargins { left, right } => {
+                if left.as_one_based() == 1 && right.as_one_based() == u32::MAX {
                     write!(f, "s")?;
                 } else {
-                    write!(f, "{};{}s", left, right)?;
+                    write!(f, "{left};{right}s")?;
                 }
             }
-            Cursor::RequestActivePositionReport => write!(f, "6n")?,
-            Cursor::SaveCursor => write!(f, "s")?,
-            Cursor::RestoreCursor => write!(f, "u")?,
-            Cursor::CursorStyle(style) => write!(f, "{} q", *style as u8)?,
+            Self::RequestActivePositionReport => write!(f, "6n")?,
+            Self::SaveCursor => write!(f, "s")?,
+            Self::RestoreCursor => write!(f, "u")?,
+            Self::CursorStyle(style) => write!(f, "{} q", *style as u8)?,
         }
         Ok(())
     }
@@ -1341,7 +1338,7 @@ trait ParseParams: Sized {
 
 /// Parse an input parameter into a 1-based unsigned value
 impl ParseParams for u32 {
-    fn parse_params(params: &[CsiParam]) -> Result<u32, ()> {
+    fn parse_params(params: &[CsiParam]) -> Result<Self, ()> {
         match params {
             [] => Ok(1),
             [p] => to_1b_u32(p),
@@ -1352,10 +1349,10 @@ impl ParseParams for u32 {
 
 /// Parse an input parameter into a 1-based unsigned value
 impl ParseParams for OneBased {
-    fn parse_params(params: &[CsiParam]) -> Result<OneBased, ()> {
+    fn parse_params(params: &[CsiParam]) -> Result<Self, ()> {
         match params {
-            [] => Ok(OneBased::new(1)),
-            [p] => OneBased::from_esc_param(p),
+            [] => Ok(Self::new(1)),
+            [p] => Self::from_esc_param(p).ok_or(()),
             _ => Err(()),
         }
     }
@@ -1368,11 +1365,11 @@ impl ParseParams for (OneBased, OneBased) {
     fn parse_params(params: &[CsiParam]) -> Result<(OneBased, OneBased), ()> {
         match params {
             [] | [CsiParam::P(b';')] => Ok((OneBased::new(1), OneBased::new(1))),
-            [a] | [a, CsiParam::P(b';')] => Ok((OneBased::from_esc_param(a)?, OneBased::new(1))),
+            [a] => Ok((OneBased::from_esc_param(a).ok_or(())?, OneBased::new(1))),
             [a, CsiParam::P(b';'), b] => {
-                Ok((OneBased::from_esc_param(a)?, OneBased::from_esc_param(b)?))
+                Ok((OneBased::from_esc_param(a).ok_or(())?, OneBased::from_esc_param(b).ok_or(())?))
             }
-            [CsiParam::P(b';'), b] => Ok((OneBased::new(1), OneBased::from_esc_param(b)?)),
+            [CsiParam::P(b';'), b] => Ok((OneBased::new(1), OneBased::from_esc_param(b).ok_or(())?)),
             _ => Err(()),
         }
     }
@@ -1386,7 +1383,7 @@ trait ParamEnum: FromPrimitive {
     fn default() -> Self;
 }
 
-/// implement ParseParams for the enums that also implement ParamEnum.
+/// implement `ParseParams` for the enums that also implement `ParamEnum`.
 impl<T: ParamEnum> ParseParams for T {
     fn parse_params(params: &[CsiParam]) -> Result<Self, ()> {
         match params {
@@ -1410,7 +1407,7 @@ pub enum CursorTabulationControl {
 
 impl ParamEnum for CursorTabulationControl {
     fn default() -> Self {
-        CursorTabulationControl::SetCharacterTabStopAtActivePosition
+        Self::SetCharacterTabStopAtActivePosition
     }
 }
 
@@ -1426,7 +1423,7 @@ pub enum TabulationClear {
 
 impl ParamEnum for TabulationClear {
     fn default() -> Self {
-        TabulationClear::ClearCharacterTabStopAtActivePosition
+        Self::ClearCharacterTabStopAtActivePosition
     }
 }
 
@@ -1439,7 +1436,7 @@ pub enum EraseInLine {
 
 impl ParamEnum for EraseInLine {
     fn default() -> Self {
-        EraseInLine::EraseToEndOfLine
+        Self::EraseToEndOfLine
     }
 }
 
@@ -1460,7 +1457,7 @@ pub enum EraseInDisplay {
 
 impl ParamEnum for EraseInDisplay {
     fn default() -> Self {
-        EraseInDisplay::EraseToEndOfDisplay
+        Self::EraseToEndOfDisplay
     }
 }
 
@@ -1516,46 +1513,46 @@ impl Display for Sgr {
         }
 
         match self {
-            Sgr::Reset => code!(Reset),
-            Sgr::Intensity(Intensity::Bold) => code!(IntensityBold),
-            Sgr::Intensity(Intensity::Half) => code!(IntensityDim),
-            Sgr::Intensity(Intensity::Normal) => code!(NormalIntensity),
-            Sgr::Underline(Underline::Single) => code!(UnderlineOn),
-            Sgr::Underline(Underline::Double) => code!(UnderlineDouble),
-            Sgr::Underline(Underline::Curly) => write!(f, "4:3m")?,
-            Sgr::Underline(Underline::Dotted) => write!(f, "4:4m")?,
-            Sgr::Underline(Underline::Dashed) => write!(f, "4:5m")?,
-            Sgr::Underline(Underline::None) => code!(UnderlineOff),
-            Sgr::Blink(Blink::Slow) => code!(BlinkOn),
-            Sgr::Blink(Blink::Rapid) => code!(RapidBlinkOn),
-            Sgr::Blink(Blink::None) => code!(BlinkOff),
-            Sgr::Italic(true) => code!(ItalicOn),
-            Sgr::Italic(false) => code!(ItalicOff),
-            Sgr::Inverse(true) => code!(InverseOn),
-            Sgr::Inverse(false) => code!(InverseOff),
-            Sgr::Invisible(true) => code!(InvisibleOn),
-            Sgr::Invisible(false) => code!(InvisibleOff),
-            Sgr::StrikeThrough(true) => code!(StrikeThroughOn),
-            Sgr::StrikeThrough(false) => code!(StrikeThroughOff),
-            Sgr::Overline(true) => code!(OverlineOn),
-            Sgr::Overline(false) => code!(OverlineOff),
-            Sgr::VerticalAlign(VerticalAlign::BaseLine) => code!(VerticalAlignBaseLine),
-            Sgr::VerticalAlign(VerticalAlign::SuperScript) => code!(VerticalAlignSuperScript),
-            Sgr::VerticalAlign(VerticalAlign::SubScript) => code!(VerticalAlignSubScript),
-            Sgr::Font(Font::Default) => code!(DefaultFont),
-            Sgr::Font(Font::Alternate(1)) => code!(AltFont1),
-            Sgr::Font(Font::Alternate(2)) => code!(AltFont2),
-            Sgr::Font(Font::Alternate(3)) => code!(AltFont3),
-            Sgr::Font(Font::Alternate(4)) => code!(AltFont4),
-            Sgr::Font(Font::Alternate(5)) => code!(AltFont5),
-            Sgr::Font(Font::Alternate(6)) => code!(AltFont6),
-            Sgr::Font(Font::Alternate(7)) => code!(AltFont7),
-            Sgr::Font(Font::Alternate(8)) => code!(AltFont8),
-            Sgr::Font(Font::Alternate(9)) => code!(AltFont9),
-            Sgr::Font(_) => { /* there are no other possible font values */ }
-            Sgr::Foreground(ColorSpec::Default) => code!(ForegroundDefault),
-            Sgr::Background(ColorSpec::Default) => code!(BackgroundDefault),
-            Sgr::Foreground(ColorSpec::PaletteIndex(idx)) => ansi_color!(
+            Self::Reset => code!(Reset),
+            Self::Intensity(Intensity::Bold) => code!(IntensityBold),
+            Self::Intensity(Intensity::Half) => code!(IntensityDim),
+            Self::Intensity(Intensity::Normal) => code!(NormalIntensity),
+            Self::Underline(Underline::Single) => code!(UnderlineOn),
+            Self::Underline(Underline::Double) => code!(UnderlineDouble),
+            Self::Underline(Underline::Curly) => write!(f, "4:3m")?,
+            Self::Underline(Underline::Dotted) => write!(f, "4:4m")?,
+            Self::Underline(Underline::Dashed) => write!(f, "4:5m")?,
+            Self::Underline(Underline::None) => code!(UnderlineOff),
+            Self::Blink(Blink::Slow) => code!(BlinkOn),
+            Self::Blink(Blink::Rapid) => code!(RapidBlinkOn),
+            Self::Blink(Blink::None) => code!(BlinkOff),
+            Self::Italic(true) => code!(ItalicOn),
+            Self::Italic(false) => code!(ItalicOff),
+            Self::Inverse(true) => code!(InverseOn),
+            Self::Inverse(false) => code!(InverseOff),
+            Self::Invisible(true) => code!(InvisibleOn),
+            Self::Invisible(false) => code!(InvisibleOff),
+            Self::StrikeThrough(true) => code!(StrikeThroughOn),
+            Self::StrikeThrough(false) => code!(StrikeThroughOff),
+            Self::Overline(true) => code!(OverlineOn),
+            Self::Overline(false) => code!(OverlineOff),
+            Self::VerticalAlign(VerticalAlign::BaseLine) => code!(VerticalAlignBaseLine),
+            Self::VerticalAlign(VerticalAlign::SuperScript) => code!(VerticalAlignSuperScript),
+            Self::VerticalAlign(VerticalAlign::SubScript) => code!(VerticalAlignSubScript),
+            Self::Font(Font::Default) => code!(DefaultFont),
+            Self::Font(Font::Alternate(1)) => code!(AltFont1),
+            Self::Font(Font::Alternate(2)) => code!(AltFont2),
+            Self::Font(Font::Alternate(3)) => code!(AltFont3),
+            Self::Font(Font::Alternate(4)) => code!(AltFont4),
+            Self::Font(Font::Alternate(5)) => code!(AltFont5),
+            Self::Font(Font::Alternate(6)) => code!(AltFont6),
+            Self::Font(Font::Alternate(7)) => code!(AltFont7),
+            Self::Font(Font::Alternate(8)) => code!(AltFont8),
+            Self::Font(Font::Alternate(9)) => code!(AltFont9),
+            Self::Font(_) => { /* there are no other possible font values */ }
+            Self::Foreground(ColorSpec::Default) => code!(ForegroundDefault),
+            Self::Background(ColorSpec::Default) => code!(BackgroundDefault),
+            Self::Foreground(ColorSpec::PaletteIndex(idx)) => ansi_color!(
                 *idx,
                 ForegroundColor,
                 (Black, ForegroundBlack),
@@ -1578,7 +1575,7 @@ impl Display for Sgr {
                 (Aqua, ForegroundBrightCyan),
                 (White, ForegroundBrightWhite)
             ),
-            Sgr::Foreground(ColorSpec::TrueColor(c)) => {
+            Self::Foreground(ColorSpec::TrueColor(c)) => {
                 let (red, green, blue, alpha) = c.to_srgb_u8();
                 if alpha == 255 {
                     write!(
@@ -1588,7 +1585,7 @@ impl Display for Sgr {
                         red,
                         green,
                         blue
-                    )?
+                    )?;
                 } else {
                     write!(
                         f,
@@ -1598,10 +1595,10 @@ impl Display for Sgr {
                         green,
                         blue,
                         alpha
-                    )?
+                    )?;
                 }
             }
-            Sgr::Background(ColorSpec::PaletteIndex(idx)) => ansi_color!(
+            Self::Background(ColorSpec::PaletteIndex(idx)) => ansi_color!(
                 *idx,
                 BackgroundColor,
                 (Black, BackgroundBlack),
@@ -1624,7 +1621,7 @@ impl Display for Sgr {
                 (Aqua, BackgroundBrightCyan),
                 (White, BackgroundBrightWhite)
             ),
-            Sgr::Background(ColorSpec::TrueColor(c)) => {
+            Self::Background(ColorSpec::TrueColor(c)) => {
                 let (red, green, blue, alpha) = c.to_srgb_u8();
                 if alpha == 255 {
                     write!(
@@ -1634,7 +1631,7 @@ impl Display for Sgr {
                         red,
                         green,
                         blue
-                    )?
+                    )?;
                 } else {
                     write!(
                         f,
@@ -1644,11 +1641,11 @@ impl Display for Sgr {
                         green,
                         blue,
                         alpha
-                    )?
+                    )?;
                 }
             }
-            Sgr::UnderlineColor(ColorSpec::Default) => code!(ResetUnderlineColor),
-            Sgr::UnderlineColor(ColorSpec::TrueColor(c)) => {
+            Self::UnderlineColor(ColorSpec::Default) => code!(ResetUnderlineColor),
+            Self::UnderlineColor(ColorSpec::TrueColor(c)) => {
                 let (red, green, blue, alpha) = c.to_srgb_u8();
                 if alpha == 255 {
                     write!(
@@ -1658,7 +1655,7 @@ impl Display for Sgr {
                         red,
                         green,
                         blue
-                    )?
+                    )?;
                 } else {
                     write!(
                         f,
@@ -1668,11 +1665,11 @@ impl Display for Sgr {
                         green,
                         blue,
                         alpha
-                    )?
+                    )?;
                 }
             }
-            Sgr::UnderlineColor(ColorSpec::PaletteIndex(idx)) => {
-                write!(f, "{}:5:{}m", SgrCode::UnderlineColor as i64, *idx)?
+            Self::UnderlineColor(ColorSpec::PaletteIndex(idx)) => {
+                write!(f, "{}:5:{}m", SgrCode::UnderlineColor as i64, *idx)?;
             }
         }
         Ok(())
@@ -1696,7 +1693,7 @@ struct CSIParser<'a> {
     /// arrived and subsequent characters were ignored.
     parameters_truncated: bool,
     control: char,
-    /// While params is_some we have more data to consume.  The advance_by
+    /// While params `is_some` we have more data to consume.  The `advance_by`
     /// method updates the slice as we consume data.
     /// In a number of cases an empty params list is used to indicate
     /// default values, especially for SGR, so we need to be careful not
@@ -1712,11 +1709,11 @@ impl CSI {
     /// embed two separate actions but are sent as a single unit.
     /// If no semantic meaning is known for a subsequence, the remainder
     /// of the sequence is returned wrapped in a `CSI::Unspecified` container.
-    pub fn parse<'a>(
-        params: &'a [CsiParam],
+    pub fn parse(
+        params: &[CsiParam],
         parameters_truncated: bool,
         control: char,
-    ) -> impl Iterator<Item = CSI> + 'a {
+    ) -> impl Iterator<Item = Self> + '_ {
         CSIParser {
             parameters_truncated,
             control,
@@ -1731,7 +1728,7 @@ fn to_u8(v: &CsiParam) -> Result<u8, ()> {
     match v {
         CsiParam::P(_) => Err(()),
         CsiParam::Integer(v) => {
-            if *v <= i64::from(u8::max_value()) {
+            if *v <= i64::from(u8::MAX) {
                 Ok(*v as u8)
             } else {
                 Err(())
@@ -1746,7 +1743,7 @@ fn to_u8(v: &CsiParam) -> Result<u8, ()> {
 /// practical implementation bugs.  For example, it is common
 /// to see 0 values being emitted from existing libraries, and
 /// we desire to see the intended output.
-/// Ensures that the value is in the range 1..=max_value.
+/// Ensures that the value is in the range `1..=max_value`.
 /// If the input is 0 it is treated as 1.  If the value is
 /// otherwise outside that range, an error is propagated and
 /// that will typically case the sequence to be reported via
@@ -1754,7 +1751,7 @@ fn to_u8(v: &CsiParam) -> Result<u8, ()> {
 fn to_1b_u32(v: &CsiParam) -> Result<u32, ()> {
     match v {
         CsiParam::Integer(v) if *v == 0 => Ok(1),
-        CsiParam::Integer(v) if *v > 0 && *v <= i64::from(u32::max_value()) => Ok(*v as u32),
+        CsiParam::Integer(v) if *v > 0 && *v <= i64::from(u32::MAX) => Ok(*v as u32),
         _ => Err(()),
     }
 }
@@ -1773,8 +1770,8 @@ impl Cracked {
                     res.push(None);
                 }
                 CsiParam::Integer(_) => {
-                    res.push(Some(p.clone()));
-                    if let Some(CsiParam::P(b';')) = iter.peek() {
+                    res.push(Some(*p));
+                    if matches!(iter.peek(), Some(CsiParam::P(b';'))) {
                         iter.next();
                     }
                 }
@@ -1796,7 +1793,7 @@ impl Cracked {
         self.get(idx).and_then(CsiParam::as_integer).ok_or(())
     }
 
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.params.len()
     }
 }
@@ -1840,7 +1837,7 @@ impl<'a> CSIParser<'a> {
                 .req_secondary_device_attributes(params)
                 .map(|dev| CSI::Device(Box::new(dev))),
 
-            ('m', [CsiParam::P(b'<'), ..]) | ('M', [CsiParam::P(b'<'), ..]) => {
+            ('m' | 'M', [CsiParam::P(b'<'), ..]) => {
                 self.mouse_sgr1006(params).map(CSI::Mouse)
             }
 
@@ -1849,8 +1846,9 @@ impl<'a> CSIParser<'a> {
                 .map(|dev| CSI::Device(Box::new(dev))),
 
             ('S', [CsiParam::P(b'?'), ..]) => XtSmGraphics::parse(params),
-            ('p', [CsiParam::Integer(_), CsiParam::P(b'$')])
-            | ('p', [CsiParam::P(b'?'), CsiParam::Integer(_), CsiParam::P(b'$')]) => {
+            ('p',
+[CsiParam::Integer(_), CsiParam::P(b'$')] |
+[CsiParam::P(b'?'), CsiParam::Integer(_), CsiParam::P(b'$')]) => {
                 self.decrqm(params)
             }
             ('h', [CsiParam::P(b'?'), ..]) => self
@@ -2023,7 +2021,7 @@ impl<'a> CSIParser<'a> {
     }
 
     fn select_character_path(&mut self, params: &'a [CsiParam]) -> Result<CSI, ()> {
-        fn path(n: i64) -> Result<CharacterPath, ()> {
+        const fn path(n: i64) -> Result<CharacterPath, ()> {
             Ok(match n {
                 0 => CharacterPath::ImplementationDefault,
                 1 => CharacterPath::LeftToRightOrTopToBottom,
@@ -2068,10 +2066,10 @@ impl<'a> CSIParser<'a> {
 
         let request_id = params.int(0)?;
         let page_number = params.int(1)?;
-        let top = OneBased::from_optional_esc_param(params.get(2))?;
-        let left = OneBased::from_optional_esc_param(params.get(3))?;
-        let bottom = OneBased::from_optional_esc_param(params.get(4))?;
-        let right = OneBased::from_optional_esc_param(params.get(5))?;
+        let top = OneBased::from_optional_esc_param(params.get(2)).ok_or(())?;
+        let left = OneBased::from_optional_esc_param(params.get(3)).ok_or(())?;
+        let bottom = OneBased::from_optional_esc_param(params.get(4)).ok_or(())?;
+        let right = OneBased::from_optional_esc_param(params.get(5)).ok_or(())?;
         Ok(CSI::Window(Box::new(Window::ChecksumRectangularArea {
             request_id,
             page_number,
@@ -2099,22 +2097,22 @@ impl<'a> CSIParser<'a> {
         match params {
             [] => Ok(CSI::Cursor(Cursor::SetTopAndBottomMargins {
                 top: OneBased::new(1),
-                bottom: OneBased::new(u32::max_value()),
+                bottom: OneBased::new(u32::MAX),
             })),
             [p] => Ok(self.advance_by(
                 1,
                 params,
                 CSI::Cursor(Cursor::SetTopAndBottomMargins {
-                    top: OneBased::from_esc_param(p)?,
-                    bottom: OneBased::new(u32::max_value()),
+                    top: OneBased::from_esc_param(p).ok_or(())?,
+                    bottom: OneBased::new(u32::MAX),
                 }),
             )),
             [a, CsiParam::P(b';'), b] => Ok(self.advance_by(
                 3,
                 params,
                 CSI::Cursor(Cursor::SetTopAndBottomMargins {
-                    top: OneBased::from_esc_param(a)?,
-                    bottom: OneBased::from_esc_param_with_big_default(b)?,
+                    top: OneBased::from_esc_param(a).ok_or(())?,
+                    bottom: OneBased::from_esc_param_with_big_default(b).ok_or(())?,
                 }),
             )),
             [CsiParam::P(b';'), b] => Ok(self.advance_by(
@@ -2122,7 +2120,7 @@ impl<'a> CSIParser<'a> {
                 params,
                 CSI::Cursor(Cursor::SetTopAndBottomMargins {
                     top: OneBased::new(1),
-                    bottom: OneBased::from_esc_param_with_big_default(b)?,
+                    bottom: OneBased::from_esc_param_with_big_default(b).ok_or(())?,
                 }),
             )),
             _ => Err(()),
@@ -2132,20 +2130,20 @@ impl<'a> CSIParser<'a> {
     fn xterm_key_modifier(&mut self, params: &'a [CsiParam]) -> Result<CSI, ()> {
         match params {
             [CsiParam::P(b'>'), a, CsiParam::P(b';'), b] => {
-                let resource = XtermKeyModifierResource::parse(a.as_integer().ok_or_else(|| ())?)
-                    .ok_or_else(|| ())?;
+                let resource = XtermKeyModifierResource::parse(a.as_integer().ok_or(())?)
+                    .ok_or(())?;
                 Ok(self.advance_by(
                     4,
                     params,
                     CSI::Mode(Mode::XtermKeyMode {
                         resource,
-                        value: Some(b.as_integer().ok_or_else(|| ())?),
+                        value: Some(b.as_integer().ok_or(())?),
                     }),
                 ))
             }
             [CsiParam::P(b'>'), a, CsiParam::P(b';')] => {
-                let resource = XtermKeyModifierResource::parse(a.as_integer().ok_or_else(|| ())?)
-                    .ok_or_else(|| ())?;
+                let resource = XtermKeyModifierResource::parse(a.as_integer().ok_or(())?)
+                    .ok_or(())?;
                 Ok(self.advance_by(
                     3,
                     params,
@@ -2156,8 +2154,8 @@ impl<'a> CSIParser<'a> {
                 ))
             }
             [CsiParam::P(b'>'), p] => {
-                let resource = XtermKeyModifierResource::parse(p.as_integer().ok_or_else(|| ())?)
-                    .ok_or_else(|| ())?;
+                let resource = XtermKeyModifierResource::parse(p.as_integer().ok_or(())?)
+                    .ok_or(())?;
                 Ok(self.advance_by(
                     2,
                     params,
@@ -2185,16 +2183,16 @@ impl<'a> CSIParser<'a> {
                 1,
                 params,
                 CSI::Cursor(Cursor::SetLeftAndRightMargins {
-                    left: OneBased::from_esc_param(p)?,
-                    right: OneBased::new(u32::max_value()),
+                    left: OneBased::from_esc_param(p).ok_or(())?,
+                    right: OneBased::new(u32::MAX),
                 }),
             )),
             [a, CsiParam::P(b';'), b] => Ok(self.advance_by(
                 3,
                 params,
                 CSI::Cursor(Cursor::SetLeftAndRightMargins {
-                    left: OneBased::from_esc_param(a)?,
-                    right: OneBased::from_esc_param(b)?,
+                    left: OneBased::from_esc_param(a).ok_or(())?,
+                    right: OneBased::from_esc_param(b).ok_or(())?,
                 }),
             )),
             [CsiParam::P(b';'), b] => Ok(self.advance_by(
@@ -2202,7 +2200,7 @@ impl<'a> CSIParser<'a> {
                 params,
                 CSI::Cursor(Cursor::SetLeftAndRightMargins {
                     left: OneBased::new(1),
-                    right: OneBased::from_esc_param(b)?,
+                    right: OneBased::from_esc_param(b).ok_or(())?,
                 }),
             )),
             _ => Err(()),
@@ -2412,10 +2410,9 @@ impl<'a> CSIParser<'a> {
     }
 
     fn terminal_mode(&mut self, params: &'a [CsiParam]) -> Result<TerminalMode, ()> {
-        let p0 = params
-            .get(0)
+        let p0 = params.first()
             .and_then(CsiParam::as_integer)
-            .ok_or_else(|| ())?;
+            .ok_or(())?;
         match FromPrimitive::from_i64(p0) {
             None => {
                 Ok(self.advance_by(1, params, TerminalMode::Unspecified(p0.to_u16().ok_or(())?)))
@@ -2679,10 +2676,7 @@ impl<'a> CSIParser<'a> {
         } else {
             for p in params {
                 match p {
-                    CsiParam::P(b';')
-                    | CsiParam::P(b':')
-                    | CsiParam::P(b'?')
-                    | CsiParam::Integer(_) => {}
+                    CsiParam::P(b';' | b':' | b'?') | CsiParam::Integer(_) => {}
                     _ => return Err(()),
                 }
             }
@@ -2957,16 +2951,13 @@ pub enum SgrCode {
     BackgroundColor = 48,
 }
 
-impl<'a> Iterator for CSIParser<'a> {
+impl Iterator for CSIParser<'_> {
     type Item = CSI;
 
     fn next(&mut self) -> Option<CSI> {
-        let params = match self.params.take() {
-            None => return None,
-            Some(params) => params,
-        };
+        let params = self.params.take()?;
 
-        match self.parse_next(&params) {
+        match self.parse_next(params) {
             Ok(csi) => Some(csi),
             Err(()) => Some(CSI::Unspecified(Box::new(Unspecified {
                 params: params.to_vec(),

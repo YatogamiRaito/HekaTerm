@@ -16,20 +16,20 @@ use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-/// Specify how FromDynamic will treat unknown fields
+/// Specify how `FromDynamic` will treat unknown fields
 /// when converting from Value to a given target type
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum UnknownFieldAction {
     /// Don't check, don't warn, don't raise an error
     Ignore,
-    /// Emit a log::warn log
+    /// Emit a `log::warn` log
     #[default]
     Warn,
     /// Return an Error
     Deny,
 }
 
-/// Specify various options for FromDynamic::from_dynamic
+/// Specify various options for `FromDynamic::from_dynamic`
 #[derive(Copy, Clone, Debug, Default)]
 pub struct FromDynamicOptions {
     pub unknown_fields: UnknownFieldAction,
@@ -37,7 +37,8 @@ pub struct FromDynamicOptions {
 }
 
 impl FromDynamicOptions {
-    pub fn flatten(self) -> Self {
+    #[must_use] 
+    pub const fn flatten(self) -> Self {
         Self {
             unknown_fields: UnknownFieldAction::Ignore,
             ..self
@@ -45,7 +46,7 @@ impl FromDynamicOptions {
     }
 }
 
-/// The FromDynamic trait allows a type to construct itself from a Value.
+/// The `FromDynamic` trait allows a type to construct itself from a Value.
 /// This trait can be derived.
 pub trait FromDynamic {
     fn from_dynamic(value: &Value, options: FromDynamicOptions) -> Result<Self, Error>
@@ -62,7 +63,7 @@ impl FromDynamic for Value {
 impl FromDynamic for ordered_float::NotNan<f64> {
     fn from_dynamic(value: &Value, options: FromDynamicOptions) -> Result<Self, Error> {
         let f = f64::from_dynamic(value, options)?;
-        Ok(ordered_float::NotNan::new(f).map_err(|e| Error::Message(e.to_string()))?)
+        Self::new(f).map_err(|e| Error::Message(e.to_string()))
     }
 }
 
@@ -70,21 +71,21 @@ impl FromDynamic for ordered_float::NotNan<f64> {
 impl FromDynamic for std::time::Duration {
     fn from_dynamic(value: &Value, options: FromDynamicOptions) -> Result<Self, Error> {
         let f = f64::from_dynamic(value, options)?;
-        Ok(std::time::Duration::from_secs_f64(f))
+        Ok(Self::from_secs_f64(f))
     }
 }
 
 impl<T: FromDynamic> FromDynamic for Box<T> {
     fn from_dynamic(value: &Value, options: FromDynamicOptions) -> Result<Self, Error> {
         let value = T::from_dynamic(value, options)?;
-        Ok(Box::new(value))
+        Ok(Self::new(value))
     }
 }
 
 impl<T: FromDynamic> FromDynamic for Arc<T> {
     fn from_dynamic(value: &Value, options: FromDynamicOptions) -> Result<Self, Error> {
         let value = T::from_dynamic(value, options)?;
-        Ok(Arc::new(value))
+        Ok(Self::new(value))
     }
 }
 
@@ -122,8 +123,8 @@ impl<K: FromDynamic + Eq + Ord, T: FromDynamic> FromDynamic for BTreeMap<K, T> {
     fn from_dynamic(value: &Value, options: FromDynamicOptions) -> Result<Self, Error> {
         match value {
             Value::Object(obj) => {
-                let mut map = BTreeMap::new();
-                for (k, v) in obj.iter() {
+                let mut map = Self::new();
+                for (k, v) in obj {
                     map.insert(K::from_dynamic(k, options)?, T::from_dynamic(v, options)?);
                 }
                 Ok(map)
@@ -141,8 +142,8 @@ impl<K: FromDynamic + Eq + Hash, T: FromDynamic> FromDynamic for HashMap<K, T> {
     fn from_dynamic(value: &Value, options: FromDynamicOptions) -> Result<Self, Error> {
         match value {
             Value::Object(obj) => {
-                let mut map = HashMap::with_capacity(obj.len());
-                for (k, v) in obj.iter() {
+                let mut map = Self::with_capacity(obj.len());
+                for (k, v) in obj {
                     map.insert(K::from_dynamic(k, options)?, T::from_dynamic(v, options)?);
                 }
                 Ok(map)
@@ -161,11 +162,11 @@ impl<T: FromDynamic> FromDynamic for Vec<T> {
             Value::Array(arr) => Ok(arr
                 .iter()
                 .map(|v| T::from_dynamic(v, options))
-                .collect::<Result<Vec<T>, Error>>()?),
+                .collect::<Result<Self, Error>>()?),
             // lua uses tables for everything; we can end up here if we got an empty
             // table and treated it as an object. Allow that to stand-in for an empty
             // array instead.
-            Value::Object(obj) if obj.is_empty() => Ok(Vec::new()),
+            Value::Object(obj) if obj.is_empty() => Ok(Self::new()),
             other => Err(Error::NoConversion {
                 source_type: other.variant_name().to_string(),
                 dest_type: "Vec",
@@ -234,7 +235,7 @@ impl FromDynamic for char {
 impl FromDynamic for String {
     fn from_dynamic(value: &Value, _options: FromDynamicOptions) -> Result<Self, Error> {
         match value {
-            Value::String(s) => Ok(s.to_string()),
+            Value::String(s) => Ok(s.clone()),
             other => Err(Error::NoConversion {
                 source_type: other.variant_name().to_string(),
                 dest_type: "String",
@@ -273,9 +274,9 @@ int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 impl FromDynamic for f32 {
     fn from_dynamic(value: &Value, _options: FromDynamicOptions) -> Result<Self, Error> {
         match value {
-            Value::F64(OrderedFloat(n)) => Ok((*n) as f32),
-            Value::I64(n) => Ok((*n) as f32),
-            Value::U64(n) => Ok((*n) as f32),
+            Value::F64(OrderedFloat(n)) => Ok((*n) as Self),
+            Value::I64(n) => Ok((*n) as Self),
+            Value::U64(n) => Ok((*n) as Self),
             other => Err(Error::NoConversion {
                 source_type: other.variant_name().to_string(),
                 dest_type: "f32",
@@ -288,8 +289,8 @@ impl FromDynamic for f64 {
     fn from_dynamic(value: &Value, _options: FromDynamicOptions) -> Result<Self, Error> {
         match value {
             Value::F64(OrderedFloat(n)) => Ok(*n),
-            Value::I64(n) => Ok((*n) as f64),
-            Value::U64(n) => Ok((*n) as f64),
+            Value::I64(n) => Ok((*n) as Self),
+            Value::U64(n) => Ok((*n) as Self),
             other => Err(Error::NoConversion {
                 source_type: other.variant_name().to_string(),
                 dest_type: "f64",

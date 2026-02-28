@@ -21,7 +21,7 @@ impl super::TermWindow {
             size,
             Some(self.mux_window_id),
             term_config,
-        )
+        );
     }
 
     pub fn spawn_tab(&mut self, domain: &SpawnTabDomain) {

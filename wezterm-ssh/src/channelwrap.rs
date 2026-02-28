@@ -1,7 +1,7 @@
 use crate::pty::{NewPty, ResizePty};
 use portable_pty::ExitStatus;
 
-pub(crate) enum ChannelWrap {
+pub enum ChannelWrap {
     #[cfg(feature = "ssh2")]
     Ssh2(ssh2::Channel),
 
@@ -11,11 +11,10 @@ pub(crate) enum ChannelWrap {
 
 #[cfg(feature = "ssh2")]
 fn has_signal(chan: &ssh2::Channel) -> Option<ssh2::ExitSignal> {
-    if let Ok(sig) = chan.exit_signal() {
-        if sig.exit_signal.is_some() {
+    if let Ok(sig) = chan.exit_signal()
+        && sig.exit_signal.is_some() {
             return Some(sig);
         }
-    }
     None
 }
 
@@ -64,7 +63,7 @@ impl ChannelWrap {
             Self::LibSsh(chan) => match idx {
                 0 => Box::new(chan.stdout()),
                 1 => Box::new(chan.stderr()),
-                _ => panic!("wanted reader for idx={}", idx),
+                _ => panic!("wanted reader for idx={idx}"),
             },
         }
     }

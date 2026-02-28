@@ -1,6 +1,6 @@
 use crate::color::RgbaColor;
 use crate::*;
-use bitflags::*;
+use bitflags::bitflags;
 use enum_display_derive::Display;
 use luahelper::impl_lua_conversion_dynamic;
 use std::convert::TryFrom;
@@ -10,26 +10,25 @@ use wezterm_dynamic::{FromDynamic, FromDynamicOptions, ToDynamic, Value};
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Display, PartialOrd, Ord, FromDynamic, ToDynamic,
 )]
+#[derive(Default)]
 pub enum FontStyle {
+    #[default]
     Normal,
     Italic,
     Oblique,
 }
 
-impl Default for FontStyle {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Display, PartialOrd, Ord, FromDynamic, ToDynamic,
 )]
+#[derive(Default)]
 pub enum FontStretch {
     UltraCondensed,
     ExtraCondensed,
     Condensed,
     SemiCondensed,
+    #[default]
     Normal,
     SemiExpanded,
     Expanded,
@@ -38,7 +37,8 @@ pub enum FontStretch {
 }
 
 impl FontStretch {
-    pub fn from_opentype_stretch(w: u16) -> Self {
+    #[must_use] 
+    pub const fn from_opentype_stretch(w: u16) -> Self {
         match w {
             1 => Self::UltraCondensed,
             2 => Self::ExtraCondensed,
@@ -54,7 +54,8 @@ impl FontStretch {
         }
     }
 
-    pub fn to_opentype_stretch(self) -> u16 {
+    #[must_use] 
+    pub const fn to_opentype_stretch(self) -> u16 {
         match self {
             Self::UltraCondensed => 1,
             Self::ExtraCondensed => 2,
@@ -69,11 +70,6 @@ impl FontStretch {
     }
 }
 
-impl Default for FontStretch {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FontWeight(u16);
@@ -115,7 +111,7 @@ impl FontWeight {
         FontWeightOrLabel::Label(label)
     }
 
-    fn from_str(s: &str) -> Option<FontWeight> {
+    fn from_str(s: &str) -> Option<Self> {
         Some(match s {
             "ExtraBlack" => Self::EXTRABLACK,
             "Black" => Self::BLACK,
@@ -137,7 +133,7 @@ impl FontWeight {
 impl ToDynamic for FontWeight {
     fn to_dynamic(&self) -> Value {
         match self.categorize_weight() {
-            FontWeightOrLabel::Weight(n) => Value::U64(n as u64),
+            FontWeightOrLabel::Weight(n) => Value::U64(u64::from(n)),
             FontWeightOrLabel::Label(l) => Value::String(l.to_string()),
         }
     }
@@ -150,14 +146,14 @@ impl FromDynamic for FontWeight {
     ) -> Result<Self, wezterm_dynamic::Error> {
         match value {
             Value::String(s) => {
-                Ok(Self::from_str(s).ok_or_else(|| format!("invalid font weight {}", s))?)
+                Ok(Self::from_str(s).ok_or_else(|| format!("invalid font weight {s}"))?)
             }
             other => {
                 if let Some(value) = value.coerce_unsigned() {
-                    if value > 0 && value <= (u16::MAX as u64) {
-                        Ok(FontWeight(value as u16))
+                    if value > 0 && u16::try_from(value).is_ok() {
+                        Ok(Self(value as u16))
                     } else {
-                        Err(format!("invalid font weight {}", value).into())
+                        Err(format!("invalid font weight {value}").into())
                     }
                 } else {
                     Err(wezterm_dynamic::Error::NoConversion {
@@ -173,25 +169,25 @@ impl FromDynamic for FontWeight {
 impl Display for FontWeight {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self.categorize_weight() {
-            FontWeightOrLabel::Weight(n) => write!(fmt, "{}", n),
-            FontWeightOrLabel::Label(l) => write!(fmt, "\"{}\"", l),
+            FontWeightOrLabel::Weight(n) => write!(fmt, "{n}"),
+            FontWeightOrLabel::Label(l) => write!(fmt, "\"{l}\""),
         }
     }
 }
 
 impl FontWeight {
-    pub const THIN: FontWeight = FontWeight(100);
-    pub const EXTRALIGHT: FontWeight = FontWeight(200);
-    pub const LIGHT: FontWeight = FontWeight(300);
-    pub const DEMILIGHT: FontWeight = FontWeight(350);
-    pub const BOOK: FontWeight = FontWeight(380);
-    pub const REGULAR: FontWeight = FontWeight(400);
-    pub const MEDIUM: FontWeight = FontWeight(500);
-    pub const DEMIBOLD: FontWeight = FontWeight(600);
-    pub const BOLD: FontWeight = FontWeight(700);
-    pub const EXTRABOLD: FontWeight = FontWeight(800);
-    pub const BLACK: FontWeight = FontWeight(900);
-    pub const EXTRABLACK: FontWeight = FontWeight(1000);
+    pub const THIN: Self = Self(100);
+    pub const EXTRALIGHT: Self = Self(200);
+    pub const LIGHT: Self = Self(300);
+    pub const DEMILIGHT: Self = Self(350);
+    pub const BOOK: Self = Self(380);
+    pub const REGULAR: Self = Self(400);
+    pub const MEDIUM: Self = Self(500);
+    pub const DEMIBOLD: Self = Self(600);
+    pub const BOLD: Self = Self(700);
+    pub const EXTRABOLD: Self = Self(800);
+    pub const BLACK: Self = Self(900);
+    pub const EXTRABLACK: Self = Self(1000);
 }
 
 impl Default for FontWeight {
@@ -201,19 +197,23 @@ impl Default for FontWeight {
 }
 
 impl FontWeight {
+    #[must_use] 
     pub const fn from_opentype_weight(w: u16) -> Self {
         Self(w)
     }
 
-    pub fn to_opentype_weight(self) -> u16 {
+    #[must_use] 
+    pub const fn to_opentype_weight(self) -> u16 {
         self.0
     }
 
-    pub fn lighter(self) -> Self {
+    #[must_use] 
+    pub const fn lighter(self) -> Self {
         Self::from_opentype_weight(self.to_opentype_weight().saturating_sub(200))
     }
 
-    pub fn bolder(self) -> Self {
+    #[must_use] 
+    pub const fn bolder(self) -> Self {
         Self::from_opentype_weight(self.to_opentype_weight() + 200)
     }
 }
@@ -234,7 +234,7 @@ pub enum FreeTypeLoadTarget {
     /// A lighter hinting algorithm for non-monochrome modes. Many
     /// generated glyphs are more fuzzy but better resemble its
     /// original shape. A bit like rendering on Mac OS X.  This target
-    /// implies FT_LOAD_FORCE_AUTOHINT.
+    /// implies `FT_LOAD_FORCE_AUTOHINT`.
     Light,
     /// Strong hinting algorithm that should only be used for
     /// monochrome output. The result is probably unpleasant if the
@@ -250,8 +250,7 @@ bitflags! {
     // Note that these are strongly coupled with deps/freetype/src/lib.rs,
     // but we can't directly reference that from here without making config
     // depend on freetype.
-    #[derive(FromDynamic, ToDynamic)]
-    #[dynamic(try_from="String", into="String")]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct FreeTypeLoadFlags: u32 {
         /// FT_LOAD_DEFAULT
         const DEFAULT = 0;
@@ -271,8 +270,26 @@ bitflags! {
     }
 }
 
+
+impl FromDynamic for FreeTypeLoadFlags {
+    fn from_dynamic(
+        value: &wezterm_dynamic::Value,
+        _options: wezterm_dynamic::FromDynamicOptions,
+    ) -> Result<Self, wezterm_dynamic::Error> {
+        let s = String::from_dynamic(value, Default::default())?;
+        Self::try_from(s).map_err(std::convert::Into::into)
+    }
+}
+
+impl ToDynamic for FreeTypeLoadFlags {
+    fn to_dynamic(&self) -> wezterm_dynamic::Value {
+        wezterm_dynamic::Value::String(self.to_string())
+    }
+}
+
 impl FreeTypeLoadFlags {
-    pub fn default_hidpi() -> Self {
+    #[must_use] 
+    pub const fn default_hidpi() -> Self {
         Self::NO_HINTING
     }
 }
@@ -295,8 +312,8 @@ impl From<&FreeTypeLoadFlags> for String {
     }
 }
 
-impl ToString for FreeTypeLoadFlags {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for FreeTypeLoadFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = vec![];
         if *self == Self::DEFAULT {
             s.push("DEFAULT");
@@ -322,14 +339,14 @@ impl ToString for FreeTypeLoadFlags {
         if self.contains(Self::NO_AUTOHINT) {
             s.push("NO_AUTOHINT");
         }
-        s.join("|")
+        write!(f, "{}", s.join("|"))
     }
 }
 
 impl TryFrom<String> for FreeTypeLoadFlags {
     type Error = String;
     fn try_from(s: String) -> Result<Self, String> {
-        let mut flags = FreeTypeLoadFlags::empty();
+        let mut flags = Self::empty();
 
         for ele in s.split('|') {
             let ele = ele.trim();
@@ -343,7 +360,7 @@ impl TryFrom<String> for FreeTypeLoadFlags {
                 "MONOCHROME" => flags |= Self::MONOCHROME,
                 "NO_AUTOHINT" => flags |= Self::NO_AUTOHINT,
                 _ => {
-                    return Err(format!("invalid FreeTypeLoadFlags `{}` in `{}`", ele, s));
+                    return Err(format!("invalid FreeTypeLoadFlags `{ele}` in `{s}`"));
                 }
             }
         }
@@ -393,6 +410,7 @@ impl std::fmt::Display for FontAttributes {
 }
 
 impl FontAttributes {
+    #[must_use] 
     pub fn new(family: &str) -> Self {
         Self {
             family: family.into(),
@@ -410,6 +428,7 @@ impl FontAttributes {
         }
     }
 
+    #[must_use] 
     pub fn new_fallback(family: &str) -> Self {
         Self {
             family: family.into(),
@@ -473,8 +492,8 @@ impl Default for TextStyle {
 impl TextStyle {
     /// Make a version of this style where the first entry
     /// has any explicitly named bold/italic components
-    /// removed.  The intent is to set it up for make_bold
-    /// and make_italic below.
+    /// removed.  The intent is to set it up for `make_bold`
+    /// and `make_italic` below.
     ///
     /// This is done heuristically based on the family name
     /// string as we cannot depend on the font parser from
@@ -483,6 +502,7 @@ impl TextStyle {
     /// we have a parsed font to compare with.
     ///
     /// <https://github.com/wezterm/wezterm/issues/456>
+    #[must_use] 
     pub fn reduce_first_font_to_family(&self) -> Self {
         fn reduce(mut family: &str) -> String {
             loop {
@@ -532,6 +552,7 @@ impl TextStyle {
     }
 
     /// Make a version of this style with bold enabled.
+    #[must_use] 
     pub fn make_bold(&self) -> Self {
         Self {
             foreground: self.foreground,
@@ -548,6 +569,7 @@ impl TextStyle {
         }
     }
 
+    #[must_use] 
     pub fn make_half_bright(&self) -> Self {
         Self {
             foreground: self.foreground,
@@ -565,6 +587,7 @@ impl TextStyle {
     }
 
     /// Make a version of this style with italic enabled.
+    #[must_use] 
     pub fn make_italic(&self) -> Self {
         Self {
             foreground: self.foreground,
@@ -582,6 +605,7 @@ impl TextStyle {
     }
 
     #[allow(clippy::let_and_return)]
+    #[must_use] 
     pub fn font_with_fallback(&self) -> Vec<FontAttributes> {
         let mut font = self.font.clone();
 
@@ -590,7 +614,7 @@ impl TextStyle {
         // Insert our bundled default JetBrainsMono as a fallback
         // in case their preference doesn't match anything.
         // But don't add it if it is already their preference.
-        if !font.iter().any(|f| *f == default_font) {
+        if !font.contains(&default_font) {
             default_font.is_fallback = true;
             font.push(default_font);
         }
@@ -621,27 +645,27 @@ impl TextStyle {
 /// stop processing further font rules.
 #[derive(Debug, Default, Clone, FromDynamic, ToDynamic)]
 pub struct StyleRule {
-    /// If present, this rule matches when CellAttributes::intensity holds
+    /// If present, this rule matches when `CellAttributes::intensity` holds
     /// a value that matches this rule.  Valid values are "Bold", "Normal",
     /// "Half".
     pub intensity: Option<wezterm_term::Intensity>,
-    /// If present, this rule matches when CellAttributes::underline holds
+    /// If present, this rule matches when `CellAttributes::underline` holds
     /// a value that matches this rule.  Valid values are "None", "Single",
     /// "Double".
     pub underline: Option<wezterm_term::Underline>,
-    /// If present, this rule matches when CellAttributes::italic holds
+    /// If present, this rule matches when `CellAttributes::italic` holds
     /// a value that matches this rule.
     pub italic: Option<bool>,
-    /// If present, this rule matches when CellAttributes::blink holds
+    /// If present, this rule matches when `CellAttributes::blink` holds
     /// a value that matches this rule.
     pub blink: Option<wezterm_term::Blink>,
-    /// If present, this rule matches when CellAttributes::reverse holds
+    /// If present, this rule matches when `CellAttributes::reverse` holds
     /// a value that matches this rule.
     pub reverse: Option<bool>,
-    /// If present, this rule matches when CellAttributes::strikethrough holds
+    /// If present, this rule matches when `CellAttributes::strikethrough` holds
     /// a value that matches this rule.
     pub strikethrough: Option<bool>,
-    /// If present, this rule matches when CellAttributes::invisible holds
+    /// If present, this rule matches when `CellAttributes::invisible` holds
     /// a value that matches this rule.
     pub invisible: Option<bool>,
 
@@ -650,17 +674,14 @@ pub struct StyleRule {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum AllowSquareGlyphOverflow {
     Never,
     Always,
+    #[default]
     WhenFollowedBySpace,
 }
 
-impl Default for AllowSquareGlyphOverflow {
-    fn default() -> Self {
-        Self::WhenFollowedBySpace
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
 pub enum FontLocatorSelection {
@@ -670,18 +691,18 @@ pub enum FontLocatorSelection {
     Gdi,
     /// Use CoreText on macOS
     CoreText,
-    /// Use only the font_dirs configuration to locate fonts
+    /// Use only the `font_dirs` configuration to locate fonts
     ConfigDirsOnly,
 }
 
 impl Default for FontLocatorSelection {
     fn default() -> Self {
         if cfg!(windows) {
-            FontLocatorSelection::Gdi
+            Self::Gdi
         } else if cfg!(target_os = "macos") {
-            FontLocatorSelection::CoreText
+            Self::CoreText
         } else {
-            FontLocatorSelection::FontConfig
+            Self::FontConfig
         }
     }
 }

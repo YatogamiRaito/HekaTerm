@@ -1,14 +1,14 @@
 use crate::domain::ClientInner;
 use crate::pane::clientpane::ClientPane;
 use anyhow::anyhow;
-use codec::*;
+use codec::{InputSerial, GetPaneRenderChangesResponse, GetLines, GetPaneRenderChanges, SerializedLines, GetImageCell, GetImageCellResponse};
 use config::{configuration, ConfigHandle};
 use lru::LruCache;
 use mux::pane::PaneId;
 use mux::renderable::{RenderableDimensions, StableCursorPosition};
 use mux::Mux;
 use promise::BrokenPromise;
-use rangeset::*;
+use rangeset::RangeSet;
 use ratelim::RateLimiter;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -43,7 +43,7 @@ enum LineEntry {
 }
 
 impl LineEntry {
-    fn kind(&self) -> (&'static str, Option<Instant>) {
+    const fn kind(&self) -> (&'static str, Option<Instant>) {
         match self {
             Self::Line(_) => ("Line", None),
             Self::Fetching(since) => ("Fetching", Some(*since)),
@@ -138,8 +138,7 @@ impl RenderableInner {
     fn should_predict(&self) -> bool {
         self.client
             .local_echo_threshold_ms
-            .map(|thresh| self.last_input_rtt >= thresh)
-            .unwrap_or(false)
+            .is_some_and(|thresh| self.last_input_rtt >= thresh)
     }
 
     /// Compute a "prediction" and apply it to the line data that we
@@ -148,9 +147,10 @@ impl RenderableInner {
     /// Open questions:
     /// how do we tell if the intent is to suppress local echo during eg:
     ///  * password prompt?  One option is to look back and see if the line
-    ///                      looks like a password prompt.
+    ///    looks like a password prompt.
     ///  * normal mode in vim: letter presses are typically movement or
-    ///                        other editor commands
+    ///    other editor commands
+    ///
     /// There are bound to be a number of other edge cases that we should
     /// handle.
     fn apply_prediction(&mut self, c: KeyCode, line: &mut Line) {
@@ -231,7 +231,7 @@ impl RenderableInner {
 
         let row = self.cursor_position.y;
         match self.lines.pop(&row) {
-            Some(LineEntry::Stale(mut line)) | Some(LineEntry::Line(mut line)) => {
+            Some(LineEntry::Stale(mut line) | LineEntry::Line(mut line)) => {
                 self.apply_prediction(c, &mut line);
                 self.lines.put(row, LineEntry::Line(line));
             }
@@ -273,13 +273,13 @@ impl RenderableInner {
         }
 
         let text = textwrap::fill(text, self.dimensions.cols);
-        let lines: Vec<&str> = text.split("\n").collect();
+        let lines: Vec<&str> = text.split('\n').collect();
 
         for (idx, paste_line) in lines.iter().enumerate() {
             let row = self.cursor_position.y + idx as StableRowIndex;
 
             match self.lines.pop(&row) {
-                Some(LineEntry::Stale(mut line)) | Some(LineEntry::Line(mut line)) => {
+                Some(LineEntry::Stale(mut line) | LineEntry::Line(mut line)) => {
                     self.apply_paste_prediction(idx, paste_line, &mut line);
                     self.lines.put(row, LineEntry::Line(line));
                 }
@@ -383,18 +383,17 @@ impl RenderableInner {
                 // so that we'll fetch it on demand later.
                 let fetchable = stable_row >= delta.dimensions.physical_top;
                 let prior = self.lines.pop(&stable_row);
-                let prior_kind = prior.as_ref().map(|e| e.kind());
+                let prior_kind = prior.as_ref().map(LineEntry::kind);
                 if !fetchable {
-                    log::trace!("make {} stale bcos not fetchable", stable_row);
+                    log::trace!("make {stable_row} stale bcos not fetchable");
                     self.make_stale(stable_row);
                     continue;
                 }
                 to_fetch.add(stable_row);
                 let entry = match prior {
                     Some(LineEntry::Fetching(_)) | None => LineEntry::Fetching(now),
-                    Some(LineEntry::LineAndFetching(old, ..))
-                    | Some(LineEntry::Stale(old))
-                    | Some(LineEntry::Line(old)) => LineEntry::LineAndFetching(old, now),
+                    Some(LineEntry::LineAndFetching(old, ..) | LineEntry::Stale(old) |
+LineEntry::Line(old)) => LineEntry::LineAndFetching(old, now),
                 };
                 log::trace!(
                     "row {} {:?} -> {:?} due to dirty and IN viewport",
@@ -410,8 +409,7 @@ impl RenderableInner {
                 self.schedule_fetch_lines(to_fetch, now);
             } else {
                 log::warn!(
-                    "exceeded fetch throttle, drop {:?} and mark stale",
-                    to_fetch
+                    "exceeded fetch throttle, drop {to_fetch:?} and mark stale"
                 );
                 for r in to_fetch.iter() {
                     for stable_row in r.clone() {
@@ -436,9 +434,8 @@ impl RenderableInner {
 
     fn make_stale(&mut self, stable_row: StableRowIndex) {
         match self.lines.pop(&stable_row) {
-            Some(LineEntry::Stale(old))
-            | Some(LineEntry::Line(old))
-            | Some(LineEntry::LineAndFetching(old, _)) => {
+            Some(LineEntry::Stale(old) | LineEntry::Line(old) |
+LineEntry::LineAndFetching(old, _)) => {
                 self.lines.put(stable_row, LineEntry::Stale(old));
             }
             Some(LineEntry::Fetching(_)) | None => {}
@@ -461,7 +458,7 @@ impl RenderableInner {
             // the state, so we should leave it alone
 
             match self.lines.pop(&stable_row) {
-                Some(LineEntry::LineAndFetching(_, then)) | Some(LineEntry::Fetching(then))
+                Some(LineEntry::LineAndFetching(_, then) | LineEntry::Fetching(then))
                     if fetch_start == then =>
                 {
                     log::trace!(
@@ -539,7 +536,7 @@ impl RenderableInner {
         let mux = Mux::get();
         let pane = mux
             .get_pane(local_pane_id)
-            .ok_or_else(|| anyhow!("no such tab {}", local_pane_id))?;
+            .ok_or_else(|| anyhow!("no such tab {local_pane_id}"))?;
         if let Some(client_tab) = pane.downcast_ref::<ClientPane>() {
             let renderable = client_tab.renderable.lock();
             let mut inner = renderable.inner.borrow_mut();
@@ -548,13 +545,13 @@ impl RenderableInner {
                 Ok(lines) => {
                     let config = configuration();
 
-                    log::trace!("fetch complete for {:?} at {:?}", to_fetch, now);
-                    for (stable_row, line) in lines.into_iter() {
+                    log::trace!("fetch complete for {to_fetch:?} at {now:?}");
+                    for (stable_row, line) in lines {
                         inner.put_line(stable_row, line, &config, Some(now));
                     }
                 }
                 Err(err) => {
-                    log::error!("get_lines failed: {}", err);
+                    log::error!("get_lines failed: {err}");
                     for r in to_fetch.iter() {
                         for stable_row in r.clone() {
                             let entry = match inner.lines.pop(&stable_row) {
@@ -576,8 +573,7 @@ impl RenderableInner {
             }
         }
         log::trace!(
-            "Generate PaneOutput event for local_pane_id={}",
-            local_pane_id
+            "Generate PaneOutput event for local_pane_id={local_pane_id}"
         );
         mux.notify(mux::MuxNotification::PaneOutput(local_pane_id));
         Ok(())
@@ -620,7 +616,7 @@ impl RenderableInner {
             let mux = Mux::get();
             let tab = mux
                 .get_pane(local_pane_id)
-                .ok_or_else(|| anyhow!("no such tab {}", local_pane_id))?;
+                .ok_or_else(|| anyhow!("no such tab {local_pane_id}"))?;
             if let Some(client_tab) = tab.downcast_ref::<ClientPane>() {
                 let renderable = client_tab.renderable.lock();
                 let mut inner = renderable.inner.borrow_mut();
@@ -636,11 +632,9 @@ impl RenderableInner {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref IMAGE_LRU: Mutex<LruCache<[u8;32], Arc<ImageData>>> = Mutex::new(LruCache::new(NonZeroUsize::new(128).unwrap()));
-}
+static IMAGE_LRU: std::sync::LazyLock<Mutex<LruCache<[u8;32], Arc<ImageData>>>> = std::sync::LazyLock::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(128).unwrap())));
 
-pub(crate) async fn hydrate_lines(
+pub async fn hydrate_lines(
     client: Arc<ClientInner>,
     pane_id: PaneId,
     serialized_lines: SerializedLines,
@@ -695,25 +689,20 @@ pub(crate) async fn hydrate_lines(
     }
 
     for im in image_cells {
-        if let Some(data) = data_by_hash.get(&im.data_hash) {
-            if let Some(line) = line_by_idx.get_mut(&im.line_idx) {
-                if let Some(cell) = line.cells_mut_for_attr_changes_only().get_mut(im.cell_idx) {
+        if let Some(data) = data_by_hash.get(&im.data_hash)
+            && let Some(line) = line_by_idx.get_mut(&im.line_idx)
+                && let Some(cell) = line.cells_mut_for_attr_changes_only().get_mut(im.cell_idx) {
                     cell.attrs_mut()
                         .attach_image(Box::new(ImageCell::with_z_index(
                             im.top_left,
                             im.bottom_right,
                             Arc::clone(data),
                             im.z_index,
-                            im.padding_left,
-                            im.padding_top,
-                            im.padding_right,
-                            im.padding_bottom,
+                            (im.padding_left, im.padding_top, im.padding_right, im.padding_bottom),
                             im.image_id,
                             im.placement_id,
                         )));
                 }
-            }
-        }
     }
 
     line_by_idx.into_iter().collect()
@@ -761,8 +750,8 @@ impl RenderableState {
                 }
             };
 
-            if inner.client.overlay_lag_indicator && idx == inner.dimensions.physical_top {
-                if inner.is_tardy() {
+            if inner.client.overlay_lag_indicator && idx == inner.dimensions.physical_top
+                && inner.is_tardy() {
                     let status = format!(
                         "wezterm: {:.0?}⏳since last response",
                         inner.last_recv_time.elapsed()
@@ -782,7 +771,6 @@ impl RenderableState {
                         .unwrap()
                         .overlay_text_with_attribute(col, &status, attr, SEQ_ZERO);
                 }
-            }
 
             inner.lines.put(idx, entry);
         }
@@ -814,7 +802,7 @@ impl RenderableState {
             // domain session it is terminal... but we will detect that
             // terminal condition elsewhere
             if let Err(err) = err.downcast::<BrokenPromise>() {
-                log::error!("remote tab poll failed: {}, marking as dead", err);
+                log::error!("remote tab poll failed: {err}, marking as dead");
                 inner.dead = true;
             }
         }
@@ -848,7 +836,7 @@ impl RenderableState {
         }
 
         if !result.is_empty() {
-            log::trace!("get_changed_since: {} -> {:?}", seqno, result);
+            log::trace!("get_changed_since: {seqno} -> {result:?}");
         }
 
         result

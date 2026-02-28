@@ -205,10 +205,10 @@ impl KeyCode {
     /// but that assumes something about the keyboard layout and is probably
     /// better done in the gui frontend rather than this layer.
     /// In fact, this function might be better off if it lived elsewhere.
-    pub fn normalize_shift_to_upper_case(self, modifiers: Modifiers) -> KeyCode {
+    pub fn normalize_shift_to_upper_case(self, modifiers: Modifiers) -> Self {
         if modifiers.contains(Modifiers::SHIFT) {
             match self {
-                KeyCode::Char(c) if c.is_ascii_lowercase() => KeyCode::Char(c.to_ascii_uppercase()),
+                Self::Char(c) if c.is_ascii_lowercase() => Self::Char(c.to_ascii_uppercase()),
                 _ => self,
             }
         } else {
@@ -424,7 +424,7 @@ impl KeyCode {
                 {
                     write!(buf, "{}1;{}{}", CSI, 1 + mods.encode_xterm(), c)?;
                 } else {
-                    write!(buf, "{}{}", csi_or_ss3, c)?;
+                    write!(buf, "{csi_or_ss3}{c}")?;
                 }
             }
 
@@ -443,7 +443,7 @@ impl KeyCode {
                 {
                     write!(buf, "\x1b[{};{}~", c, 1 + mods.encode_xterm())?;
                 } else {
-                    write!(buf, "\x1b[{}~", c)?;
+                    write!(buf, "\x1b[{c}~")?;
                 }
             }
 
@@ -504,7 +504,7 @@ impl KeyCode {
                     if encoded_mods == 0 {
                         // If no modifiers are held, don't send the modifier
                         // sequence, as the modifier encoding is a CSI-u extension.
-                        write!(buf, "{}~", intro)?;
+                        write!(buf, "{intro}~")?;
                     } else {
                         write!(buf, "{};{}~", intro, 1 + encoded_mods)?;
                     }
@@ -524,7 +524,7 @@ impl KeyCode {
                 if encoded_mods == 0 {
                     // If no modifiers are held, don't send the modifier
                     // sequence, as the modifier encoding is a CSI-u extension.
-                    write!(buf, "{}~", intro)?;
+                    write!(buf, "{intro}~")?;
                 } else {
                     write!(buf, "{};{}~", intro, 1 + encoded_mods)?;
                 }
@@ -545,7 +545,7 @@ impl KeyCode {
                 let encoded_mods = mods.encode_xterm();
                 if encoded_mods == 0 {
                     // If no modifiers are held, don't send the modifier
-                    write!(buf, "{}{}", CSI, c)?;
+                    write!(buf, "{CSI}{c}")?;
                 } else {
                     write!(buf, "{}1;{}{}", CSI, 1 + encoded_mods, c)?;
                 }
@@ -572,10 +572,7 @@ impl KeyCode {
 /// or could be a key that a user legitimately wants to process in their
 /// terminal application
 fn is_ambiguous_ascii_ctrl(c: char) -> bool {
-    match c {
-        'i' | 'I' | 'm' | 'M' | '[' | '{' | '@' => true,
-        _ => false,
-    }
+    matches!(c, 'i' | 'I' | 'm' | 'M' | '[' | '{' | '@')
 }
 
 fn is_ascii(c: char) -> bool {
@@ -613,7 +610,7 @@ fn csi_u_encode(
     if mods.contains(Modifiers::ALT) {
         buf.push(0x1b as char);
     }
-    write!(buf, "{}", c)?;
+    write!(buf, "{c}")?;
     Ok(())
 }
 
@@ -930,7 +927,7 @@ impl InputParser {
             // Ctrl-[A..=Z] are sent as 1..=26
             let ctrl = [alpha & 0x1f];
             map.insert(
-                &ctrl,
+                ctrl,
                 InputEvent::Key(KeyEvent {
                     key: KeyCode::Char((alpha as char).to_ascii_lowercase()),
                     modifiers: Modifiers::CTRL,
@@ -940,7 +937,7 @@ impl InputParser {
             // ALT A-Z is often sent with a leading ESC
             let alt = [0x1b, alpha];
             map.insert(
-                &alt,
+                alt,
                 InputEvent::Key(KeyEvent {
                     key: KeyCode::Char(alpha as char),
                     modifiers: Modifiers::ALT,
@@ -952,7 +949,7 @@ impl InputParser {
             for (suffix, modifiers) in modifier_combos {
                 // `CSI u` encodings for the ascii range;
                 // see http://www.leonerd.org.uk/hacks/fixterms/
-                let key = format!("\x1b[{}{}u", c, suffix);
+                let key = format!("\x1b[{c}{suffix}u");
                 map.insert(
                     key,
                     InputEvent::Key(KeyEvent {
@@ -963,7 +960,7 @@ impl InputParser {
 
                 if !suffix.is_empty() {
                     // xterm modifyOtherKeys sequences
-                    let key = format!("\x1b[27{};{}~", suffix, c);
+                    let key = format!("\x1b[27{suffix};{c}~");
                     map.insert(
                         key,
                         InputEvent::Key(KeyEvent {
@@ -993,7 +990,7 @@ impl InputParser {
             // Arrow keys in normal mode encoded using CSI
             let arrow = [0x1b, b'[', *dir];
             map.insert(
-                &arrow,
+                arrow,
                 InputEvent::Key(KeyEvent {
                     key: *keycode,
                     modifiers: Modifiers::NONE,
@@ -1022,7 +1019,7 @@ impl InputParser {
                 ([0x1b, b'O', dir], Modifiers::CTRL),
             ] {
                 map.insert(
-                    &seq,
+                    seq,
                     InputEvent::Key(KeyEvent {
                         key: keycode,
                         modifiers: mods,
@@ -1040,7 +1037,7 @@ impl InputParser {
             // Arrow keys in application cursor mode encoded using SS3
             let app = [0x1b, b'O', *dir];
             map.insert(
-                &app,
+                app,
                 InputEvent::Key(KeyEvent {
                     key: *keycode,
                     modifiers: Modifiers::NONE,
@@ -1067,7 +1064,7 @@ impl InputParser {
         ] {
             let key = [0x1b, b'O', *c];
             map.insert(
-                &key,
+                key,
                 InputEvent::Key(KeyEvent {
                     key: *keycode,
                     modifiers: Modifiers::NONE,
@@ -1151,7 +1148,7 @@ impl InputParser {
         }
 
         map.insert(
-            &[0x7f],
+            [0x7f],
             InputEvent::Key(KeyEvent {
                 key: KeyCode::Backspace,
                 modifiers: Modifiers::NONE,
@@ -1159,7 +1156,7 @@ impl InputParser {
         );
 
         map.insert(
-            &[0x8],
+            [0x8],
             InputEvent::Key(KeyEvent {
                 key: KeyCode::Backspace,
                 modifiers: Modifiers::NONE,
@@ -1167,7 +1164,7 @@ impl InputParser {
         );
 
         map.insert(
-            &[0x1b],
+            [0x1b],
             InputEvent::Key(KeyEvent {
                 key: KeyCode::Escape,
                 modifiers: Modifiers::NONE,
@@ -1175,7 +1172,7 @@ impl InputParser {
         );
 
         map.insert(
-            &[b'\t'],
+            [b'\t'],
             InputEvent::Key(KeyEvent {
                 key: KeyCode::Tab,
                 modifiers: Modifiers::NONE,
@@ -1190,14 +1187,14 @@ impl InputParser {
         );
 
         map.insert(
-            &[b'\r'],
+            [b'\r'],
             InputEvent::Key(KeyEvent {
                 key: KeyCode::Enter,
                 modifiers: Modifiers::NONE,
             }),
         );
         map.insert(
-            &[b'\n'],
+            [b'\n'],
             InputEvent::Key(KeyEvent {
                 key: KeyCode::Enter,
                 modifiers: Modifiers::NONE,
@@ -1254,7 +1251,7 @@ impl InputParser {
             Err(err) => {
                 let (valid, _after_valid) = bytes.split_at(err.valid_up_to());
                 if !valid.is_empty() {
-                    let s = unsafe { std::str::from_utf8_unchecked(valid) };
+                    let s = std::str::from_utf8(valid).unwrap();
                     let (c, len) = Self::first_char_and_len(s);
                     Some((c, len))
                 } else {
@@ -1367,8 +1364,8 @@ impl InputParser {
                                     modifiers,
                                 } => {
                                     callback(InputEvent::PixelMouse(PixelMouseEvent {
-                                        x_pixels: x_pixels,
-                                        y_pixels: y_pixels,
+                                        x_pixels,
+                                        y_pixels,
                                         mouse_buttons: button.into(),
                                         modifiers,
                                     }));

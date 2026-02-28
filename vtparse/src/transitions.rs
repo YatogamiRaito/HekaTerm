@@ -6,7 +6,7 @@ use crate::enums::{Action, State};
 /// Apply all u8 values to `fn(u8) -> u16`, return `[u16; 256]`.
 macro_rules! define_table {
     ( $func:tt ) => {{
-        const fn gen() -> [u16; 256] {
+        const fn generate() -> [u16; 256] {
             let mut arr = [0; 256];
 
             let mut i = 0;
@@ -16,7 +16,7 @@ macro_rules! define_table {
             }
             return arr;
         }
-        gen()
+        generate()
     }};
 }
 
@@ -25,8 +25,8 @@ const fn pack(action: Action, state: State) -> u16 {
 }
 
 const fn anywhere_or(i: u8, state: State) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Execute, None};
+    use State::{Ground, Escape, SosPmString, DcsEntry, OscString, CsiEntry};
     match i {
         0x18 => pack(Execute, Ground),
         0x1a => pack(Execute, Ground),
@@ -47,8 +47,8 @@ const fn anywhere_or(i: u8, state: State) -> u16 {
 }
 
 const fn ground(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Execute, Print, Utf8};
+    use State::{Ground, Utf8Sequence};
     match i {
         0x00..=0x17 => pack(Execute, Ground),
         0x19 => pack(Execute, Ground),
@@ -66,8 +66,8 @@ const fn ground(i: u8) -> u16 {
 }
 
 const fn escape(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Execute, Ignore, Collect, EscDispatch, None};
+    use State::{Escape, EscapeIntermediate, Ground, CsiEntry, OscString, DcsEntry, SosPmString, ApcString};
     match i {
         0x00..=0x17 => pack(Execute, Escape),
         0x19 => pack(Execute, Escape),
@@ -91,8 +91,8 @@ const fn escape(i: u8) -> u16 {
 }
 
 const fn escape_intermediate(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Execute, Collect, Ignore, EscDispatch};
+    use State::{EscapeIntermediate, Ground};
     match i {
         0x00..=0x17 => pack(Execute, EscapeIntermediate),
         0x19 => pack(Execute, EscapeIntermediate),
@@ -105,8 +105,8 @@ const fn escape_intermediate(i: u8) -> u16 {
 }
 
 const fn csi_entry(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Execute, Ignore, Collect, None, Param, CsiDispatch};
+    use State::{CsiEntry, CsiIntermediate, CsiIgnore, CsiParam, Ground};
     match i {
         0x00..=0x17 => pack(Execute, CsiEntry),
         0x19 => pack(Execute, CsiEntry),
@@ -123,8 +123,8 @@ const fn csi_entry(i: u8) -> u16 {
 }
 
 const fn csi_param(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Execute, Param, Ignore, None, Collect, CsiDispatch};
+    use State::{CsiParam, CsiIgnore, CsiIntermediate, Ground};
     match i {
         0x00..=0x17 => pack(Execute, CsiParam),
         0x19 => pack(Execute, CsiParam),
@@ -139,8 +139,8 @@ const fn csi_param(i: u8) -> u16 {
 }
 
 const fn csi_intermediate(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Execute, Collect, Ignore, None, CsiDispatch};
+    use State::{CsiIntermediate, CsiIgnore, Ground};
     match i {
         0x00..=0x17 => pack(Execute, CsiIntermediate),
         0x19 => pack(Execute, CsiIntermediate),
@@ -154,8 +154,8 @@ const fn csi_intermediate(i: u8) -> u16 {
 }
 
 const fn csi_ignore(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Execute, Ignore, None};
+    use State::{CsiIgnore, Ground};
     match i {
         0x00..=0x17 => pack(Execute, CsiIgnore),
         0x19 => pack(Execute, CsiIgnore),
@@ -168,8 +168,8 @@ const fn csi_ignore(i: u8) -> u16 {
 }
 
 const fn dcs_entry(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Ignore, None, Collect, Param};
+    use State::{DcsEntry, DcsIgnore, DcsIntermediate, DcsParam, DcsPassthrough};
     match i {
         0x00..=0x17 => pack(Ignore, DcsEntry),
         0x19 => pack(Ignore, DcsEntry),
@@ -186,8 +186,8 @@ const fn dcs_entry(i: u8) -> u16 {
 }
 
 const fn dcs_param(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Ignore, Param, None, Collect};
+    use State::{DcsParam, DcsIgnore, DcsIntermediate, DcsPassthrough};
     match i {
         0x00..=0x17 => pack(Ignore, DcsParam),
         0x19 => pack(Ignore, DcsParam),
@@ -204,8 +204,8 @@ const fn dcs_param(i: u8) -> u16 {
 }
 
 const fn dcs_intermediate(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Ignore, Collect, None};
+    use State::{DcsIntermediate, DcsIgnore, DcsPassthrough};
     match i {
         0x00..=0x17 => pack(Ignore, DcsIntermediate),
         0x19 => pack(Ignore, DcsIntermediate),
@@ -219,8 +219,8 @@ const fn dcs_intermediate(i: u8) -> u16 {
 }
 
 const fn dcs_passthrough(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Put, Ignore};
+    use State::DcsPassthrough;
     match i {
         0x00..=0x17 => pack(Put, DcsPassthrough),
         0x19 => pack(Put, DcsPassthrough),
@@ -232,8 +232,8 @@ const fn dcs_passthrough(i: u8) -> u16 {
 }
 
 const fn dcs_ignore(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::Ignore;
+    use State::DcsIgnore;
     match i {
         0x00..=0x17 => pack(Ignore, DcsIgnore),
         0x19 => pack(Ignore, DcsIgnore),
@@ -244,8 +244,8 @@ const fn dcs_ignore(i: u8) -> u16 {
 }
 
 const fn osc_string(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::{Ignore, OscPut, Utf8};
+    use State::{OscString, Ground, Utf8Sequence};
     match i {
         0x00..=0x06 => pack(Ignore, OscString),
         // Using BEL in place of ST is a deviation from
@@ -267,8 +267,8 @@ const fn osc_string(i: u8) -> u16 {
 }
 
 const fn sos_pm_string(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::Ignore;
+    use State::SosPmString;
     match i {
         0x00..=0x17 => pack(Ignore, SosPmString),
         0x19 => pack(Ignore, SosPmString),
@@ -279,8 +279,8 @@ const fn sos_pm_string(i: u8) -> u16 {
 }
 
 const fn apc_string(i: u8) -> u16 {
-    use Action::*;
-    use State::*;
+    use Action::ApcPut;
+    use State::ApcString;
     match i {
         0x00..=0x17 => pack(ApcPut, ApcString),
         0x19 => pack(ApcPut, ApcString),
@@ -290,7 +290,7 @@ const fn apc_string(i: u8) -> u16 {
     }
 }
 
-pub(crate) static TRANSITIONS: [[u16; 256]; 15] = [
+pub static TRANSITIONS: [[u16; 256]; 15] = [
     define_table!(ground),
     define_table!(escape),
     define_table!(escape_intermediate),
@@ -308,7 +308,7 @@ pub(crate) static TRANSITIONS: [[u16; 256]; 15] = [
     define_table!(apc_string),
 ];
 
-pub(crate) static ENTRY: [Action; 17] = [
+pub static ENTRY: [Action; 17] = [
     Action::None,     // Ground
     Action::Clear,    // Escape
     Action::None,     // EscapeIntermediate
@@ -328,7 +328,7 @@ pub(crate) static ENTRY: [Action; 17] = [
     Action::None,     // Utf8Sequence
 ];
 
-pub(crate) static EXIT: [Action; 17] = [
+pub static EXIT: [Action; 17] = [
     Action::None,   // Ground
     Action::None,   // Escape
     Action::None,   // EscapeIntermediate

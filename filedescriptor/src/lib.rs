@@ -5,7 +5,7 @@
 //! Rather than conditionally using `RawFd` and `RawHandle`, the `FileDescriptor`
 //! type can be used to manage ownership, duplicate, read and write.
 //!
-//! ## FileDescriptor
+//! ## `FileDescriptor`
 //!
 //! This is a bit of a contrived example, but demonstrates how to avoid
 //! the conditional code that would otherwise be required to deal with
@@ -175,6 +175,8 @@ pub trait IntoRawFileDescriptor {
 /// to indicate that care must be taken by the caller to ensure that it
 /// is used appropriately.
 pub trait FromRawFileDescriptor {
+    /// # Safety
+    /// The `fd` must be a valid file descriptor.
     unsafe fn from_raw_file_descriptor(fd: RawFileDescriptor) -> Self;
 }
 
@@ -185,6 +187,8 @@ pub trait IntoRawSocketDescriptor {
     fn into_socket_descriptor(self) -> SocketDescriptor;
 }
 pub trait FromRawSocketDescriptor {
+    /// # Safety
+    /// The `fd` must be a valid socket descriptor.
     unsafe fn from_socket_descriptor(fd: SocketDescriptor) -> Self;
 }
 
@@ -195,6 +199,7 @@ pub trait FromRawSocketDescriptor {
 #[derive(Debug)]
 pub struct OwnedHandle {
     handle: RawFileDescriptor,
+    #[allow(dead_code)]
     handle_type: HandleType,
 }
 
@@ -217,7 +222,7 @@ impl OwnedHandle {
     /// The returned handle has a separate lifetime from the source, but
     /// references the same object at the kernel level.
     pub fn try_clone(&self) -> Result<Self> {
-        Self::dup_impl(self, self.handle_type)
+        Self::dup_impl(self, ())
     }
 
     /// Attempt to duplicate the underlying handle from an object that is
@@ -228,7 +233,7 @@ impl OwnedHandle {
     /// The returned handle has a separate lifetime from the source, but
     /// references the same object at the kernel level.
     pub fn dup<F: AsRawFileDescriptor>(f: &F) -> Result<Self> {
-        Self::dup_impl(f, Default::default())
+        Self::dup_impl(f, ())
     }
 }
 
@@ -356,7 +361,7 @@ pub struct Pipe {
 
 use std::time::Duration;
 
-/// Examines a set of FileDescriptors to see if some of them are ready for I/O,
+/// Examines a set of `FileDescriptors` to see if some of them are ready for I/O,
 /// or if certain events have occurred on them.
 ///
 /// This uses the system native readiness checking mechanism, which on Windows
@@ -389,7 +394,7 @@ pub fn poll(pfd: &mut [pollfd], duration: Option<Duration>) -> Result<usize> {
 
 /// Create a pair of connected sockets
 ///
-/// This implementation creates a pair of SOCK_STREAM sockets.
+/// This implementation creates a pair of `SOCK_STREAM` sockets.
 pub fn socketpair() -> Result<(FileDescriptor, FileDescriptor)> {
     socketpair_impl()
 }

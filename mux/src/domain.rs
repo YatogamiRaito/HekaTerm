@@ -1,4 +1,5 @@
 //! A Domain represents an instance of a multiplexer.
+//!
 //! For example, the gui frontend has its own domain,
 //! and we can connect to a domain hosted by a mux server
 //! that may be local, running "remotely" inside a WSL
@@ -81,7 +82,7 @@ pub trait Domain: Downcast + Send + Sync {
         let mux = Mux::get();
         let tab = match mux.get_tab(tab) {
             Some(t) => t,
-            None => anyhow::bail!("Invalid tab id {}", tab),
+            None => anyhow::bail!("Invalid tab id {tab}"),
         };
 
         let pane_index = match tab
@@ -90,12 +91,12 @@ pub trait Domain: Downcast + Send + Sync {
             .find(|p| p.pane.pane_id() == pane_id)
         {
             Some(p) => p.index,
-            None => anyhow::bail!("invalid pane id {}", pane_id),
+            None => anyhow::bail!("invalid pane id {pane_id}"),
         };
 
         let split_size = match tab.compute_split_size(pane_index, split_request) {
             Some(s) => s,
-            None => anyhow::bail!("invalid pane index {}", pane_index),
+            None => anyhow::bail!("invalid pane index {pane_index}"),
         };
 
         let pane = match source {
@@ -109,14 +110,14 @@ pub trait Domain: Downcast + Send + Sync {
             SplitSource::MovePane(src_pane_id) => {
                 let (_domain, _window, src_tab) = mux
                     .resolve_pane_id(src_pane_id)
-                    .ok_or_else(|| anyhow::anyhow!("pane {} not found", src_pane_id))?;
+                    .ok_or_else(|| anyhow::anyhow!("pane {src_pane_id} not found"))?;
                 let src_tab = match mux.get_tab(src_tab) {
                     Some(t) => t,
-                    None => anyhow::bail!("Invalid tab id {}", src_tab),
+                    None => anyhow::bail!("Invalid tab id {src_tab}"),
                 };
 
                 let pane = src_tab.remove_pane(src_pane_id).ok_or_else(|| {
-                    anyhow::anyhow!("pane {} not found in its containing tab!?", src_pane_id)
+                    anyhow::anyhow!("pane {src_pane_id} not found in its containing tab!?")
                 })?;
 
                 if src_tab.is_dead() {
@@ -134,7 +135,7 @@ pub trait Domain: Downcast + Send + Sync {
             .find(|p| p.pane.pane_id() == pane_id)
         {
             Some(p) => p.index,
-            None => anyhow::bail!("invalid pane id {}", pane_id),
+            None => anyhow::bail!("invalid pane id {pane_id}"),
         };
 
         tab.split_and_insert(final_pane_index, split_request, Arc::clone(&pane))?;
@@ -226,6 +227,7 @@ impl LocalDomain {
             .cloned()
     }
 
+    #[must_use] 
     pub fn with_pty_system(name: &str, pty_system: Box<dyn PtySystem + Send>) -> Self {
         let id = alloc_domain_id();
         Self {
@@ -254,7 +256,7 @@ impl LocalDomain {
     }
 
     #[cfg(unix)]
-    fn is_conpty(&self) -> bool {
+    const fn is_conpty(&self) -> bool {
         false
     }
 
@@ -271,13 +273,12 @@ impl LocalDomain {
         if let Some(wsl) = self.resolve_wsl_domain() {
             let mut args: Vec<OsString> = cmd.get_argv().clone();
 
-            if args.is_empty() {
-                if let Some(def_prog) = &wsl.default_prog {
+            if args.is_empty()
+                && let Some(def_prog) = &wsl.default_prog {
                     for arg in def_prog {
                         args.push(arg.into());
                     }
                 }
-            }
 
             let mut argv: Vec<OsString> = vec![
                 "wsl.exe".into(),
@@ -323,10 +324,7 @@ impl LocalDomain {
             for (k, v) in cmd.iter_full_env_as_str() {
                 set_environment_variables.insert(k.to_string(), v.to_string());
             }
-            let cwd = match cmd.get_cwd() {
-                Some(cwd) => Some(PathBuf::from(cwd)),
-                None => None,
-            };
+            let cwd = cmd.get_cwd().map(PathBuf::from);
             let spawn_command = SpawnCommand {
                 label: None,
                 domain: SpawnTabDomain::DomainName(ed.name.clone()),
@@ -339,7 +337,7 @@ impl LocalDomain {
             let spawn_command = config::with_lua_config_on_main_thread(|lua| async {
                 let lua = lua.ok_or_else(|| anyhow::anyhow!("missing lua context"))?;
                 let value = config::lua::emit_async_callback(
-                    &*lua,
+                    &lua,
                     (ed.fixup_command.clone(), (spawn_command.clone())),
                 )
                 .await?;
@@ -435,10 +433,8 @@ impl LocalDomain {
             // that is not accessible to the user.
             if let Err(err) = Path::new(&dir).read_dir() {
                 log::warn!(
-                    "Directory {:?} is not readable and will not be \
-                     used for the command we are spawning: {:#}",
-                    dir,
-                    err
+                    "Directory {dir:?} is not readable and will not be \
+                     used for the command we are spawning: {err:#}"
                 );
                 cmd.clear_cwd();
             }
@@ -457,8 +453,7 @@ impl LocalDomain {
         let wsl = self.resolve_wsl_domain();
         let default_prog = wsl
             .as_ref()
-            .map(|wsl| wsl.default_prog.as_ref())
-            .unwrap_or(config.default_prog.as_ref());
+            .map_or(config.default_prog.as_ref(), |wsl| wsl.default_prog.as_ref());
 
         let mut cmd = match command {
             Some(mut cmd) => {
@@ -469,8 +464,7 @@ impl LocalDomain {
                 None,
                 default_prog,
                 wsl.as_ref()
-                    .map(|wsl| wsl.default_cwd.as_ref())
-                    .unwrap_or(config.default_cwd.as_ref()),
+                    .map_or(config.default_cwd.as_ref(), |wsl| wsl.default_cwd.as_ref()),
             )?,
         };
         if let Some(dir) = command_dir {
@@ -491,7 +485,7 @@ impl LocalDomain {
 /// Allows sharing the writer between the Pane and the Terminal.
 /// This could potentially be eliminated in the future if we can
 /// teach the Pane impl to reference the writer in the Termninal,
-/// but the Pane trait returns a RefMut and that makes it a bit
+/// but the Pane trait returns a `RefMut` and that makes it a bit
 /// awkward at the moment.
 #[derive(Clone)]
 pub(crate) struct WriterWrapper {
@@ -581,7 +575,7 @@ impl portable_pty::ChildKiller for FailedProcessSpawn {
         Ok(())
     }
     fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
-        Box::new(FailedProcessSpawn {})
+        Box::new(Self {})
     }
 }
 
@@ -605,7 +599,7 @@ impl Domain for LocalDomain {
 
         let command_line = cmd
             .as_unix_command_line()
-            .unwrap_or_else(|err| format!("error rendering command line: {:?}", err));
+            .unwrap_or_else(|err| format!("error rendering command line: {err:?}"));
         let command_description = format!(
             "\"{}\" in domain \"{}\"",
             if command_line.is_empty() {
@@ -675,12 +669,12 @@ impl Domain for LocalDomain {
     async fn domain_label(&self) -> String {
         if let Some(ed) = self.resolve_exec_domain() {
             match &ed.label {
-                Some(ValueOrFunc::Value(wezterm_dynamic::Value::String(s))) => s.to_string(),
+                Some(ValueOrFunc::Value(wezterm_dynamic::Value::String(s))) => s.clone(),
                 Some(ValueOrFunc::Func(label_func)) => {
                     let label = config::with_lua_config_on_main_thread(|lua| async {
                         let lua = lua.ok_or_else(|| anyhow::anyhow!("missing lua context"))?;
                         let value = config::lua::emit_async_callback(
-                            &*lua,
+                            &lua,
                             (label_func.clone(), (self.name.clone())),
                         )
                         .await?;
@@ -701,16 +695,16 @@ impl Domain for LocalDomain {
                                 "Error while calling label function for ExecDomain `{}`: {err:#}",
                                 self.name
                             );
-                            self.name.to_string()
+                            self.name.clone()
                         }
                     }
                 }
-                _ => self.name.to_string(),
+                _ => self.name.clone(),
             }
         } else if let Some(wsl) = self.resolve_wsl_domain() {
-            wsl.distribution.unwrap_or_else(|| self.name.to_string())
+            wsl.distribution.unwrap_or_else(|| self.name.clone())
         } else {
-            self.name.to_string()
+            self.name.clone()
         }
     }
 

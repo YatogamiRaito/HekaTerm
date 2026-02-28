@@ -36,7 +36,7 @@ impl crate::TermWindow {
 
         'pass: for pass in 0.. {
             match self.paint_pass() {
-                Ok(_) => match self.render_state.as_mut().unwrap().allocated_more_quads() {
+                Ok(()) => match self.render_state.as_mut().unwrap().allocated_more_quads() {
                     Ok(allocated) => {
                         if !allocated {
                             break 'pass;
@@ -45,7 +45,7 @@ impl crate::TermWindow {
                         self.invalidate_modal();
                     }
                     Err(err) => {
-                        log::error!("{:#}", err);
+                        log::error!("{err:#}");
                         break 'pass;
                     }
                 },
@@ -61,7 +61,7 @@ impl crate::TermWindow {
                             log::trace!("recreate_texture_atlas");
                             self.recreate_texture_atlas(Some(current_size))
                         } else {
-                            log::trace!("grow texture atlas to {}", size);
+                            log::trace!("grow texture atlas to {size}");
                             self.recreate_texture_atlas(Some(size))
                         };
                         self.invalidate_fancy_tab_bar();
@@ -73,7 +73,7 @@ impl crate::TermWindow {
                                 AllowImage::Scale(2) => AllowImage::Scale(4),
                                 AllowImage::Scale(4) => AllowImage::Scale(8),
                                 AllowImage::Scale(8) => AllowImage::No,
-                                AllowImage::No | _ => {
+                                _ => {
                                     log::error!(
                                         "Failed to {} texture: {}",
                                         if pass == 0 { "clear" } else { "resize" },
@@ -97,7 +97,7 @@ impl crate::TermWindow {
                         self.shape_cache.borrow_mut().clear();
                         self.line_to_ele_shape_cache.borrow_mut().clear();
                     } else {
-                        log::error!("paint_pass failed: {:#}", err);
+                        log::error!("paint_pass failed: {err:#}");
                         break 'pass;
                     }
                 }
@@ -118,8 +118,8 @@ impl crate::TermWindow {
         // If self.has_animation is some, then the last render detected
         // image attachments with multiple frames, so we also need to
         // invalidate the viewport when the next frame is due
-        if self.focused.is_some() {
-            if let Some(next_due) = *self.has_animation.borrow() {
+        if self.focused.is_some()
+            && let Some(next_due) = *self.has_animation.borrow() {
                 let prior = self.scheduled_animation.borrow_mut().take();
                 match prior {
                     Some(prior) if prior <= next_due => {
@@ -127,7 +127,7 @@ impl crate::TermWindow {
                     }
                     _ => {
                         self.scheduled_animation.borrow_mut().replace(next_due);
-                        let window = self.window.clone().take().unwrap();
+                        let window = self.window.clone().unwrap();
                         promise::spawn::spawn(async move {
                             Timer::at(next_due).await;
                             let win = window.clone();
@@ -140,7 +140,6 @@ impl crate::TermWindow {
                     }
                 }
             }
-        }
     }
 
     pub fn paint_modal(&mut self) -> anyhow::Result<()> {
@@ -149,7 +148,7 @@ impl crate::TermWindow {
                 let mut ui_items = computed.ui_items();
 
                 let gl_state = self.render_state.as_ref().unwrap();
-                self.render_element(&computed, gl_state, None)?;
+                self.render_element(computed, gl_state, None)?;
 
                 self.ui_items.append(&mut ui_items);
             }
@@ -193,11 +192,10 @@ impl crate::TermWindow {
                 let top = panes
                     .iter()
                     .find(|p| p.is_active)
-                    .map(|p| match self.get_viewport(p.pane.pane_id()) {
+                    .map_or(0, |p| match self.get_viewport(p.pane.pane_id()) {
                         Some(top) => top,
                         None => p.pane.get_dimensions().physical_top,
-                    })
-                    .unwrap_or(0);
+                    });
 
                 let loaded_any = self
                     .render_backgrounds(bg_color, top)

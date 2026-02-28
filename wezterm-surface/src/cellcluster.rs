@@ -10,6 +10,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 /// A `CellCluster` is another representation of a Line.
+///
 /// A `Vec<CellCluster>` is produced by walking through the Cells in
 /// a line and collecting succesive Cells with the same attributes
 /// together into a `CellCluster` instance.  Additional metadata to
@@ -29,6 +30,7 @@ pub struct CellCluster {
 impl CellCluster {
     /// Given a byte index into `self.text`, return the corresponding
     /// cell index in the originating line.
+    #[must_use] 
     pub fn byte_to_cell_idx(&self, byte_idx: usize) -> usize {
         if self.byte_to_cell_idx.is_empty() {
             self.first_cell_idx + byte_idx
@@ -37,6 +39,7 @@ impl CellCluster {
         }
     }
 
+    #[must_use] 
     pub fn byte_to_cell_width(&self, byte_idx: usize) -> u8 {
         if self.byte_to_cell_width.is_empty() {
             1
@@ -45,13 +48,13 @@ impl CellCluster {
         }
     }
 
-    /// Compute the list of CellClusters from a set of visible cells.
+    /// Compute the list of `CellClusters` from a set of visible cells.
     /// The input is typically the result of calling `Line::visible_cells()`.
     pub fn make_cluster<'a>(
         hint: usize,
         iter: impl Iterator<Item = CellRef<'a>>,
         bidi_hint: Option<ParagraphDirectionHint>,
-    ) -> Vec<CellCluster> {
+    ) -> Vec<Self> {
         let mut last_cluster = None;
         let mut clusters = Vec::new();
         let mut whitespace_run = 0;
@@ -73,8 +76,8 @@ impl CellCluster {
                 None => {
                     // Start new cluster
                     only_whitespace = cell_str == " ";
-                    whitespace_run = if only_whitespace { 1 } else { 0 };
-                    Some(CellCluster::new(
+                    whitespace_run = i32::from(only_whitespace);
+                    Some(Self::new(
                         hint,
                         presentation,
                         normalized_attr.into_owned(),
@@ -89,8 +92,8 @@ impl CellCluster {
                         clusters.push(last);
 
                         only_whitespace = cell_str == " ";
-                        whitespace_run = if only_whitespace { 1 } else { 0 };
-                        Some(CellCluster::new(
+                        whitespace_run = i32::from(only_whitespace);
+                        Some(Self::new(
                             hint,
                             presentation,
                             normalized_attr.into_owned(),
@@ -130,7 +133,7 @@ impl CellCluster {
                             if whitespace_run > 0 {
                                 whitespace_run = 1;
                             }
-                            Some(CellCluster::new(
+                            Some(Self::new(
                                 hint,
                                 presentation,
                                 normalized_attr.into_owned(),
@@ -169,7 +172,7 @@ impl CellCluster {
     fn resolve_bidi(
         context: &mut BidiContext,
         hint: ParagraphDirectionHint,
-        cluster: CellCluster,
+        cluster: Self,
         resolved: &mut Vec<Self>,
     ) {
         let mut paragraph = Vec::with_capacity(cluster.text.len());
@@ -218,7 +221,7 @@ impl CellCluster {
                 }
             }
 
-            resolved.push(CellCluster {
+            resolved.push(Self {
                 attrs: cluster.attrs.clone(),
                 text,
                 width,
@@ -239,7 +242,7 @@ impl CellCluster {
         text: &str,
         cell_idx: usize,
         width: usize,
-    ) -> CellCluster {
+    ) -> Self {
         let mut idx = Vec::new();
         if text.len() > 1 {
             // Prefer to avoid pushing any index data; this saves
@@ -259,7 +262,7 @@ impl CellCluster {
         let mut storage = String::with_capacity(hint);
         storage.push_str(text);
 
-        CellCluster {
+        Self {
             attrs,
             width,
             text: storage,

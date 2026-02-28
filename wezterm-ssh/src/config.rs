@@ -175,7 +175,7 @@ impl ParsedConfigFile {
         groups: &mut Vec<MatchGroup>,
         loaded_files: &mut Vec<PathBuf>,
     ) {
-        match filenamegen::Glob::new(&pattern) {
+        match filenamegen::Glob::new(pattern) {
             Ok(g) => {
                 match cwd
                     .as_ref()
@@ -253,8 +253,8 @@ impl ParsedConfigFile {
                     let mut patterns = vec![];
                     for p in v.split(',') {
                         let p = p.trim();
-                        if p.starts_with('!') {
-                            patterns.push(Pattern::new(&p[1..], true));
+                        if let Some(stripped) = p.strip_prefix('!') {
+                            patterns.push(Pattern::new(stripped, true));
                         } else {
                             patterns.push(Pattern::new(p, false));
                         }
@@ -265,8 +265,8 @@ impl ParsedConfigFile {
                     let mut patterns = vec![];
                     for p in v.split_ascii_whitespace() {
                         let p = p.trim();
-                        if p.starts_with('!') {
-                            patterns.push(Pattern::new(&p[1..], true));
+                        if let Some(stripped) = p.strip_prefix('!') {
+                            patterns.push(Pattern::new(stripped, true));
                         } else {
                             patterns.push(Pattern::new(p, false));
                         }
@@ -407,6 +407,12 @@ pub struct Config {
     options: ConfigMap,
     tokens: ConfigMap,
     environment: Option<ConfigMap>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Config {
@@ -577,17 +583,16 @@ impl Config {
             .entry("user".to_string())
             .or_insert_with(|| target_user.clone());
 
-        if !result.contains_key("userknownhostsfile") {
-            if let Some(home) = self.resolve_home() {
+        if !result.contains_key("userknownhostsfile")
+            && let Some(home) = self.resolve_home() {
                 result.insert(
                     "userknownhostsfile".to_string(),
                     format!("{}/.ssh/known_hosts {}/.ssh/known_hosts2", home, home,),
                 );
-            }
         }
 
-        if !result.contains_key("identityfile") {
-            if let Some(home) = self.resolve_home() {
+        if !result.contains_key("identityfile")
+            && let Some(home) = self.resolve_home() {
                 result.insert(
                     "identityfile".to_string(),
                     format!(
@@ -595,13 +600,11 @@ impl Config {
                         home, home, home, home
                     ),
                 );
-            }
         }
 
-        if !result.contains_key("identityagent") {
-            if let Some(sock_path) = self.resolve_env("SSH_AUTH_SOCK") {
+        if !result.contains_key("identityagent")
+            && let Some(sock_path) = self.resolve_env("SSH_AUTH_SOCK") {
                 result.insert("identityagent".to_string(), sock_path);
-            }
         }
 
         result
@@ -610,18 +613,15 @@ impl Config {
     /// Return true if a given option name is subject to environment variable
     /// expansion.
     fn should_expand_environment(&self, key: &str) -> bool {
-        match key {
-            "certificatefile" | "controlpath" | "identityagent" | "identityfile"
-            | "userknownhostsfile" | "localforward" | "remoteforward" => true,
-            _ => false,
-        }
+        matches!(key, "certificatefile" | "controlpath" | "identityagent" | "identityfile"
+            | "userknownhostsfile" | "localforward" | "remoteforward")
     }
 
     /// Returns a set of tokens that should be expanded for a given option name
     fn should_expand_tokens(&self, key: &str) -> Option<&[&str]> {
         match key {
             "certificatefile" | "controlpath" | "identityagent" | "identityfile"
-            | "localforward" | "remotecommand" | "remoteforward" | "userknownkostsfile" => {
+            | "localforward" | "remotecommand" | "remoteforward" | "userknownhostsfile" => {
                 Some(&["%C", "%d", "%h", "%i", "%L", "%l", "%n", "%p", "%r", "%u"])
             }
             "hostname" => Some(&["%h"]),
@@ -637,19 +637,18 @@ impl Config {
     /// For the sake of unit testing, this will look for HOME in the provided
     /// environment override before asking the system for the home directory.
     fn resolve_home(&self) -> Option<String> {
-        if let Some(env) = self.environment.as_ref() {
-            if let Some(home) = env.get("HOME") {
-                return Some(home.to_string());
-            }
+        if let Some(env) = self.environment.as_ref()
+            && let Some(home) = env.get("HOME") {
+                return Some(home.clone());
         }
-        if let Some(home) = dirs_next::home_dir() {
-            if let Some(home) = home.to_str() {
+        if let Some(home) = dirs_next::home_dir()
+            && let Some(home) = home.to_str() {
                 return Some(home.to_string());
-            }
         }
         None
     }
 
+    #[allow(unreachable_code)]
     fn resolve_uid(&self) -> String {
         #[cfg(test)]
         if let Some(env) = self.environment.as_ref() {
@@ -658,13 +657,17 @@ impl Config {
             // are easier to handle with snapshots
             if let Some(uid) = env.get("WEZTERM_SSH_UID") {
                 return uid.to_string();
+            } else {
+                return String::new();
             }
+        } else {
+            return String::new();
         }
 
         #[cfg(unix)]
         {
             let uid = unsafe { libc::getuid() };
-            return uid.to_string();
+            uid.to_string()
         }
 
         #[cfg(not(unix))]
@@ -721,7 +724,7 @@ impl Config {
                 use sha2::Digest;
                 let mut c_value = "%l%h%p%r%j".to_string();
                 self.expand_tokens(&mut c_value, tokens, token_map);
-                let hashed = hex::encode(sha2::Sha256::digest(&c_value.as_bytes()));
+                let hashed = hex::encode(sha2::Sha256::digest(c_value.as_bytes()));
                 *value = value.replace("%C", &hashed);
             } else if value.contains(t) {
                 log::warn!("Unsupported token {t} when evaluating `{orig_value}`");
@@ -783,11 +786,10 @@ impl Config {
                 for c in &group.criteria {
                     if let Criteria::Host(patterns) = c {
                         for pattern in patterns {
-                            if pattern.is_literal && !pattern.negated {
-                                if !hosts.contains(&pattern.original) {
+                            if pattern.is_literal && !pattern.negated
+                                && !hosts.contains(&pattern.original) {
                                     hosts.push(pattern.original.clone());
                                 }
-                            }
                         }
                     }
                 }

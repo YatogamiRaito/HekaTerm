@@ -10,14 +10,14 @@
 #[cfg(feature = "tmux_cc")]
 use crate::tmux_cc::Event;
 use core::fmt::{Display, Formatter, Result as FmtResult, Write as FmtWrite};
-use num_derive::*;
+use num_derive::FromPrimitive;
 use wezterm_color_types::LinearRgba;
 
 #[cfg_attr(not(feature = "std"), macro_use)]
 extern crate alloc;
 
 mod allocate;
-use allocate::*;
+use allocate::{String, Box, Vec, ToString};
 
 pub mod apc;
 pub mod color;
@@ -27,6 +27,7 @@ pub mod esc;
 pub mod hyperlink;
 pub mod osc;
 pub mod parser;
+pub mod simd_base64;
 #[cfg(feature = "tmux_cc")]
 pub mod tmux_cc;
 
@@ -67,17 +68,17 @@ impl Action {
     /// `PrintString` then the elements are combined into `PrintString`
     /// to reduce heap utilization.
     pub fn append_to(self, dest: &mut Vec<Self>) {
-        if let Action::Print(c) = &self {
+        if let Self::Print(c) = &self {
             match dest.last_mut() {
-                Some(Action::PrintString(s)) => {
+                Some(Self::PrintString(s)) => {
                     s.push(*c);
                     return;
                 }
-                Some(Action::Print(prior)) => {
+                Some(Self::Print(prior)) => {
                     let mut s = prior.to_string();
                     dest.pop();
                     s.push(*c);
-                    dest.push(Action::PrintString(s));
+                    dest.push(Self::PrintString(s));
                     return;
                 }
                 _ => {}
@@ -102,33 +103,34 @@ fn action_size() {
 impl Display for Action {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         match self {
-            Action::Print(c) => write!(f, "{}", c),
-            Action::PrintString(s) => write!(f, "{}", s),
-            Action::Control(c) => f.write_char(*c as u8 as char),
-            Action::DeviceControl(c) => c.fmt(f),
-            Action::OperatingSystemCommand(osc) => osc.fmt(f),
-            Action::CSI(csi) => csi.fmt(f),
-            Action::Esc(esc) => esc.fmt(f),
-            Action::Sixel(sixel) => sixel.fmt(f),
-            Action::XtGetTcap(names) => {
+            Self::Print(c) => write!(f, "{c}"),
+            Self::PrintString(s) => write!(f, "{s}"),
+            Self::Control(c) => f.write_char(*c as u8 as char),
+            Self::DeviceControl(c) => c.fmt(f),
+            Self::OperatingSystemCommand(osc) => osc.fmt(f),
+            Self::CSI(csi) => csi.fmt(f),
+            Self::Esc(esc) => esc.fmt(f),
+            Self::Sixel(sixel) => sixel.fmt(f),
+            Self::XtGetTcap(names) => {
                 write!(f, "\x1bP+q")?;
                 for (i, name) in names.iter().enumerate() {
                     if i > 0 {
                         write!(f, ";")?;
                     }
                     for &b in name.as_bytes() {
-                        write!(f, "{:x}", b)?;
+                        write!(f, "{b:x}")?;
                     }
                 }
 
                 Ok(())
             }
-            Action::KittyImage(img) => img.fmt(f),
+            Self::KittyImage(img) => img.fmt(f),
         }
     }
 }
 
 /// A fully parsed DCS sequence.
+///
 /// The parser emits these for byte/intermediate sequences that are
 /// known to be relatively short and self contained (eg: DECRQSS)
 /// as opposed to larger ones like Sixel (which is parsed separately),
@@ -176,7 +178,7 @@ impl Display for ShortDeviceControl {
             if idx > 0 {
                 write!(f, ";")?;
             }
-            write!(f, "{}", p)?;
+            write!(f, "{p}")?;
         }
         for b in &self.intermediates {
             f.write_char(*b as char)?;
@@ -246,7 +248,7 @@ impl Display for DeviceControlMode {
                     if idx > 0 {
                         write!(f, ";")?;
                     }
-                    write!(f, "{}", p)?;
+                    write!(f, "{p}")?;
                 }
                 for b in &mode.intermediates {
                     f.write_char(*b as char)?;
@@ -267,10 +269,10 @@ impl Display for DeviceControlMode {
 impl core::fmt::Debug for DeviceControlMode {
     fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
         match self {
-            Self::Enter(mode) => write!(fmt, "Enter({:?})", mode),
+            Self::Enter(mode) => write!(fmt, "Enter({mode:?})"),
             Self::Exit => write!(fmt, "Exit"),
             Self::Data(b) => write!(fmt, "Data({:?} 0x{:x})", *b as char, *b),
-            Self::ShortDeviceControl(s) => write!(fmt, "ShortDeviceControl({:?})", s),
+            Self::ShortDeviceControl(s) => write!(fmt, "ShortDeviceControl({s:?})"),
             #[cfg(feature = "tmux_cc")]
             Self::TmuxEvents(_) => write!(fmt, "tmux event"),
         }
@@ -306,6 +308,7 @@ pub struct Sixel {
 
 impl Sixel {
     /// Returns the width, height of the image
+    #[must_use] 
     pub fn dimensions(&self) -> (u32, u32) {
         if let (Some(w), Some(h)) = (self.pixel_width, self.pixel_height) {
             return (w, h);
@@ -354,10 +357,10 @@ impl Display for Sixel {
             write!(
                 f,
                 "\x1bP;{}{}q\"{};{};{};{}",
-                if self.background_is_transparent { 1 } else { 0 },
+                i32::from(self.background_is_transparent),
                 match self.horizontal_grid_size {
-                    Some(h) => format!(";{}", h),
-                    None => "".to_string(),
+                    Some(h) => format!(";{h}"),
+                    None => String::new(),
                 },
                 self.pan,
                 self.pad,
@@ -374,14 +377,14 @@ impl Display for Sixel {
                     (3, 1) => 3,
                     (1, 1) => 7,
                     _ => {
-                        log::error!("bad pad/pan combo: {:?}", self);
+                        log::error!("bad pad/pan combo: {self:?}");
                         return Err(core::fmt::Error);
                     }
                 },
-                if self.background_is_transparent { 1 } else { 0 },
+                i32::from(self.background_is_transparent),
                 match self.horizontal_grid_size {
-                    Some(h) => format!(";{}", h),
-                    None => "".to_string(),
+                    Some(h) => format!(";{h}"),
+                    None => String::new(),
                 },
             )?;
         }
@@ -462,10 +465,9 @@ impl Display for SixelData {
                 saturation,
             } => write!(
                 f,
-                "#{};1;{};{};{}",
-                color_number, hue_angle, lightness, saturation
+                "#{color_number};1;{hue_angle};{lightness};{saturation}"
             ),
-            Self::SelectColorMapEntry(n) => write!(f, "#{}", n),
+            Self::SelectColorMapEntry(n) => write!(f, "#{n}"),
             Self::CarriageReturn => write!(f, "$"),
             Self::NewLine => write!(f, "-"),
         }
@@ -549,6 +551,7 @@ pub struct OneBased {
 }
 
 impl OneBased {
+    #[must_use] 
     pub fn new(value: u32) -> Self {
         debug_assert!(
             value != 0,
@@ -557,49 +560,52 @@ impl OneBased {
         Self { value }
     }
 
-    pub fn from_zero_based(value: u32) -> Self {
+    #[must_use] 
+    pub const fn from_zero_based(value: u32) -> Self {
         Self { value: value + 1 }
     }
 
     /// Map a value from an escape sequence parameter.
     /// 0 is equivalent to 1
-    pub fn from_esc_param(v: &CsiParam) -> core::result::Result<Self, ()> {
+    pub fn from_esc_param(v: &CsiParam) -> Option<Self> {
         match v {
-            CsiParam::Integer(v) if *v == 0 => Ok(Self {
+            CsiParam::Integer(v) if *v == 0 => Some(Self {
                 value: num_traits::one(),
             }),
-            CsiParam::Integer(v) if *v > 0 && *v <= i64::from(u32::max_value()) => {
-                Ok(Self { value: *v as u32 })
+            CsiParam::Integer(v) if *v > 0 && *v <= i64::from(u32::MAX) => {
+                Some(Self { value: *v as u32 })
             }
-            _ => Err(()),
+            _ => None,
         }
     }
 
     /// Map a value from an escape sequence parameter.
-    /// 0 is equivalent to max_value.
-    pub fn from_esc_param_with_big_default(v: &CsiParam) -> core::result::Result<Self, ()> {
+    /// 0 is equivalent to `max_value`.
+    pub fn from_esc_param_with_big_default(v: &CsiParam) -> Option<Self> {
         match v {
-            CsiParam::Integer(v) if *v == 0 => Ok(Self {
-                value: u32::max_value(),
+            CsiParam::Integer(v) if *v == 0 => Some(Self {
+                value: u32::MAX,
             }),
-            CsiParam::Integer(v) if *v > 0 && *v <= i64::from(u32::max_value()) => {
-                Ok(Self { value: *v as u32 })
+            CsiParam::Integer(v) if *v > 0 && *v <= i64::from(u32::MAX) => {
+                Some(Self { value: *v as u32 })
             }
-            _ => Err(()),
+            _ => None,
         }
     }
 
     /// Map a value from an optional escape sequence parameter
-    pub fn from_optional_esc_param(o: Option<&CsiParam>) -> core::result::Result<Self, ()> {
+    pub fn from_optional_esc_param(o: Option<&CsiParam>) -> Option<Self> {
         Self::from_esc_param(o.unwrap_or(&CsiParam::Integer(1)))
     }
 
     /// Return the underlying value as a 0-based value
-    pub fn as_zero_based(self) -> u32 {
+    #[must_use] 
+    pub const fn as_zero_based(self) -> u32 {
         self.value.saturating_sub(1)
     }
 
-    pub fn as_one_based(self) -> u32 {
+    #[must_use] 
+    pub const fn as_one_based(self) -> u32 {
         self.value
     }
 }

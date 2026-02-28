@@ -8,9 +8,9 @@ use termwiz::escape::{Action, ControlCode};
 /// stdin and prints the result on stdout.
 /// It preserves only printable characters and CR, LF and HT.
 ///
-/// This utility is part of WezTerm.
+/// This utility is part of `WezTerm`.
 ///
-/// https://github.com/wezterm/wezterm
+/// <https://github.com/wezterm/wezterm>
 struct Opt {}
 
 fn main() -> Result<()> {
@@ -26,7 +26,7 @@ fn main() -> Result<()> {
         }
 
         parser.parse(&buf[0..len], |action| match action {
-            Action::Print(c) => print!("{}", c),
+            Action::Print(c) => print!("{c}"),
             Action::Control(c) => match c {
                 ControlCode::HorizontalTab
                 | ControlCode::LineFeed

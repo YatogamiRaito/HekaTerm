@@ -198,10 +198,10 @@ fn compute_compatibility_list(
         .into_iter()
         .map(|a| {
             let info = adapter_info_to_gpu_info(a.get_info());
-            let compatible = a.is_surface_supported(&surface);
+            let compatible = a.is_surface_supported(surface);
             format!(
                 "{}, compatible={}",
-                info.to_string(),
+                info,
                 if compatible { "yes" } else { "NO" }
             )
         })
@@ -238,7 +238,7 @@ impl WebGpuState {
             for a in instance.enumerate_adapters(backends) {
                 if !a.is_surface_supported(&surface) {
                     let info = adapter_info_to_gpu_info(a.get_info());
-                    log::warn!("{} is not compatible with surface", info.to_string());
+                    log::warn!("{} is not compatible with surface", info);
                     continue;
                 }
 
@@ -256,21 +256,18 @@ impl WebGpuState {
                     continue;
                 }
 
-                if let Some(driver) = &preference.driver {
-                    if *driver != info.driver {
+                if let Some(driver) = &preference.driver
+                    && *driver != info.driver {
                         continue;
                     }
-                }
-                if let Some(vendor) = &preference.vendor {
-                    if *vendor != info.vendor {
+                if let Some(vendor) = &preference.vendor
+                    && *vendor != info.vendor {
                         continue;
                     }
-                }
-                if let Some(device) = &preference.device {
-                    if *device != info.device {
+                if let Some(device) = &preference.device
+                    && *device != info.device {
                         continue;
                     }
-                }
 
                 adapter.replace(a);
                 break;
@@ -281,7 +278,7 @@ impl WebGpuState {
                 log::warn!(
                     "Your webgpu preferred adapter '{}' was either not \
                      found or is not compatible with your display. Available:\n{}",
-                    preference.to_string(),
+                    preference,
                     adapters.join("\n")
                 );
             }

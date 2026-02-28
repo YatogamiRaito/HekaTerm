@@ -249,7 +249,7 @@ mod windows {
 
 #[cfg(unix)]
 mod unix {
-    use super::*;
+    use super::{PathBuf, Path, Context};
 
     pub struct NameHolder {
         published: PathBuf,
@@ -259,12 +259,11 @@ mod unix {
     impl Drop for NameHolder {
         fn drop(&mut self) {
             // If it still points to us, remove the symlink
-            if let Ok(target) = std::fs::read_link(&self.name) {
-                if target == self.published {
+            if let Ok(target) = std::fs::read_link(&self.name)
+                && target == self.published {
                     log::trace!("removing {}", self.name.display());
                     std::fs::remove_file(&self.name).ok();
                 }
-            }
         }
     }
 
@@ -273,9 +272,9 @@ mod unix {
             #[cfg(not(target_os = "macos"))]
             {
                 let config = config::configuration();
-                if config.enable_wayland {
-                    if let Ok(wayland) = std::env::var("WAYLAND_DISPLAY") {
-                        return format!("wayland-{}-{}", wayland, class_name);
+                if config.enable_wayland
+                    && let Ok(wayland) = std::env::var("WAYLAND_DISPLAY") {
+                        return format!("wayland-{wayland}-{class_name}");
                     }
                     // We don't assume a default WAYLAND_DISPLAY here because
                     // we don't know if the default should be used or if we
@@ -285,9 +284,8 @@ mod unix {
                     // unix domain socket client to see if our assumed default
                     // is a working unix socket.
                     // Something to fill in later as/when that question arises!
-                }
                 let x11 = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
-                return format!("x11-{}-{}", x11, class_name);
+                format!("x11-{x11}-{class_name}")
             }
             #[cfg(target_os = "macos")]
             {
@@ -341,6 +339,7 @@ pub fn resolve_gui_sock_path(class_name: &str) -> anyhow::Result<PathBuf> {
 /// instances of wezterm-gui.
 /// The list is pruned of any entries that are not live
 /// and then sorted with the eldest instance first.
+#[must_use] 
 pub fn discover_gui_socks() -> Vec<PathBuf> {
     let mut socks = vec![];
 
@@ -370,9 +369,9 @@ pub fn discover_gui_socks() -> Vec<PathBuf> {
 
     if let Ok(dir) = std::fs::read_dir(&*config::RUNTIME_DIR) {
         for entry in dir {
-            if let Ok(entry) = entry {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.starts_with("gui-sock-") {
+            if let Ok(entry) = entry
+                && let Some(name) = entry.file_name().to_str()
+                    && name.starts_with("gui-sock-") {
                         let path = entry.path();
                         if let Ok(meta) = entry.metadata() {
                             let age = meta_age(&meta);
@@ -383,13 +382,11 @@ pub fn discover_gui_socks() -> Vec<PathBuf> {
                             }
                         }
                     }
-                }
-            }
         }
     }
 
     socks.sort_by(|a, b| a.age.cmp(&b.age).reverse());
-    log::trace!("{:?}", socks);
+    log::trace!("{socks:?}");
     socks.into_iter().map(|e| e.path).collect()
 }
 

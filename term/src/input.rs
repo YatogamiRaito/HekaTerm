@@ -1,5 +1,4 @@
-// clippy hates bitflags
-#![allow(clippy::suspicious_arithmetic_impl, clippy::redundant_field_names)]
+#![allow(clippy::suspicious_arithmetic_impl)]
 
 use super::VisibleRowIndex;
 #[cfg(feature = "use_serde")]
@@ -68,6 +67,7 @@ pub struct LastMouseClick {
 const CLICK_INTERVAL: u64 = 500;
 
 impl LastMouseClick {
+    #[must_use] 
     pub fn new(button: MouseButton, position: ClickPosition) -> Self {
         Self {
             button,
@@ -77,6 +77,7 @@ impl LastMouseClick {
         }
     }
 
+    #[must_use] 
     pub fn add(&self, button: MouseButton, position: ClickPosition) -> Self {
         let now = Instant::now();
         let streak = if button == self.button

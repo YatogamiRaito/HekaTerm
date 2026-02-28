@@ -20,7 +20,7 @@ use std::ptr;
 use std::sync::Arc;
 
 #[inline]
-pub fn succeeded(error: FT_Error) -> bool {
+pub const fn succeeded(error: FT_Error) -> bool {
     error == freetype::FT_Err_Ok as FT_Error
 }
 
@@ -32,7 +32,7 @@ pub fn ft_result<T>(err: FT_Error, t: T) -> anyhow::Result<T> {
         unsafe {
             let reason = FT_Error_String(err);
             if reason.is_null() {
-                Err(anyhow!("FreeType error {:?} 0x{:x}", err, err))
+                Err(anyhow!("FreeType error {err:?} 0x{err:x}"))
             } else {
                 let reason = std::ffi::CStr::from_ptr(reason);
                 Err(anyhow!(
@@ -46,7 +46,7 @@ pub fn ft_result<T>(err: FT_Error, t: T) -> anyhow::Result<T> {
     }
 }
 
-fn render_mode_to_load_target(render_mode: FT_Render_Mode) -> u32 {
+const fn render_mode_to_load_target(render_mode: FT_Render_Mode) -> u32 {
     // enable FT_LOAD_TARGET bits.  There are no flags defined
     // for these in the bindings so we do some bit magic for
     // ourselves.  This is how the FT_LOAD_TARGET_() macro
@@ -71,7 +71,7 @@ pub fn compute_load_flags_from_config(
         .bits()
         | FT_LOAD_COLOR;
 
-    fn target_to_render(t: FreeTypeLoadTarget) -> FT_Render_Mode {
+    const fn target_to_render(t: FreeTypeLoadTarget) -> FT_Render_Mode {
         match t {
             FreeTypeLoadTarget::Mono => FT_Render_Mode::FT_RENDER_MODE_MONO,
             FreeTypeLoadTarget::Normal => FT_Render_Mode::FT_RENDER_MODE_NORMAL,
@@ -148,7 +148,7 @@ impl Face {
     pub fn family_name(&self) -> String {
         unsafe {
             if (*self.face).family_name.is_null() {
-                "".to_string()
+                String::new()
             } else {
                 let c = CStr::from_ptr((*self.face).family_name);
                 c.to_string_lossy().to_string()
@@ -159,7 +159,7 @@ impl Face {
     pub fn style_name(&self) -> String {
         unsafe {
             if (*self.face).style_name.is_null() {
-                "".to_string()
+                String::new()
             } else {
                 let c = CStr::from_ptr((*self.face).style_name);
                 c.to_string_lossy().to_string()
@@ -171,7 +171,7 @@ impl Face {
         unsafe {
             let c = FT_Get_Postscript_Name(self.face);
             if c.is_null() {
-                "".to_string()
+                String::new()
             } else {
                 let c = CStr::from_ptr(c);
                 c.to_string_lossy().to_string()
@@ -196,13 +196,13 @@ impl Face {
                     origin: self.source.origin.clone(),
                     coverage: self.source.coverage.clone(),
                 };
-                res.push(ParsedFont::from_face(&self, source)?);
+                res.push(ParsedFont::from_face(self, source)?);
             }
 
             FT_Done_MM_Var(self.lib, mm);
             FT_Set_Named_Instance(self.face, 0);
 
-            log::debug!("Variations: {:#?}", res);
+            log::debug!("Variations: {res:#?}");
 
             Ok(res)
         }
@@ -330,8 +330,7 @@ impl Face {
     pub fn weight_and_width(&self) -> (u16, u16) {
         let (mut weight, mut width) = self
             .get_os2_table()
-            .map(|os2| (os2.usWeightClass as f64, os2.usWidthClass as f64))
-            .unwrap_or((400., 5.));
+            .map_or((400., 5.), |os2| (os2.usWeightClass as f64, os2.usWidthClass as f64));
 
         unsafe {
             let index = (*self.face).face_index;
@@ -362,11 +361,11 @@ impl Face {
                         };
 
                         if axis.tag == ft_make_tag(b'w', b'g', b'h', b't') {
-                            weight = weight * scale;
+                            weight *= scale;
                         }
 
                         if axis.tag == ft_make_tag(b'w', b'd', b't', b'h') {
-                            width = width * scale;
+                            width *= scale;
                         }
                     }
                 }
@@ -419,7 +418,7 @@ impl Face {
                 // Fontconfig duplicates F000..F0FF to 0000..00FF
                 for ucs4 in 0xf00..0xf100 {
                     if coverage.contains(ucs4) {
-                        coverage.add(ucs4 as u32 - 0xf000);
+                        coverage.add(ucs4 - 0xf000);
                     }
                 }
             }
@@ -462,10 +461,7 @@ impl Face {
 
         let pixel_height = point_size * dpi as f64 / 72.0;
         log::debug!(
-            "set_char_size computing {} dpi={} (pixel height={})",
-            point_size,
-            dpi,
-            pixel_height
+            "set_char_size computing {point_size} dpi={dpi} (pixel height={pixel_height})"
         );
 
         // Scaling before truncating to integer minimizes the chances of hitting
@@ -485,7 +481,7 @@ impl Face {
                 }
             }
             Err(err) => {
-                log::debug!("set_char_size: {:?}, will inspect strikes", err);
+                log::debug!("set_char_size: {err:?}, will inspect strikes");
 
                 let sizes = unsafe {
                     let rec = &(*self.face);
@@ -505,8 +501,8 @@ impl Face {
                 let mut best: Option<Best> = None;
 
                 for (idx, info) in sizes.iter().enumerate() {
-                    log::debug!("idx={} info={:?}", idx, info);
-                    let distance = (info.height - (pixel_height as i16)).abs() as usize;
+                    log::debug!("idx={idx} info={info:?}");
+                    let distance = (info.height - (pixel_height as i16)).unsigned_abs() as usize;
                     let candidate = Best {
                         idx,
                         distance,
@@ -728,9 +724,7 @@ impl Face {
             let entry_names: Vec<String> = entry_name_ids
                 .iter()
                 .map(|&id| {
-                    self.get_sfnt_name(id as _)
-                        .map(|rec| rec.name)
-                        .unwrap_or_else(|_| String::new())
+                    self.get_sfnt_name(id as _).map_or_else(|_| String::new(), |rec| rec.name)
                 })
                 .collect();
 
@@ -741,9 +735,7 @@ impl Face {
                     palette_index,
                     flags,
                     name: self
-                        .get_sfnt_name(name_id as _)
-                        .map(|rec| rec.name)
-                        .unwrap_or_else(|_| String::new()),
+                        .get_sfnt_name(name_id as _).map_or_else(|_| String::new(), |rec| rec.name),
                     entry_names: entry_names.clone(),
                 });
             }
@@ -922,8 +914,7 @@ impl Face {
             )
             .with_context(|| {
                 format!(
-                    "load_and_render_glyph: FT_Load_Glyph glyph_index:{}",
-                    glyph_index
+                    "load_and_render_glyph: FT_Load_Glyph glyph_index:{glyph_index}"
                 )
             })?;
             let slot = &mut *(*self.face).glyph;
@@ -944,8 +935,8 @@ impl Face {
             // So, we probe here to look for color layer information: if we find it,
             // we don't call freetype's renderer and instead bubble up an error
             // that the embedding application can trap and decide what to do.
-            if slot.format == FT_Glyph_Format_::FT_GLYPH_FORMAT_OUTLINE {
-                if self
+            if slot.format == FT_Glyph_Format_::FT_GLYPH_FORMAT_OUTLINE
+                && self
                     .get_color_glyph_paint(
                         glyph_index,
                         FT_Color_Root_Transform::FT_COLOR_NO_ROOT_TRANSFORM,
@@ -954,7 +945,6 @@ impl Face {
                 {
                     return Err(IsColr1OrLater.into());
                 }
-            }
 
             ft_result(FT_Render_Glyph(slot, render_mode), ())
                 .context("load_and_render_glyph: FT_Render_Glyph")?;
@@ -982,7 +972,7 @@ impl Face {
             unsafe { std::mem::transmute(u32::from(ft_glyph.bitmap.pixel_mode)) };
 
         // pitch is the number of bytes per source row
-        let pitch = ft_glyph.bitmap.pitch.abs() as usize;
+        let pitch = ft_glyph.bitmap.pitch.unsigned_abs() as usize;
         let data = unsafe {
             std::slice::from_raw_parts_mut(
                 ft_glyph.bitmap.buffer,
@@ -1076,7 +1066,7 @@ impl Face {
                     }
                 }
             }
-            _ => anyhow::bail!("unhandled pixel mode {:?}", mode),
+            _ => anyhow::bail!("unhandled pixel mode {mode:?}"),
         }
 
         match (first_row, last_row) {
@@ -1121,9 +1111,8 @@ impl Face {
                 }
                 if width == 0.0 {
                     log::error!(
-                        "Couldn't find usable advance metrics out of {} glyphs \
+                        "Couldn't find usable advance metrics out of {num_examined} glyphs \
                         sampled from the font, so guessing width == height",
-                        num_examined,
                     );
                     width = height * 64.;
                 }
@@ -1150,11 +1139,11 @@ impl Drop for Library {
 }
 
 impl Library {
-    pub fn new() -> anyhow::Result<Library> {
+    pub fn new() -> anyhow::Result<Self> {
         let mut lib = ptr::null_mut();
         let res = unsafe { FT_Init_FreeType(&mut lib as *mut _) };
         let lib = ft_result(res, lib).context("FT_Init_FreeType")?;
-        let mut lib = Library { lib };
+        let mut lib = Self { lib };
 
         let config = configuration();
         if let Some(vers) = config.freetype_interpreter_version {
@@ -1219,7 +1208,7 @@ impl Library {
 
         let face = self
             .new_face(&source.source, index as _)
-            .with_context(|| format!("face_from_locator({:?})", handle))?;
+            .with_context(|| format!("face_from_locator({handle:?})"))?;
 
         Ok(Face {
             face,
@@ -1252,7 +1241,7 @@ impl Library {
         let res = unsafe { FT_Open_Face(self.lib, &args, face_index, &mut face as *mut _) };
 
         ft_result(res, face)
-            .with_context(|| format!("FT_Open_Face(\"{:?}\", face_index={})", source, face_index))
+            .with_context(|| format!("FT_Open_Face(\"{source:?}\", face_index={face_index})"))
     }
 
     pub fn set_lcd_filter(&mut self, filter: FT_LcdFilter) -> anyhow::Result<()> {
@@ -1302,7 +1291,7 @@ impl FreeTypeStream {
         let name = source.name_or_path_str().to_string();
 
         if len > c_ulong::MAX as usize {
-            anyhow::bail!("{} is too large to pass to freetype! (len={})", name, len);
+            anyhow::bail!("{name} is too large to pass to freetype! (len={len})");
         }
 
         let stream = Box::new(Self {
@@ -1418,7 +1407,7 @@ impl FreeTypeStream {
                 0
             }
             StreamBacking::File(file) => {
-                if let Err(err) = file.seek(SeekFrom::Start(offset.into())) {
+                if let Err(err) = file.seek(SeekFrom::Start(offset)) {
                     log::error!(
                         "failed to seek {} to offset {}: {:#}",
                         myself.name,
@@ -1458,7 +1447,7 @@ impl FreeTypeStream {
 /// This is necessary because it is common for freetype to encode
 /// empty arrays in that way, and rust 1.78 will panic if a null
 /// ptr is passed in.
-pub(crate) unsafe fn from_raw_parts<'a, T>(ptr: *const T, size: usize) -> &'a [T] {
+pub(crate) const unsafe fn from_raw_parts<'a, T>(ptr: *const T, size: usize) -> &'a [T] {
     if ptr.is_null() {
         &[]
     } else {
@@ -1530,6 +1519,6 @@ pub fn composite_mode_to_operator(mode: FT_Composite_Mode) -> cairo::Operator {
     }
 }
 
-fn ft_make_tag(a: u8, b: u8, c: u8, d: u8) -> FT_ULong {
+const fn ft_make_tag(a: u8, b: u8, c: u8, d: u8) -> FT_ULong {
     (a as FT_ULong) << 24 | (b as FT_ULong) << 16 | (c as FT_ULong) << 8 | (d as FT_ULong)
 }

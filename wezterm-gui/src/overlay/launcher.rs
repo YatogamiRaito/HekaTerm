@@ -133,13 +133,13 @@ impl LauncherArgs {
             });
             domains.retain(|dom| dom.spawnable());
             let mut d = vec![];
-            for dom in domains.into_iter() {
+            for dom in domains {
                 let name = dom.domain_name();
                 let label = dom.domain_label().await;
-                let label = if name == label || label == "" {
-                    format!("domain `{}`", name)
+                let label = if name == label || label.is_empty() {
+                    format!("domain `{name}`")
                 } else {
-                    format!("domain `{}` - {}", name, label)
+                    format!("domain `{name}` - {label}")
                 };
                 d.push(LauncherDomainEntry {
                     domain_id: dom.domain_id(),
@@ -234,7 +234,7 @@ impl LauncherState {
             for item in &config.launch_menu {
                 self.entries.push(Entry {
                     label: match item.label.as_ref() {
-                        Some(label) => label.to_string(),
+                        Some(label) => label.clone(),
                         None => match item.args.as_ref() {
                             Some(args) => args.join(" "),
                             None => "(default shell)".to_string(),
@@ -250,14 +250,14 @@ impl LauncherState {
                 Entry {
                     label: format!("New Tab ({})", domain.label),
                     action: KeyAssignment::SpawnCommandInNewTab(SpawnCommand {
-                        domain: SpawnTabDomain::DomainName(domain.name.to_string()),
+                        domain: SpawnTabDomain::DomainName(domain.name.clone()),
                         ..SpawnCommand::default()
                     }),
                 }
             } else {
                 Entry {
                     label: format!("Attach {}", domain.label),
-                    action: KeyAssignment::AttachDomain(domain.name.to_string()),
+                    action: KeyAssignment::AttachDomain(domain.name.clone()),
                 }
             };
 
@@ -274,7 +274,7 @@ impl LauncherState {
             for ws in &args.workspaces {
                 if *ws != args.active_workspace {
                     self.entries.push(Entry {
-                        label: format!("Switch to workspace: `{}`", ws),
+                        label: format!("Switch to workspace: `{ws}`"),
                         action: KeyAssignment::SwitchToWorkspace {
                             name: Some(ws.clone()),
                             spawn: None,
@@ -337,8 +337,7 @@ impl LauncherState {
                 }
                 if key_entries
                     .iter()
-                    .find(|ent| ent.action == entry.action)
-                    .is_some()
+                    .any(|ent| ent.action == entry.action)
                 {
                     // Avoid duplicate entries
                     continue;
@@ -349,7 +348,7 @@ impl LauncherState {
                     None => format!(
                         "{:?} ({} {})",
                         entry.action,
-                        mods.to_string(),
+                        mods,
                         keycode.to_string().escape_debug()
                     ),
                 };
@@ -390,8 +389,8 @@ impl LauncherState {
         ];
 
         let labels = &self.labels;
-        let max_label_len = labels.iter().map(|s| s.len()).max().unwrap_or(0);
-        let mut labels_iter = labels.into_iter();
+        let max_label_len = labels.iter().map(std::string::String::len).max().unwrap_or(0);
+        let mut labels_iter = labels.iter();
 
         let config = configuration();
         let colors = &config.resolved_palette;
@@ -488,7 +487,7 @@ impl LauncherState {
         }
     }
 
-    fn move_up(&mut self) {
+    const fn move_up(&mut self) {
         self.active_idx = self.active_idx.saturating_sub(1);
         if self.active_idx < self.top_row {
             self.top_row = self.active_idx;
@@ -514,7 +513,7 @@ impl LauncherState {
                         // since the number of labels is always <= self.max_items
                         // by construction, we have pos as usize <= self.max_items
                         // for free
-                        self.active_idx = self.top_row + pos as usize;
+                        self.active_idx = self.top_row + pos;
                         if self.launch(self.active_idx) {
                             break;
                         }
@@ -554,23 +553,18 @@ impl LauncherState {
                     key: KeyCode::Backspace,
                     ..
                 }) => {
-                    if !self.filtering {
-                        self.selection.pop();
-                    } else {
+                    if self.filtering {
                         if self.filter_term.pop().is_none() && !self.always_fuzzy {
                             self.filtering = false;
                         }
                         self.update_filter();
+                    } else {
+                        self.selection.pop();
                     }
                 }
                 InputEvent::Key(KeyEvent {
-                    key: KeyCode::Char('G') | KeyCode::Char('['),
-                    modifiers: Modifiers::CTRL,
-                })
-                | InputEvent::Key(KeyEvent {
-                    key: KeyCode::Escape,
-                    ..
-                }) => {
+key: KeyCode::Char('G' | '['), modifiers: Modifiers::CTRL } | KeyEvent {
+key: KeyCode::Escape, .. }) => {
                     break;
                 }
                 InputEvent::Key(KeyEvent {
@@ -616,11 +610,10 @@ impl LauncherState {
                     if y > 0 && y as usize <= self.filtered_entries.len() {
                         self.active_idx = self.top_row + y as usize - 1;
 
-                        if mouse_buttons == MouseButtons::LEFT {
-                            if self.launch(self.active_idx) {
+                        if mouse_buttons == MouseButtons::LEFT
+                            && self.launch(self.active_idx) {
                                 break;
                             }
-                        }
                     }
                     if mouse_buttons != MouseButtons::NONE {
                         // Treat any other mouse button as cancel
@@ -670,7 +663,7 @@ pub fn launcher(
     };
 
     term.set_raw_mode()?;
-    term.render(&[Change::Title(args.title.to_string())])?;
+    term.render(&[Change::Title(args.title.clone())])?;
     state.build_entries(args);
     state.update_filter();
     state.render(&mut term)?;

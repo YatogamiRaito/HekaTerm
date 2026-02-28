@@ -2,7 +2,7 @@
 authors = ["Wez Furlong <wez@wezfurlong.org>"]
 name = "wezterm-term"
 version = "0.1.0"
-edition = "2018"
+edition = "2024"
 repository = "https://github.com/wezterm/wezterm"
 description = "The Virtual Terminal Emulator core from wezterm; helpful for implementing terminal emulators"
 license = "MIT"
@@ -15,6 +15,7 @@ use_serde = ["termwiz/use_serde", "wezterm-cell/use_serde", "wezterm-escape-pars
 
 [dependencies]
 anyhow.workspace = true
+ahash.workspace = true
 bitflags.workspace = true
 csscolorparser.workspace = true
 downcast-rs.workspace = true

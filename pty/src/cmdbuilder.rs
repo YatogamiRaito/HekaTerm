@@ -224,6 +224,7 @@ impl CommandBuilder {
     }
 
     /// Create a new builder instance from a pre-built argument vector
+    #[must_use] 
     pub fn from_argv(args: Vec<OsString>) -> Self {
         Self {
             args,
@@ -241,16 +242,18 @@ impl CommandBuilder {
     /// boundaries (eg: flatpak) to workaround issues like:
     /// <https://github.com/flatpak/flatpak/issues/3697>
     /// <https://github.com/flatpak/flatpak/issues/3285>
-    pub fn set_controlling_tty(&mut self, controlling_tty: bool) {
+    pub const fn set_controlling_tty(&mut self, controlling_tty: bool) {
         self.controlling_tty = controlling_tty;
     }
 
-    pub fn get_controlling_tty(&self) -> bool {
+    #[must_use] 
+    pub const fn get_controlling_tty(&self) -> bool {
         self.controlling_tty
     }
 
     /// Create a new builder instance that will run some idea of a default
     /// program.  Such a builder will panic if `arg` is called on it.
+    #[must_use] 
     pub fn new_default_prog() -> Self {
         Self {
             args: vec![],
@@ -263,29 +266,26 @@ impl CommandBuilder {
     }
 
     /// Returns true if this builder was created via `new_default_prog`
-    pub fn is_default_prog(&self) -> bool {
+    #[must_use] 
+    pub const fn is_default_prog(&self) -> bool {
         self.args.is_empty()
     }
 
     /// Append an argument to the current command line.
     /// Will panic if called on a builder created via `new_default_prog`.
     pub fn arg<S: AsRef<OsStr>>(&mut self, arg: S) {
-        if self.is_default_prog() {
-            panic!("attempted to add args to a default_prog builder");
-        }
+        assert!(!self.is_default_prog(), "attempted to add args to a default_prog builder");
         self.args.push(arg.as_ref().to_owned());
     }
 
-    /// If a builder is_default_prog, then this function can be used to
+    /// If a builder `is_default_prog`, then this function can be used to
     /// set the actual prog that should be used.
     /// This is intended to facilitate plumbing through the handling
     /// of the underlying default prog when merging together supplemental
     /// env and cwd information.
     /// You will not typically use this method in your own code.
     pub fn replace_default_prog(&mut self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) {
-        if !self.is_default_prog() {
-            panic!("attempted to replace_default_prog on a non-default_prog builder");
-        }
+        assert!(self.is_default_prog(), "attempted to replace_default_prog on a non-default_prog builder");
 
         for arg in args {
             self.args.push(arg.as_ref().to_owned());
@@ -303,11 +303,12 @@ impl CommandBuilder {
         }
     }
 
-    pub fn get_argv(&self) -> &Vec<OsString> {
+    #[must_use] 
+    pub const fn get_argv(&self) -> &Vec<OsString> {
         &self.args
     }
 
-    pub fn get_argv_mut(&mut self) -> &mut Vec<OsString> {
+    pub const fn get_argv_mut(&mut self) -> &mut Vec<OsString> {
         &mut self.args
     }
 
@@ -324,7 +325,7 @@ impl CommandBuilder {
             EnvEntry {
                 is_from_base_env: false,
                 preferred_key: key,
-                value: value,
+                value,
             },
         );
     }
@@ -366,7 +367,8 @@ impl CommandBuilder {
         self.cwd.take();
     }
 
-    pub fn get_cwd(&self) -> Option<&OsString> {
+    #[must_use] 
+    pub const fn get_cwd(&self) -> Option<&OsString> {
         self.cwd.as_ref()
     }
 
@@ -421,7 +423,7 @@ impl CommandBuilder {
 
 #[cfg(unix)]
 impl CommandBuilder {
-    pub fn umask(&mut self, mask: Option<libc::mode_t>) {
+    pub const fn umask(&mut self, mask: Option<libc::mode_t>) {
         self.umask = mask;
     }
 
@@ -464,7 +466,7 @@ impl CommandBuilder {
 
             if let Some(path) = self.resolve_path() {
                 for path in std::env::split_paths(&path) {
-                    let candidate = cwd.join(&path).join(&exe);
+                    let candidate = cwd.join(&path).join(exe);
 
                     if candidate.is_dir() {
                         errors.push(format!("{} exists but is a directory", candidate.display()));
@@ -491,34 +493,30 @@ impl CommandBuilder {
                 "Unable to spawn {} because it is a directory",
                 exe_path.display()
             );
-        } else {
-            if let Err(err) = access(exe_path, AccessFlags::X_OK) {
-                if access(exe_path, AccessFlags::F_OK).is_ok() {
-                    anyhow::bail!(
-                        "Unable to spawn {} because it is not executable ({err:#})",
-                        exe_path.display()
-                    );
-                } else {
-                    anyhow::bail!(
-                        "Unable to spawn {} because it doesn't exist on the filesystem ({err:#})",
-                        exe_path.display()
-                    );
-                }
-            }
-
-            Ok(exe.to_owned())
         }
+        if let Err(err) = access(exe_path, AccessFlags::X_OK) {
+            if access(exe_path, AccessFlags::F_OK).is_ok() {
+                anyhow::bail!(
+                    "Unable to spawn {} because it is not executable ({err:#})",
+                    exe_path.display()
+                );
+            }
+            anyhow::bail!(
+                "Unable to spawn {} because it doesn't exist on the filesystem ({err:#})",
+                exe_path.display()
+            );
+        }
+
+        Ok(exe.to_owned())
     }
 
-    /// Convert the CommandBuilder to a `std::process::Command` instance.
+    /// Convert the `CommandBuilder` to a `std::process::Command` instance.
     pub(crate) fn as_command(&self) -> anyhow::Result<std::process::Command> {
         use std::os::unix::process::CommandExt;
 
         let home = self.get_home_dir()?;
         let dir: &OsStr = self
-            .cwd
-            .as_ref()
-            .map(|dir| dir.as_os_str())
+            .cwd.as_deref()
             .filter(|dir| std::path::Path::new(dir).is_dir())
             .unwrap_or(home.as_ref());
         let shell = self.get_shell();
@@ -529,7 +527,7 @@ impl CommandBuilder {
             // Run the shell as a login shell by prefixing the shell's
             // basename with `-` and setting that as argv0
             let basename = shell.rsplit('/').next().unwrap_or(&shell);
-            cmd.arg0(&format!("-{}", basename));
+            cmd.arg0(format!("-{basename}"));
             cmd
         } else {
             let resolved = self.search_path(&self.args[0], dir)?;
@@ -570,7 +568,7 @@ impl CommandBuilder {
             }
         }
 
-        get_shell().into()
+        get_shell()
     }
 
     fn get_home_dir(&self) -> anyhow::Result<String> {

@@ -39,7 +39,7 @@ pub struct UnixDomain {
     pub proxy_command: Option<Vec<String>>,
 
     /// If true, bypass checking for secure ownership of the
-    /// socket_path.  This is not recommended on a multi-user
+    /// `socket_path`.  This is not recommended on a multi-user
     /// system, but is useful for example when running the
     /// server inside a WSL container but with the socket
     /// on the host NTFS volume.
@@ -52,7 +52,7 @@ pub struct UnixDomain {
     #[dynamic(default = "default_write_timeout")]
     pub write_timeout: Duration,
 
-    /// Don't use default_local_echo_threshold_ms() here to
+    /// Don't use `default_local_echo_threshold_ms()` here to
     /// disable the predictive echo for Unix domains by default.
     pub local_echo_threshold_ms: Option<u64>,
 
@@ -89,13 +89,14 @@ pub enum UnixTarget {
 }
 
 impl UnixDomain {
+    #[must_use] 
     pub fn socket_path(&self) -> PathBuf {
         self.socket_path
-            .as_ref()
-            .cloned()
+            .clone()
             .unwrap_or_else(|| RUNTIME_DIR.join("sock"))
     }
 
+    #[must_use] 
     pub fn target(&self) -> UnixTarget {
         if let Some(proxy) = &self.proxy_command {
             UnixTarget::Proxy(proxy.clone())
@@ -104,8 +105,9 @@ impl UnixDomain {
         }
     }
 
+    #[must_use] 
     pub fn default_unix_domains() -> Vec<Self> {
-        vec![UnixDomain {
+        vec![Self {
             name: "unix".to_string(),
             read_timeout: default_read_timeout(),
             write_timeout: default_read_timeout(),

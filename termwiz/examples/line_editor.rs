@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 use std::str::FromStr;
 use termwiz::cell::AttributeChange;
 use termwiz::color::{AnsiColor, ColorAttribute, SrgbaTuple};

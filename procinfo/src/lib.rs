@@ -42,7 +42,7 @@ pub struct LocalProcessInfo {
     pub executable: PathBuf,
     /// The argument vector.
     /// Some systems allow changing the argv block at runtime
-    /// eg: setproctitle().
+    /// eg: `setproctitle()`.
     pub argv: Vec<String>,
     /// The current working directory for the process, or an empty
     /// path if it was not accessible for some reason.
@@ -57,7 +57,7 @@ pub struct LocalProcessInfo {
     #[cfg(windows)]
     pub console: u64,
     /// Child processes, keyed by pid
-    pub children: HashMap<u32, LocalProcessInfo>,
+    pub children: HashMap<u32, Self>,
 }
 #[cfg(feature = "lua")]
 luahelper::impl_lua_conversion_dynamic!(LocalProcessInfo);
@@ -66,6 +66,7 @@ impl LocalProcessInfo {
     /// Walk this sub-tree of processes and return a unique set
     /// of executable base names. eg: `foo/bar` and `woot/bar`
     /// produce a set containing just `bar`.
+    #[must_use] 
     pub fn flatten_to_exe_names(&self) -> HashSet<String> {
         let mut names = HashSet::new();
 

@@ -45,7 +45,7 @@ fn emit_column<W: std::io::Write>(
     for _ in 0..left_pad {
         write!(output, " ")?;
     }
-    write!(output, "{}", text)?;
+    write!(output, "{text}")?;
     for _ in 0..right_pad {
         write!(output, " ")?;
     }
@@ -71,7 +71,7 @@ pub fn tabulate_output<S: std::string::ToString, W: std::io::Write>(
 
     let mut display_rows: Vec<Vec<String>> = vec![];
     for src_row in rows {
-        let dest_row: Vec<String> = src_row.iter().map(|col| col.to_string()).collect();
+        let dest_row: Vec<String> = src_row.iter().map(std::string::ToString::to_string).collect();
         for (idx, col) in dest_row.iter().enumerate() {
             let col_width = unicode_column_width(col, None);
             if let Some(width) = col_widths.get_mut(idx) {
@@ -94,11 +94,10 @@ pub fn tabulate_output<S: std::string::ToString, W: std::io::Write>(
 
     for row in &display_rows {
         for (idx, col) in row.iter().enumerate() {
-            let max_width = col_widths.get(idx).cloned().unwrap_or(col.len());
+            let max_width = col_widths.get(idx).copied().unwrap_or(col.len());
             let alignment = columns
                 .get(idx)
-                .map(|c| c.alignment)
-                .unwrap_or(Alignment::Left);
+                .map_or(Alignment::Left, |c| c.alignment);
 
             if idx > 0 {
                 write!(output, " ")?;
@@ -112,6 +111,7 @@ pub fn tabulate_output<S: std::string::ToString, W: std::io::Write>(
     Ok(())
 }
 
+#[must_use] 
 pub fn unicode_column_width_of_change_slice(s: &[Change]) -> usize {
     s.iter()
         .map(|c| {
@@ -200,11 +200,10 @@ pub fn tabulate_for_terminal(
 
     for row in rows {
         for (idx, col) in row.iter().enumerate() {
-            let max_width = col_widths.get(idx).cloned().unwrap_or(col.len());
+            let max_width = col_widths.get(idx).copied().unwrap_or(col.len());
             let alignment = columns
                 .get(idx)
-                .map(|c| c.alignment)
-                .unwrap_or(Alignment::Left);
+                .map_or(Alignment::Left, |c| c.alignment);
 
             if idx > 0 {
                 emit_padding_for_terminal(1, &spacer, result);
@@ -225,7 +224,7 @@ pub fn tabulate_output_as_string<S: std::string::ToString>(
     let mut output: Vec<u8> = vec![];
     tabulate_output(columns, rows, &mut output)?;
     String::from_utf8(output)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e)))
+        .map_err(|e| std::io::Error::other(format!("{e}")))
 }
 
 #[cfg(test)]

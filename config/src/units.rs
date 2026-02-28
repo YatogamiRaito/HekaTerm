@@ -11,7 +11,7 @@ impl FromDynamic for OptPixelUnit {
     ) -> Result<Self, wezterm_dynamic::Error> {
         match value {
             Value::Null => Ok(Self(None)),
-            value => Ok(Self(Some(DefaultUnit::Pixels.from_dynamic_impl(value)?))),
+            value => Ok(Self(Some(DefaultUnit::Pixels.parse_dynamic_impl(value)?))),
         }
     }
 }
@@ -36,7 +36,7 @@ impl FromDynamic for PixelUnit {
         value: &Value,
         _options: FromDynamicOptions,
     ) -> Result<Self, wezterm_dynamic::Error> {
-        Ok(Self(DefaultUnit::Pixels.from_dynamic_impl(value)?))
+        Ok(Self(DefaultUnit::Pixels.parse_dynamic_impl(value)?))
     }
 }
 
@@ -60,7 +60,7 @@ impl DefaultUnit {
 }
 
 impl DefaultUnit {
-    fn from_dynamic_impl(self, value: &Value) -> Result<Dimension, String> {
+    fn parse_dynamic_impl(self, value: &Value) -> Result<Dimension, String> {
         match value {
             Value::F64(f) => Ok(self.to_dimension(f.into_inner() as f32)),
             Value::I64(i) => Ok(self.to_dimension(*i as f32)),
@@ -75,20 +75,19 @@ impl DefaultUnit {
                     }
 
                     if let Some(v) = is_unit(s, "px") {
-                        Ok(DefaultUnit::Pixels.to_dimension(v))
+                        Ok(Self::Pixels.to_dimension(v))
                     } else if let Some(v) = is_unit(s, "%") {
-                        Ok(DefaultUnit::Percent.to_dimension(v))
+                        Ok(Self::Percent.to_dimension(v))
                     } else if let Some(v) = is_unit(s, "pt") {
-                        Ok(DefaultUnit::Points.to_dimension(v))
+                        Ok(Self::Points.to_dimension(v))
                     } else if let Some(v) = is_unit(s, "cell") {
-                        Ok(DefaultUnit::Cells.to_dimension(v))
+                        Ok(Self::Cells.to_dimension(v))
                     } else {
                         Err(format!(
                             "expected either a number or a string of \
                         the form '123px' where 'px' is a unit and \
                         can be one of 'px', '%', 'pt' or 'cell', \
-                        but got {}",
-                            s
+                        but got {s}"
                         ))
                     }
                 }
@@ -126,6 +125,7 @@ pub enum Dimension {
 }
 
 impl Dimension {
+    #[must_use] 
     pub fn is_zero(&self) -> bool {
         match self {
             Self::Points(n) | Self::Pixels(n) | Self::Percent(n) | Self::Cells(n) => *n == 0.,
@@ -142,10 +142,10 @@ impl Default for Dimension {
 impl ToDynamic for Dimension {
     fn to_dynamic(&self) -> Value {
         let s = match self {
-            Self::Points(n) => format!("{}pt", n),
-            Self::Pixels(n) => format!("{}px", n),
+            Self::Points(n) => format!("{n}pt"),
+            Self::Pixels(n) => format!("{n}px"),
             Self::Percent(n) => format!("{}%", n * 100.),
-            Self::Cells(n) => format!("{}cell", n),
+            Self::Cells(n) => format!("{n}cell"),
         };
         Value::String(s)
     }
@@ -163,6 +163,7 @@ pub struct DimensionContext {
 }
 
 impl Dimension {
+    #[must_use] 
     pub fn evaluate_as_pixels(&self, context: DimensionContext) -> f32 {
         match self {
             Self::Pixels(n) => n.floor(),
@@ -174,21 +175,18 @@ impl Dimension {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum GeometryOrigin {
     /// x,y relative to overall screen coordinate system.
     /// Selected position might be outside of the regions covered
     /// by the user's selected monitor placement.
+    #[default]
     ScreenCoordinateSystem,
     MainScreen,
     ActiveScreen,
     Named(String),
 }
 
-impl Default for GeometryOrigin {
-    fn default() -> Self {
-        Self::ScreenCoordinateSystem
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
 pub struct GuiPosition {
@@ -231,22 +229,22 @@ impl GuiPosition {
 
 impl FromStr for GuiPosition {
     type Err = anyhow::Error;
-    fn from_str(s: &str) -> anyhow::Result<GuiPosition> {
+    fn from_str(s: &str) -> anyhow::Result<Self> {
         let fields: Vec<_> = s.split(':').collect();
         if fields.len() == 2 {
             let origin = Self::parse_origin(fields[0]);
             let (x, y) = Self::parse_x_y(fields[1])?;
-            return Ok(GuiPosition { x, y, origin });
+            return Ok(Self { x, y, origin });
         }
         if fields.len() == 1 {
             let (x, y) = Self::parse_x_y(fields[0])?;
-            return Ok(GuiPosition {
+            return Ok(Self {
                 x,
                 y,
                 origin: GeometryOrigin::ScreenCoordinateSystem,
             });
         }
-        anyhow::bail!("invalid position spec {}", s);
+        anyhow::bail!("invalid position spec {s}");
     }
 }
 

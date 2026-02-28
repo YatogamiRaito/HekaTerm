@@ -1,9 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "serde")]
-use ::serde::*;
+use ::serde::{Serialize, Deserialize};
 use alloc::sync::Arc;
-use bitflags::*;
+use bitflags::bitflags;
 use core::convert::TryFrom;
 use core::fmt::Write;
 use core::sync::atomic::AtomicBool;
@@ -123,8 +123,9 @@ pub enum KeyCode {
 
 impl KeyCode {
     /// Return true if the key represents a modifier key.
-    pub fn is_modifier(&self) -> bool {
-        match self {
+    #[must_use] 
+    pub const fn is_modifier(&self) -> bool {
+        matches!(self,
             Self::Hyper
             | Self::CapsLock
             | Self::Super
@@ -139,15 +140,16 @@ impl KeyCode {
             | Self::LeftAlt
             | Self::RightAlt
             | Self::LeftWindows
-            | Self::RightWindows => true,
-            _ => false,
-        }
+            | Self::RightWindows
+        )
     }
 
-    pub fn normalize_shift(&self, modifiers: Modifiers) -> (KeyCode, Modifiers) {
+    #[must_use] 
+    pub fn normalize_shift(&self, modifiers: Modifiers) -> (Self, Modifiers) {
         normalize_shift(self.clone(), modifiers)
     }
 
+    #[must_use] 
     pub fn composed(s: &str) -> Self {
         // Prefer to send along a single Char when the string
         // is just a single char, as the keymapping layer cannot
@@ -161,39 +163,40 @@ impl KeyCode {
         }
     }
 
-    /// Convert to a PhysKeyCode.
-    /// Note that by the nature of PhysKeyCode being defined in terms
+    /// Convert to a `PhysKeyCode`.
+    /// Note that by the nature of `PhysKeyCode` being defined in terms
     /// of a US ANSI standard layout, essentially "latinizes" the keycode,
     /// so the results may not make as much sense for non-latin keyboards.
     /// It also loses the shifted state of alphabetical characters.
-    pub fn to_phys(&self) -> Option<PhysKeyCode> {
+    #[must_use] 
+    pub const fn to_phys(&self) -> Option<PhysKeyCode> {
         Some(match self {
-            Self::Char('a') | Self::Char('A') => PhysKeyCode::A,
-            Self::Char('b') | Self::Char('B') => PhysKeyCode::B,
-            Self::Char('c') | Self::Char('C') => PhysKeyCode::C,
-            Self::Char('d') | Self::Char('D') => PhysKeyCode::D,
-            Self::Char('e') | Self::Char('E') => PhysKeyCode::E,
-            Self::Char('f') | Self::Char('F') => PhysKeyCode::F,
-            Self::Char('g') | Self::Char('G') => PhysKeyCode::G,
-            Self::Char('h') | Self::Char('H') => PhysKeyCode::H,
-            Self::Char('i') | Self::Char('I') => PhysKeyCode::I,
-            Self::Char('j') | Self::Char('J') => PhysKeyCode::J,
-            Self::Char('k') | Self::Char('K') => PhysKeyCode::K,
-            Self::Char('l') | Self::Char('L') => PhysKeyCode::L,
-            Self::Char('m') | Self::Char('M') => PhysKeyCode::M,
-            Self::Char('n') | Self::Char('N') => PhysKeyCode::N,
-            Self::Char('o') | Self::Char('O') => PhysKeyCode::O,
-            Self::Char('p') | Self::Char('P') => PhysKeyCode::P,
-            Self::Char('q') | Self::Char('Q') => PhysKeyCode::Q,
-            Self::Char('r') | Self::Char('R') => PhysKeyCode::R,
-            Self::Char('s') | Self::Char('S') => PhysKeyCode::S,
-            Self::Char('t') | Self::Char('T') => PhysKeyCode::T,
-            Self::Char('u') | Self::Char('U') => PhysKeyCode::U,
-            Self::Char('v') | Self::Char('V') => PhysKeyCode::V,
-            Self::Char('w') | Self::Char('W') => PhysKeyCode::W,
-            Self::Char('x') | Self::Char('X') => PhysKeyCode::X,
-            Self::Char('y') | Self::Char('Y') => PhysKeyCode::Y,
-            Self::Char('z') | Self::Char('Z') => PhysKeyCode::Z,
+            Self::Char('a' | 'A') => PhysKeyCode::A,
+            Self::Char('b' | 'B') => PhysKeyCode::B,
+            Self::Char('c' | 'C') => PhysKeyCode::C,
+            Self::Char('d' | 'D') => PhysKeyCode::D,
+            Self::Char('e' | 'E') => PhysKeyCode::E,
+            Self::Char('f' | 'F') => PhysKeyCode::F,
+            Self::Char('g' | 'G') => PhysKeyCode::G,
+            Self::Char('h' | 'H') => PhysKeyCode::H,
+            Self::Char('i' | 'I') => PhysKeyCode::I,
+            Self::Char('j' | 'J') => PhysKeyCode::J,
+            Self::Char('k' | 'K') => PhysKeyCode::K,
+            Self::Char('l' | 'L') => PhysKeyCode::L,
+            Self::Char('m' | 'M') => PhysKeyCode::M,
+            Self::Char('n' | 'N') => PhysKeyCode::N,
+            Self::Char('o' | 'O') => PhysKeyCode::O,
+            Self::Char('p' | 'P') => PhysKeyCode::P,
+            Self::Char('q' | 'Q') => PhysKeyCode::Q,
+            Self::Char('r' | 'R') => PhysKeyCode::R,
+            Self::Char('s' | 'S') => PhysKeyCode::S,
+            Self::Char('t' | 'T') => PhysKeyCode::T,
+            Self::Char('u' | 'U') => PhysKeyCode::U,
+            Self::Char('v' | 'V') => PhysKeyCode::V,
+            Self::Char('w' | 'W') => PhysKeyCode::W,
+            Self::Char('x' | 'X') => PhysKeyCode::X,
+            Self::Char('y' | 'Y') => PhysKeyCode::Y,
+            Self::Char('z' | 'Z') => PhysKeyCode::Z,
             Self::Char('0') => PhysKeyCode::K0,
             Self::Char('1') => PhysKeyCode::K1,
             Self::Char('2') => PhysKeyCode::K2,
@@ -409,22 +412,22 @@ impl TryFrom<&str> for KeyCode {
         );
 
         match s {
-            "Backspace" => return Ok(KeyCode::Char('\u{8}')),
-            "Tab" => return Ok(KeyCode::Char('\t')),
-            "Return" | "Enter" => return Ok(KeyCode::Char('\r')),
-            "Escape" => return Ok(KeyCode::Char('\u{1b}')),
-            "Delete" => return Ok(KeyCode::Char('\u{7f}')),
+            "Backspace" => return Ok(Self::Char('\u{8}')),
+            "Tab" => return Ok(Self::Char('\t')),
+            "Return" | "Enter" => return Ok(Self::Char('\r')),
+            "Escape" => return Ok(Self::Char('\u{1b}')),
+            "Delete" => return Ok(Self::Char('\u{7f}')),
             _ => {}
-        };
+        }
 
         if let Some(n) = s.strip_prefix("Numpad") {
             let n: u8 = n
                 .parse()
-                .map_err(|err| format!("parsing Numpad<NUMBER>: {:#}", err))?;
+                .map_err(|err| format!("parsing Numpad<NUMBER>: {err:#}"))?;
             if n > 9 {
                 return Err("Numpad numbers must be in range 0-9".to_string());
             }
-            return Ok(KeyCode::Numpad(n));
+            return Ok(Self::Numpad(n));
         }
 
         // Don't consider "F" to be an invalid F key!
@@ -432,66 +435,87 @@ impl TryFrom<&str> for KeyCode {
             if let Some(n) = s.strip_prefix("F") {
                 let n: u8 = n
                     .parse()
-                    .map_err(|err| format!("parsing F<NUMBER>: {:#}", err))?;
+                    .map_err(|err| format!("parsing F<NUMBER>: {err:#}"))?;
                 if n == 0 || n > 24 {
                     return Err("Function key numbers must be in range 1-24".to_string());
                 }
-                return Ok(KeyCode::Function(n));
+                return Ok(Self::Function(n));
             }
         }
 
         let chars: Vec<char> = s.chars().collect();
         if chars.len() == 1 {
-            let k = KeyCode::Char(chars[0]);
+            let k = Self::Char(chars[0]);
             Ok(k)
         } else {
-            Err(format!("invalid KeyCode string {}", s))
+            Err(format!("invalid KeyCode string {s}"))
         }
     }
 }
 
-impl ToString for KeyCode {
-    fn to_string(&self) -> String {
+impl core::fmt::Display for KeyCode {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::RawCode(n) => format!("raw:{}", n),
-            Self::Char(c) => format!("mapped:{}", c),
-            Self::Physical(phys) => phys.to_string(),
-            Self::Composed(s) => s.to_string(),
-            Self::Numpad(n) => format!("Numpad{}", n),
-            Self::Function(n) => format!("F{}", n),
-            other => format!("{:?}", other),
+            Self::RawCode(n) => write!(f, "raw:{n}"),
+            Self::Char(c) => write!(f, "mapped:{c}"),
+            Self::Physical(phys) => write!(f, "{phys:?}"),
+            Self::Composed(s) => write!(f, "{s}"),
+            Self::Numpad(n) => write!(f, "Numpad{n}"),
+            Self::Function(n) => write!(f, "F{n}"),
+            other => write!(f, "{other:?}"),
         }
     }
 }
 
 bitflags! {
-    #[derive(Default, FromDynamic, ToDynamic)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
     pub struct KeyboardLedStatus: u8 {
         const CAPS_LOCK = 1<<1;
         const NUM_LOCK = 1<<2;
     }
 }
 
-impl ToString for KeyboardLedStatus {
-    fn to_string(&self) -> String {
-        let mut s = String::new();
+impl FromDynamic for KeyboardLedStatus {
+    fn from_dynamic(
+        value: &wezterm_dynamic::Value,
+        _options: wezterm_dynamic::FromDynamicOptions,
+    ) -> Result<Self, wezterm_dynamic::Error> {
+        let n = value
+            .coerce_unsigned()
+            .ok_or_else(|| wezterm_dynamic::Error::NoConversion {
+                source_type: value.variant_name().to_string(),
+                dest_type: "KeyboardLedStatus",
+            })?;
+        Ok(Self::from_bits_truncate(n as u8))
+    }
+}
+
+impl ToDynamic for KeyboardLedStatus {
+    fn to_dynamic(&self) -> wezterm_dynamic::Value {
+        wezterm_dynamic::Value::U64(u64::from(self.bits()))
+    }
+}
+
+impl core::fmt::Display for KeyboardLedStatus {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut first = true;
         if self.contains(Self::CAPS_LOCK) {
-            s.push_str("CAPS_LOCK");
+            write!(f, "CAPS_LOCK")?;
+            first = false;
         }
         if self.contains(Self::NUM_LOCK) {
-            if !s.is_empty() {
-                s.push('|');
+            if !first {
+                write!(f, "|")?;
             }
-            s.push_str("NUM_LOCK");
+            write!(f, "NUM_LOCK")?;
         }
-        s
+        Ok(())
     }
 }
 
 bitflags! {
     #[cfg_attr(feature="serde", derive(Serialize, Deserialize))]
-    #[derive(Default, FromDynamic, ToDynamic)]
-    #[dynamic(into="String", try_from="String")]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
     pub struct Modifiers: u16 {
         const NONE = 0;
         const SHIFT = 1<<1;
@@ -510,30 +534,58 @@ bitflags! {
     }
 }
 
+impl FromDynamic for Modifiers {
+    fn from_dynamic(
+        value: &wezterm_dynamic::Value,
+        _options: wezterm_dynamic::FromDynamicOptions,
+    ) -> Result<Self, wezterm_dynamic::Error> {
+        let s = String::from_dynamic(value, Default::default())?;
+        Self::try_from(s).map_err(core::convert::Into::into)
+    }
+}
+
+impl ToDynamic for Modifiers {
+    fn to_dynamic(&self) -> wezterm_dynamic::Value {
+        wezterm_dynamic::Value::String(self.to_string())
+    }
+}
+
+impl PartialOrd for Modifiers {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Modifiers {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.bits().cmp(&other.bits())
+    }
+}
+
 impl TryFrom<String> for Modifiers {
     type Error = String;
 
-    fn try_from(s: String) -> Result<Modifiers, String> {
-        let mut mods = Modifiers::NONE;
+    fn try_from(s: String) -> Result<Self, String> {
+        let mut mods = Self::NONE;
         for ele in s.split('|') {
             // Allow for whitespace; debug printing Modifiers includes spaces
             // around the `|` so it is desirable to be able to reverse that
             // encoding here.
             let ele = ele.trim();
             if ele == "SHIFT" {
-                mods |= Modifiers::SHIFT;
+                mods |= Self::SHIFT;
             } else if ele == "ALT" || ele == "OPT" || ele == "META" {
-                mods |= Modifiers::ALT;
+                mods |= Self::ALT;
             } else if ele == "CTRL" {
-                mods |= Modifiers::CTRL;
+                mods |= Self::CTRL;
             } else if ele == "SUPER" || ele == "CMD" || ele == "WIN" {
-                mods |= Modifiers::SUPER;
+                mods |= Self::SUPER;
             } else if ele == "LEADER" {
-                mods |= Modifiers::LEADER;
-            } else if ele == "NONE" || ele == "" {
-                mods |= Modifiers::NONE;
+                mods |= Self::LEADER;
+            } else if ele == "NONE" || ele.is_empty() {
+                mods |= Self::NONE;
             } else {
-                return Err(format!("invalid modifier name {} in {}", ele, s));
+                return Err(format!("invalid modifier name {ele} in {s}"));
             }
         }
         Ok(mods)
@@ -556,7 +608,8 @@ pub struct ModifierToStringArgs<'a> {
 }
 
 impl Modifiers {
-    pub fn encode_xterm(self) -> u8 {
+    #[must_use] 
+    pub const fn encode_xterm(self) -> u8 {
         let mut number = 0;
         if self.contains(Self::SHIFT) {
             number |= 1;
@@ -571,6 +624,7 @@ impl Modifiers {
     }
 
     #[allow(non_upper_case_globals)]
+    #[must_use] 
     pub fn to_string_with_separator(&self, args: ModifierToStringArgs) -> String {
         let mut s = String::new();
         if args.want_none && *self == Self::NONE {
@@ -716,13 +770,13 @@ impl Modifiers {
     }
 }
 
-impl ToString for Modifiers {
-    fn to_string(&self) -> String {
-        self.to_string_with_separator(ModifierToStringArgs {
+impl core::fmt::Display for Modifiers {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.to_string_with_separator(ModifierToStringArgs {
             separator: "|",
             want_none: true,
             ui_key_cap_rendering: None,
-        })
+        }))
     }
 }
 
@@ -731,6 +785,7 @@ impl Modifiers {
     /// are used to carry around implementation details, but that
     /// are not bits that should be matched when matching key
     /// assignments.
+    #[must_use] 
     pub fn remove_positional_mods(self) -> Self {
         self - (Self::LEFT_ALT
             | Self::RIGHT_ALT
@@ -870,8 +925,9 @@ pub enum PhysKeyCode {
 }
 
 impl PhysKeyCode {
-    pub fn is_modifier(&self) -> bool {
-        match self {
+    #[must_use] 
+    pub const fn is_modifier(&self) -> bool {
+        matches!(self,
             Self::LeftShift
             | Self::LeftControl
             | Self::LeftWindows
@@ -879,12 +935,12 @@ impl PhysKeyCode {
             | Self::RightShift
             | Self::RightControl
             | Self::RightWindows
-            | Self::RightAlt => true,
-            _ => false,
-        }
+            | Self::RightAlt
+        )
     }
 
-    pub fn to_key_code(self) -> KeyCode {
+    #[must_use] 
+    pub const fn to_key_code(self) -> KeyCode {
         match self {
             Self::LeftShift => KeyCode::LeftShift,
             Self::LeftControl => KeyCode::LeftControl,
@@ -1133,16 +1189,16 @@ impl PhysKeyCode {
         );
 
         for (label, value) in [
-            ("0", PhysKeyCode::K0),
-            ("1", PhysKeyCode::K1),
-            ("2", PhysKeyCode::K2),
-            ("3", PhysKeyCode::K3),
-            ("4", PhysKeyCode::K4),
-            ("5", PhysKeyCode::K5),
-            ("6", PhysKeyCode::K6),
-            ("7", PhysKeyCode::K7),
-            ("8", PhysKeyCode::K8),
-            ("9", PhysKeyCode::K9),
+            ("0", Self::K0),
+            ("1", Self::K1),
+            ("2", Self::K2),
+            ("3", Self::K3),
+            ("4", Self::K4),
+            ("5", Self::K5),
+            ("6", Self::K6),
+            ("7", Self::K7),
+            ("8", Self::K8),
+            ("9", Self::K9),
         ] {
             if (func)(label, value) {
                 return;
@@ -1174,7 +1230,7 @@ impl PhysKeyCode {
     fn name_to_code(name: &str) -> Option<Self> {
         #[cfg(feature = "std")]
         {
-            return PHYSKEYCODE_MAP.get(name).copied();
+            PHYSKEYCODE_MAP.get(name).copied()
         }
         #[cfg(not(feature = "std"))]
         {
@@ -1191,16 +1247,17 @@ impl PhysKeyCode {
         }
     }
 
-    fn to_name(&self) -> Option<String> {
+    fn to_name(self) -> Option<String> {
         #[cfg(feature = "std")]
         {
-            return INV_PHYSKEYCODE_MAP.get(self).cloned();
+            INV_PHYSKEYCODE_MAP.get(&self).cloned()
         }
         #[cfg(not(feature = "std"))]
         {
+            // Fallback to iteration if not found in the map
             let mut result = None;
             Self::for_each_code(|label, code| {
-                if code == *self {
+                if code == self {
                     result.replace(label.to_string());
                     true
                 } else {
@@ -1221,27 +1278,27 @@ static INV_PHYSKEYCODE_MAP: LazyLock<HashMap<PhysKeyCode, String>> =
 
 impl TryFrom<&str> for PhysKeyCode {
     type Error = String;
-    fn try_from(s: &str) -> core::result::Result<PhysKeyCode, String> {
+    fn try_from(s: &str) -> core::result::Result<Self, String> {
         if let Some(code) = Self::name_to_code(s) {
             Ok(code)
         } else {
-            Err(format!("invalid PhysKeyCode '{}'", s))
+            Err(format!("invalid PhysKeyCode '{s}'"))
         }
     }
 }
 
-impl ToString for PhysKeyCode {
-    fn to_string(&self) -> String {
+impl core::fmt::Display for PhysKeyCode {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if let Some(s) = self.to_name() {
-            s.to_string()
+            write!(f, "{s}")
         } else {
-            format!("{:?}", self)
+            write!(f, "{self:?}")
         }
     }
 }
 
 bitflags! {
-    #[derive(Default)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
     pub struct MouseButtons: u8 {
         const NONE = 0;
         #[allow(clippy::identity_op)]
@@ -1283,7 +1340,14 @@ pub struct MouseEvent {
 #[derive(Debug, Clone)]
 pub struct Handled(Arc<AtomicBool>);
 
+impl Default for Handled {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Handled {
+    #[must_use] 
     pub fn new() -> Self {
         Self(Arc::new(AtomicBool::new(false)))
     }
@@ -1292,6 +1356,7 @@ impl Handled {
         self.0.store(true, core::sync::atomic::Ordering::Relaxed);
     }
 
+    #[must_use] 
     pub fn is_handled(&self) -> bool {
         self.0.load(core::sync::atomic::Ordering::Relaxed)
     }
@@ -1339,7 +1404,7 @@ impl RawKeyEvent {
     /// <https://sw.kovidgoyal.net/kitty/keyboard-protocol/#functional-key-definitions>
     #[deny(warnings)]
     fn kitty_function_code(&self) -> Option<u32> {
-        use KeyCode::*;
+        use KeyCode::{Function, Numpad, Decimal, Divide, Multiply, Subtract, Add, Separator, ApplicationLeftArrow, ApplicationRightArrow, ApplicationUpArrow, ApplicationDownArrow, KeyPadHome, KeyPadEnd, KeyPadBegin, KeyPadPageUp, KeyPadPageDown, Insert, MediaPlayPause, MediaStop, MediaNextTrack, MediaPrevTrack, VolumeDown, VolumeUp, VolumeMute, LeftShift, LeftControl, LeftAlt, LeftWindows, RightShift, RightControl, RightAlt, RightWindows};
         Some(match self.key {
             // Tab => 9,
             // Backspace => 127,
@@ -1349,8 +1414,8 @@ impl RawKeyEvent {
             // PrintScreen => 57361,
             // Pause => 57362,
             // Menu => 57363,
-            Function(n) if n >= 13 && n <= 35 => 57376 + n as u32 - 13,
-            Numpad(n) => n as u32 + 57399,
+            Function(n) if (13..=35).contains(&n) => 57376 + u32::from(n) - 13,
+            Numpad(n) => u32::from(n) + 57399,
             Decimal => 57409,
             Divide => 57410,
             Multiply => 57411,
@@ -1387,7 +1452,7 @@ impl RawKeyEvent {
             RightWindows => 57450,
             _ => match &self.phys_code {
                 Some(phys) => {
-                    use PhysKeyCode::*;
+                    use PhysKeyCode::{Escape, Return, Tab, Backspace, CapsLock, NumLock, F13, F14, F15, F16, F17, F18, F19, F20, F21, F22, F23, F24, Keypad0, Keypad1, Keypad2, Keypad3, Keypad4, Keypad5, Keypad6, Keypad7, Keypad8, Keypad9, KeypadDecimal, KeypadDivide, KeypadMultiply, KeypadSubtract, KeypadAdd, KeypadEnter, KeypadEquals, Insert, VolumeDown, VolumeUp, VolumeMute, LeftShift, LeftControl, LeftAlt, LeftWindows, RightShift, RightControl, RightAlt, RightWindows};
 
                     match *phys {
                         Escape => 27,
@@ -1516,7 +1581,8 @@ fn normalize_shift(key: KeyCode, modifiers: Modifiers) -> (KeyCode, Modifiers) {
     }
 }
 
-pub fn is_ascii_control(c: char) -> Option<char> {
+#[must_use] 
+pub const fn is_ascii_control(c: char) -> Option<char> {
     let c = c as u32;
     if c < 0x20 {
         let de_ctrl = ((c as u8) | 0x40) as char;
@@ -1539,8 +1605,9 @@ fn normalize_ctrl(key: KeyCode, modifiers: Modifiers) -> (KeyCode, Modifiers) {
 }
 
 impl KeyEvent {
-    /// if SHIFT is held and we have KeyCode::Char('c') we want to normalize
-    /// that keycode to KeyCode::Char('C'); that is what this function does.
+    /// if SHIFT is held and we have `KeyCode::Char`('c') we want to normalize
+    /// that keycode to `KeyCode::Char`('C'); that is what this function does.
+    #[must_use] 
     pub fn normalize_shift(mut self) -> Self {
         let (key, modifiers) = normalize_shift(self.key, self.modifiers);
         self.key = key;
@@ -1553,6 +1620,7 @@ impl KeyEvent {
     /// the underlying raw event to see if we had a positional version
     /// of that key.
     /// If so, switch to the positional version.
+    #[must_use] 
     pub fn resurface_positional_modifier_key(mut self) -> Self {
         match self.key {
             KeyCode::Control
@@ -1627,9 +1695,10 @@ impl KeyEvent {
         self
     }
 
-    /// If CTRL is held down and we have KeyCode::Char(_) with the
+    /// If CTRL is held down and we have `KeyCode::Char`(_) with the
     /// ASCII control value encoded, decode it back to the ASCII
     /// alpha keycode instead.
+    #[must_use] 
     pub fn normalize_ctrl(mut self) -> Self {
         let (key, modifiers) = normalize_ctrl(self.key, self.modifiers);
         self.key = key;
@@ -1639,7 +1708,8 @@ impl KeyEvent {
     }
 
     #[cfg(not(windows))]
-    pub fn encode_win32_input_mode(&self) -> Option<String> {
+    #[must_use] 
+    pub const fn encode_win32_input_mode(&self) -> Option<String> {
         None
     }
 
@@ -1709,7 +1779,7 @@ impl KeyEvent {
     }
 
     pub fn encode_kitty(&self, flags: KittyKeyboardFlags) -> String {
-        use KeyCode::*;
+        use KeyCode::{Char, Composed, PageUp, PageDown, Insert, LeftArrow, RightArrow, UpArrow, DownArrow, Home, End, Function};
 
         if !flags.contains(KittyKeyboardFlags::REPORT_EVENT_TYPES) && !self.key_is_down {
             return String::new();
@@ -1731,8 +1801,7 @@ impl KeyEvent {
         let raw_modifiers = self
             .raw
             .as_ref()
-            .map(|raw| raw.modifiers)
-            .unwrap_or(self.modifiers);
+            .map_or(self.modifiers, |raw| raw.modifiers);
 
         let mut modifiers = 0;
         if raw_modifiers.contains(Modifiers::SHIFT) {
@@ -1774,7 +1843,7 @@ impl KeyEvent {
             if self.key_is_down && flags.contains(KittyKeyboardFlags::REPORT_ASSOCIATED_TEXT) {
                 match &self.key {
                     Char(c) => format!(";{}", *c as u32),
-                    KeyCode::Numpad(n) => format!(";{}", '0' as u32 + *n as u32),
+                    KeyCode::Numpad(n) => format!(";{}", '0' as u32 + u32::from(*n)),
                     Composed(s) => {
                         let mut codepoints = ";".to_string();
                         for c in s.chars() {
@@ -1997,7 +2066,7 @@ impl KeyEvent {
             }
 
             _ => {
-                let code = self.raw.as_ref().and_then(|raw| raw.kitty_function_code());
+                let code = self.raw.as_ref().and_then(RawKeyEvent::kitty_function_code);
 
                 match (
                     code,
@@ -2022,11 +2091,12 @@ fn csi_u_encode(buf: &mut String, c: char, mods: Modifiers) {
     if mods.contains(Modifiers::ALT) {
         buf.push(0x1b as char);
     }
-    write!(buf, "{}", c).ok();
+    write!(buf, "{c}").ok();
 }
 
 bitflags::bitflags! {
-pub struct KittyKeyboardFlags: u16 {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct KittyKeyboardFlags: u16 {
     const NONE = 0;
     const DISAMBIGUATE_ESCAPE_CODES = 1;
     const REPORT_EVENT_TYPES = 2;
@@ -2037,9 +2107,8 @@ pub struct KittyKeyboardFlags: u16 {
 }
 
 bitflags! {
-    #[derive(FromDynamic, ToDynamic)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     #[cfg_attr(feature="serde", derive(Serialize, Deserialize), serde(try_from = "String"))]
-    #[dynamic(try_from = "String", into = "String")]
     pub struct WindowDecorations: u8 {
         const TITLE = 1;
         const RESIZE = 2;
@@ -2054,26 +2123,43 @@ bitflags! {
     }
 }
 
-impl Into<String> for &WindowDecorations {
-    fn into(self) -> String {
+impl FromDynamic for WindowDecorations {
+    fn from_dynamic(
+        value: &wezterm_dynamic::Value,
+        _options: wezterm_dynamic::FromDynamicOptions,
+    ) -> Result<Self, wezterm_dynamic::Error> {
+        let s = String::from_dynamic(value, Default::default())?;
+        Self::try_from(s).map_err(core::convert::Into::into)
+    }
+}
+
+impl ToDynamic for WindowDecorations {
+    fn to_dynamic(&self) -> wezterm_dynamic::Value {
+        let s: String = self.into();
+        wezterm_dynamic::Value::String(s)
+    }
+}
+
+impl From<&WindowDecorations> for String {
+    fn from(val: &WindowDecorations) -> Self {
         let mut s = vec![];
-        if self.contains(WindowDecorations::TITLE) {
+        if val.contains(WindowDecorations::TITLE) {
             s.push("TITLE");
         }
-        if self.contains(WindowDecorations::RESIZE) {
+        if val.contains(WindowDecorations::RESIZE) {
             s.push("RESIZE");
         }
-        if self.contains(WindowDecorations::INTEGRATED_BUTTONS) {
+        if val.contains(WindowDecorations::INTEGRATED_BUTTONS) {
             s.push("INTEGRATED_BUTTONS");
         }
-        if self.contains(WindowDecorations::MACOS_USE_BACKGROUND_COLOR_AS_TITLEBAR_COLOR) {
-            s.push("MACOS_USE_BACKGROUND_COLOR_AS_TITLEBAR_COLOR")
+        if val.contains(WindowDecorations::MACOS_USE_BACKGROUND_COLOR_AS_TITLEBAR_COLOR) {
+            s.push("MACOS_USE_BACKGROUND_COLOR_AS_TITLEBAR_COLOR");
         }
-        if self.contains(WindowDecorations::MACOS_FORCE_ENABLE_SHADOW) {
+        if val.contains(WindowDecorations::MACOS_FORCE_ENABLE_SHADOW) {
             s.push("MACOS_FORCE_ENABLE_SHADOW");
-        } else if self.contains(WindowDecorations::MACOS_FORCE_DISABLE_SHADOW) {
+        } else if val.contains(WindowDecorations::MACOS_FORCE_DISABLE_SHADOW) {
             s.push("MACOS_FORCE_DISABLE_SHADOW");
-        } else if self.contains(WindowDecorations::MACOS_FORCE_SQUARE_CORNERS) {
+        } else if val.contains(WindowDecorations::MACOS_FORCE_SQUARE_CORNERS) {
             s.push("MACOS_FORCE_SQUARE_CORNERS");
         }
         if s.is_empty() {
@@ -2086,7 +2172,7 @@ impl Into<String> for &WindowDecorations {
 
 impl TryFrom<String> for WindowDecorations {
     type Error = String;
-    fn try_from(s: String) -> core::result::Result<WindowDecorations, String> {
+    fn try_from(s: String) -> core::result::Result<Self, String> {
         let mut flags = Self::NONE;
         for ele in s.split('|') {
             let ele = ele.trim();
@@ -2107,7 +2193,7 @@ impl TryFrom<String> for WindowDecorations {
             } else if ele == "INTEGRATED_BUTTONS" {
                 flags |= Self::INTEGRATED_BUTTONS;
             } else {
-                return Err(format!("invalid WindowDecoration name {} in {}", ele, s));
+                return Err(format!("invalid WindowDecoration name {ele} in {s}"));
             }
         }
         Ok(flags)
@@ -2116,7 +2202,7 @@ impl TryFrom<String> for WindowDecorations {
 
 impl Default for WindowDecorations {
     fn default() -> Self {
-        WindowDecorations::TITLE | WindowDecorations::RESIZE
+        Self::TITLE | Self::RESIZE
     }
 }
 
@@ -2168,7 +2254,7 @@ impl FromDynamic for IntegratedTitleButtonStyle {
                 "MacOsNative" if cfg!(target_os = "macos") => Self::MacOsNative,
                 _ => {
                     return Err(wezterm_dynamic::Error::InvalidVariantForType {
-                        variant_name: string.to_string(),
+                        variant_name: string.clone(),
                         type_name,
                         possible: &["Windows", "Gnome", "MacOsNative"],
                     });
@@ -2225,6 +2311,7 @@ fn us_layout_unshift(c: char) -> char {
 }
 
 /// Map c to its Ctrl equivalent.
+///
 /// In theory, this mapping is simply translating alpha characters
 /// to upper case and then masking them by 0x1f, but xterm inherits
 /// some built-in translation from legacy X11 so that are some
@@ -2232,7 +2319,8 @@ fn us_layout_unshift(c: char) -> char {
 /// to US keyboard layout (particularly the punctuation characters
 /// produced in combination with SHIFT) that may not be 100%
 /// the right thing to do here for users with non-US layouts.
-pub fn ctrl_mapping(c: char) -> Option<char> {
+#[must_use] 
+pub const fn ctrl_mapping(c: char) -> Option<char> {
     Some(match c {
         '@' | '`' | ' ' | '2' => '\x00',
         'A' | 'a' => '\x01',
@@ -2281,7 +2369,7 @@ pub enum UIKeyCapRendering {
     AppleSymbols,
     /// Win, Alt, Ctrl, Shift
     WindowsLong,
-    /// Like WindowsLong, but using a logo for the Win key
+    /// Like `WindowsLong`, but using a logo for the Win key
     WindowsSymbols,
 }
 

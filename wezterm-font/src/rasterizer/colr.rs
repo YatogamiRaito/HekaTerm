@@ -86,14 +86,14 @@ pub enum DrawOp {
 
 pub fn paint_linear_gradient(
     context: &Context,
-    x0: f64,
-    y0: f64,
-    x1: f64,
-    y1: f64,
-    x2: f64,
-    y2: f64,
+    p0: (f64, f64),
+    p1: (f64, f64),
+    p2: (f64, f64),
     mut color_line: ColorLine,
 ) -> anyhow::Result<()> {
+    let (x0, y0) = p0;
+    let (x1, y1) = p1;
+    let (x2, y2) = p2;
     let (min_stop, max_stop) = normalize_color_line(&mut color_line);
     let anchors = reduce_anchors(ReduceAnchorsIn {
         x0,
@@ -114,7 +114,7 @@ pub fn paint_linear_gradient(
 
     for stop in &color_line.color_stops {
         let (r, g, b, a) = stop.color.as_srgba_tuple();
-        pattern.add_color_stop_rgba(stop.offset.into(), r.into(), g.into(), b.into(), a.into());
+        pattern.add_color_stop_rgba(stop.offset, r.into(), g.into(), b.into(), a.into());
     }
 
     context.set_source(pattern)?;
@@ -125,14 +125,12 @@ pub fn paint_linear_gradient(
 
 pub fn paint_radial_gradient(
     context: &Context,
-    x0: f64,
-    y0: f64,
-    r0: f64,
-    x1: f64,
-    y1: f64,
-    r1: f64,
+    c0: (f64, f64, f64),
+    c1: (f64, f64, f64),
     mut color_line: ColorLine,
 ) -> anyhow::Result<()> {
+    let (x0, y0, r0) = c0;
+    let (x1, y1, r1) = c1;
     let (min_stop, max_stop) = normalize_color_line(&mut color_line);
 
     let xx0 = x0 + min_stop * (x1 - x0);
@@ -147,7 +145,7 @@ pub fn paint_radial_gradient(
 
     for stop in &color_line.color_stops {
         let (r, g, b, a) = stop.color.as_srgba_tuple();
-        pattern.add_color_stop_rgba(stop.offset.into(), r.into(), g.into(), b.into(), a.into());
+        pattern.add_color_stop_rgba(stop.offset, r.into(), g.into(), b.into(), a.into());
     }
 
     context.set_source(pattern)?;
@@ -402,7 +400,6 @@ fn apply_sweep_gradient_patches(
                 PI_TIMES_2,
                 color0,
             );
-            return;
         }
     } else {
         let span = angles[n_stops - 1] - angles[0];
@@ -517,7 +514,7 @@ fn normalize_color_line(color_line: &mut ColorLine) -> (f64, f64) {
         }
     }
 
-    (smallest as f64, largest as f64)
+    (smallest, largest)
 }
 
 struct ReduceAnchorsIn {

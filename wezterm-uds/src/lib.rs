@@ -21,10 +21,11 @@ use std::os::unix::net::SocketAddr;
 #[cfg(windows)]
 use uds_windows::SocketAddr;
 
-/// This wrapper makes UnixStream IoSafe on all platforms.
+/// This wrapper makes `UnixStream` `IoSafe` on all platforms.
+///
 /// This isn't strictly needed on unix, because async-io
-/// includes an impl for the std UnixStream, but on Windows
-/// the uds_windows crate doesn't have an impl.
+/// includes an impl for the std `UnixStream`, but on Windows
+/// the `uds_windows` crate doesn't have an impl.
 /// Here we define it for all platforms in the interest of
 /// minimizing platform differences.
 #[derive(Debug)]
@@ -44,9 +45,9 @@ impl IntoRawFd for UnixStream {
 }
 #[cfg(unix)]
 impl FromRawFd for UnixStream {
-    unsafe fn from_raw_fd(fd: RawFd) -> UnixStream {
-        UnixStream(StreamImpl::from_raw_fd(fd))
-    }
+    unsafe fn from_raw_fd(fd: RawFd) -> Self { unsafe {
+        Self(StreamImpl::from_raw_fd(fd))
+    }}
 }
 #[cfg(unix)]
 impl AsRawFd for UnixStream {

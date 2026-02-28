@@ -2,7 +2,7 @@ use crate::db::FontDatabase;
 use crate::locator::{new_locator, FontLocator};
 use crate::parser::ParsedFont;
 use crate::rasterizer::{new_rasterizer, FontRasterizer};
-use crate::shaper::{new_shaper, FontShaper, PresentationWidth};
+use crate::shaper::{new_shaper, FontShaper};
 use anyhow::{Context, Error};
 use config::{
     configuration, BoldBrightening, ConfigHandle, DisplayPixelGeometry, FontAttributes,
@@ -10,15 +10,16 @@ use config::{
 };
 use rangeset::RangeSet;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
-use std::ops::Range;
+use ahash::AHashMap;
+use std::collections::HashSet;
+
 use std::rc::{Rc, Weak};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use termwiz::cell::Presentation;
+
 use thiserror::Error;
-use wezterm_bidi::Direction;
+
 use wezterm_term::{CellAttributes, Intensity};
 use wezterm_toast_notification::ToastNotification;
 
@@ -48,12 +49,10 @@ pub fn alloc_font_id() -> LoadedFontId {
     FONT_ID.fetch_add(1, ::std::sync::atomic::Ordering::Relaxed)
 }
 
-lazy_static::lazy_static! {
-    static ref LAST_WARNING: Mutex<Option<(Instant, usize)>> = Mutex::new(None);
-}
+static LAST_WARNING: std::sync::LazyLock<Mutex<Option<(Instant, usize)>>> = std::sync::LazyLock::new(|| Mutex::new(None));
 
 pub struct LoadedFont {
-    rasterizers: RefCell<HashMap<FallbackIdx, Box<dyn FontRasterizer>>>,
+    rasterizers: RefCell<AHashMap<FallbackIdx, Box<dyn FontRasterizer>>>,
     handles: RefCell<Vec<ParsedFont>>,
     shaper: RefCell<Box<dyn FontShaper>>,
     metrics: FontMetrics,
@@ -83,15 +82,15 @@ impl std::fmt::Debug for LoadedFont {
 }
 
 impl LoadedFont {
-    pub fn metrics(&self) -> FontMetrics {
+    pub const fn metrics(&self) -> FontMetrics {
         self.metrics
     }
 
-    pub fn style(&self) -> &TextStyle {
+    pub const fn style(&self) -> &TextStyle {
         &self.text_style
     }
 
-    pub fn id(&self) -> LoadedFontId {
+    pub const fn id(&self) -> LoadedFontId {
         self.id
     }
 
@@ -100,19 +99,19 @@ impl LoadedFont {
         {
             let mut handles = self.handles.borrow_mut();
             for h in extra_handles {
-                if !handles.iter().any(|existing| *existing == h) {
+                if !handles.contains(&h) {
                     handles.push(h);
                     loaded = true;
                 }
             }
             if loaded {
-                log::trace!("revised fallback: {:#?}", handles);
+                log::trace!("revised fallback: {handles:#?}");
             }
         }
         if loaded {
             if let Some(font_config) = self.font_config.upgrade() {
                 *self.shaper.borrow_mut() =
-                    new_shaper(&*font_config.config.borrow(), &self.handles.borrow())?;
+                    new_shaper(&font_config.config.borrow(), &self.handles.borrow())?;
             }
         }
         Ok(loaded)
@@ -121,10 +120,7 @@ impl LoadedFont {
     pub fn blocking_shape(
         &self,
         text: &str,
-        presentation: Option<Presentation>,
-        direction: Direction,
-        range: Option<Range<usize>>,
-        presentation_width: Option<&PresentationWidth>,
+        ctx: crate::shaper::ShapeContext,
     ) -> anyhow::Result<Vec<GlyphInfo>> {
         loop {
             let (tx, rx) = channel();
@@ -135,10 +131,7 @@ impl LoadedFont {
                     let _ = tx.send(());
                 },
                 |_| {},
-                presentation,
-                direction,
-                range.clone(),
-                presentation_width,
+                ctx.clone(),
             ) {
                 Ok(tuple) => tuple,
                 Err(err) if err.downcast_ref::<ClearShapeCache>().is_some() => {
@@ -161,19 +154,13 @@ impl LoadedFont {
         text: &str,
         completion: F,
         filter_out_synthetic: FS,
-        presentation: Option<Presentation>,
-        direction: Direction,
-        range: Option<Range<usize>>,
-        presentation_width: Option<&PresentationWidth>,
+        ctx: crate::shaper::ShapeContext,
     ) -> anyhow::Result<Vec<GlyphInfo>> {
         let (_async_resolve, res) = self.shape_impl(
             text,
             completion,
             filter_out_synthetic,
-            presentation,
-            direction,
-            range,
-            presentation_width,
+            ctx,
         )?;
         Ok(res)
     }
@@ -183,10 +170,7 @@ impl LoadedFont {
         text: &str,
         completion: F,
         filter_out_synthetic: FS,
-        presentation: Option<Presentation>,
-        direction: Direction,
-        range: Option<Range<usize>>,
-        presentation_width: Option<&PresentationWidth>,
+        ctx: crate::shaper::ShapeContext,
     ) -> anyhow::Result<(bool, Vec<GlyphInfo>)> {
         let mut no_glyphs = vec![];
 
@@ -197,7 +181,7 @@ impl LoadedFont {
                     Ok(true) => return Err(ClearShapeCache {})?,
                     Ok(false) => {}
                     Err(err) => {
-                        log::error!("Error adding fallback: {:#}", err);
+                        log::error!("Error adding fallback: {err:#}");
                     }
                 }
             }
@@ -208,10 +192,7 @@ impl LoadedFont {
             self.font_size,
             self.dpi,
             &mut no_glyphs,
-            presentation,
-            direction,
-            range,
-            presentation_width,
+            ctx,
         );
 
         no_glyphs.retain(|&c| c != '\u{FE0F}' && c != '\u{FE0E}');
@@ -253,8 +234,7 @@ impl LoadedFont {
             .handles
             .borrow()
             .get(font_idx)
-            .map(|p| p.synthesize_dim)
-            .unwrap_or(false);
+            .is_some_and(|p| p.synthesize_dim);
         if synthesize_dim {
             0.5
         } else {
@@ -461,7 +441,7 @@ enum Entity {
 }
 
 struct FontConfigInner {
-    fonts: RefCell<HashMap<TextStyle, Rc<LoadedFont>>>,
+    fonts: RefCell<AHashMap<TextStyle, Rc<LoadedFont>>>,
     metrics: RefCell<Option<FontMetrics>>,
     dpi: RefCell<usize>,
     font_scale: RefCell<f64>,
@@ -487,7 +467,7 @@ impl FontConfigInner {
         let config = config.unwrap_or_else(configuration);
         let locator = new_locator(config.font_locator);
         Ok(Self {
-            fonts: RefCell::new(HashMap::new()),
+            fonts: RefCell::new(AHashMap::new()),
             locator,
             metrics: RefCell::new(None),
             title_font: RefCell::new(None),
@@ -552,7 +532,7 @@ impl FontConfigInner {
         }
 
         if let Err(err) = fallback.as_mut().expect("channel to exist").send(info) {
-            log::error!("Failed to schedule font fallback resolve: {:#}", err);
+            log::error!("Failed to schedule font fallback resolve: {err:#}");
         }
     }
 
@@ -626,17 +606,16 @@ impl FontConfigInner {
         let attributes = text_style.font_with_fallback();
         let (handles, _loaded) = self.resolve_font_helper_impl(&attributes, pixel_size)?;
 
-        let shaper = new_shaper(&*config, &handles)?;
+        let shaper = new_shaper(&config, &handles)?;
 
         let metrics = shaper.metrics(font_size, dpi).with_context(|| {
             format!(
-                "obtaining metrics for font_size={} @ dpi {}",
-                font_size, dpi
+                "obtaining metrics for font_size={font_size} @ dpi {dpi}"
             )
         })?;
 
         let loaded = Rc::new(LoadedFont {
-            rasterizers: RefCell::new(HashMap::new()),
+            rasterizers: RefCell::new(AHashMap::new()),
             handles: RefCell::new(handles),
             shaper: RefCell::new(shaper),
             metrics,
@@ -765,10 +744,10 @@ impl FontConfigInner {
                 if let Some(idx) =
                     ParsedFont::best_matching_index(attr, &named_candidates, pixel_size)
                 {
-                    named_candidates.get(idx).map(|&p| {
+                if let Some(&p) = named_candidates.get(idx) {
                         loaded.insert(attr.clone());
-                        handles.push(p.clone().synthesize(attr))
-                    });
+                        handles.push(p.clone().synthesize(attr));
+                    }
                 }
             }
 
@@ -785,10 +764,10 @@ impl FontConfigInner {
                     if let Some(idx) =
                         ParsedFont::best_matching_index(attr, &located_candidates, pixel_size)
                     {
-                        located_candidates.get(idx).map(|&p| {
+                        if let Some(&p) = located_candidates.get(idx) {
                             loaded.insert(attr.clone());
-                            handles.push(p.clone().synthesize(attr))
-                        });
+                            handles.push(p.clone().synthesize(attr));
+                        }
                     }
                 }
             }
@@ -827,35 +806,31 @@ impl FontConfigInner {
                 let explanation = if is_primary {
                     // This is the primary font selection
                     format!(
-                        "Unable to load a font specified by your font={} configuration",
-                        attr
+                        "Unable to load a font specified by your font={attr} configuration"
                     )
                 } else if derived_from_primary {
                     // it came from font_rules and may have been derived from
                     // their primary font (we can't know for sure)
                     format!(
-                        "Unable to load a font matching one of your font_rules: {}. \
+                        "Unable to load a font matching one of your font_rules: {attr}. \
                         Note that wezterm will synthesize font_rules to select bold \
-                        and italic fonts based on your primary font configuration",
-                        attr
+                        and italic fonts based on your primary font configuration"
                     )
                 } else {
                     format!(
-                        "Unable to load a font matching one of your font_rules: {}",
-                        attr
+                        "Unable to load a font matching one of your font_rules: {attr}"
                     )
                 };
 
                 config::show_error(&format!(
-                    "{}. Fallback(s) are being used instead, and the terminal \
-                    may not render as intended{}. See \
-                    https://wezterm.org/config/fonts.html for more information",
-                    explanation, styled_extra
+                    "{explanation}. Fallback(s) are being used instead, and the terminal \
+                    may not render as intended{styled_extra}. See \
+                    https://wezterm.org/config/fonts.html for more information"
                 ));
             }
         }
 
-        Ok((new_shaper(&*config, &handles)?, handles))
+        Ok((new_shaper(config, &handles)?, handles))
     }
 
     /// Given a text style, load (with caching) the font that best
@@ -883,51 +858,41 @@ impl FontConfigInner {
 
         let mut metrics = shaper.metrics(font_size, dpi).with_context(|| {
             format!(
-                "obtaining metrics for font_size={} @ dpi {}",
-                font_size, dpi
+                "obtaining metrics for font_size={font_size} @ dpi {dpi}"
             )
         })?;
 
         if let Some(def_font) = def_font {
             let def_metrics = def_font.metrics();
-            match (def_metrics.cap_height, metrics.cap_height) {
-                (Some(d), Some(m)) => {
-                    // Scale by the ratio of the pixel heights of the default
-                    // and this font; this causes the `I` glyphs to appear to
-                    // have the same height.
-                    let scale = d.get() / m.get();
-                    if scale != 1.0 {
-                        let scaled_pixel_size = (pixel_size as f64 * scale) as u16;
-                        let scaled_font_size = font_size * scale;
-                        log::trace!(
-                            "using cap height adjusted: pixel_size {} -> {}, font_size {} -> {}, {:?}",
-                            pixel_size,
-                            scaled_pixel_size,
-                            font_size,
-                            scaled_font_size,
-                            metrics,
-                        );
-                        let (alt_shaper, alt_handles) =
-                            self.resolve_font_helper(style, &config, scaled_pixel_size)?;
-                        shaper = alt_shaper;
-                        handles = alt_handles;
+            if let (Some(d), Some(m)) = (def_metrics.cap_height, metrics.cap_height) {
+                // Scale by the ratio of the pixel heights of the default
+                // and this font; this causes the `I` glyphs to appear to
+                // have the same height.
+                let scale = d.get() / m.get();
+                if scale != 1.0 {
+                    let scaled_pixel_size = (pixel_size as f64 * scale) as u16;
+                    let scaled_font_size = font_size * scale;
+                    log::trace!(
+                        "using cap height adjusted: pixel_size {pixel_size} -> {scaled_pixel_size}, font_size {font_size} -> {scaled_font_size}, {metrics:?}",
+                    );
+                    let (alt_shaper, alt_handles) =
+                        self.resolve_font_helper(style, &config, scaled_pixel_size)?;
+                    shaper = alt_shaper;
+                    handles = alt_handles;
 
-                        metrics = shaper.metrics(scaled_font_size, dpi).with_context(|| {
-                            format!(
-                                "obtaining cap-height adjusted metrics for font_size={} @ dpi {}",
-                                scaled_font_size, dpi
-                            )
-                        })?;
+                    metrics = shaper.metrics(scaled_font_size, dpi).with_context(|| {
+                        format!(
+                            "obtaining cap-height adjusted metrics for font_size={scaled_font_size} @ dpi {dpi}"
+                        )
+                    })?;
 
-                        font_size = scaled_font_size;
-                    }
+                    font_size = scaled_font_size;
                 }
-                _ => {}
             }
         }
 
         let loaded = Rc::new(LoadedFont {
-            rasterizers: RefCell::new(HashMap::new()),
+            rasterizers: RefCell::new(AHashMap::new()),
             handles: RefCell::new(handles),
             shaper: RefCell::new(shaper),
             metrics,

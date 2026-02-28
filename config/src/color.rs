@@ -83,10 +83,10 @@ impl From<RgbaColor> for SrgbaTuple {
 
 impl TryFrom<String> for RgbaColor {
     type Error = anyhow::Error;
-    fn try_from(s: String) -> anyhow::Result<RgbaColor> {
-        Ok(RgbaColor {
+    fn try_from(s: String) -> anyhow::Result<Self> {
+        Ok(Self {
             color: SrgbaTuple::from_str(&s)
-                .map_err(|_| anyhow::anyhow!("failed to parse {} as RgbaColor", &s))?,
+                .map_err(|()| anyhow::anyhow!("failed to parse {} as RgbaColor", &s))?,
         })
     }
 }
@@ -99,7 +99,7 @@ pub enum ColorSpec {
 }
 
 impl From<AnsiColor> for ColorSpec {
-    fn from(color: AnsiColor) -> ColorSpec {
+    fn from(color: AnsiColor) -> Self {
         Self::AnsiColor(color)
     }
 }
@@ -107,11 +107,11 @@ impl From<AnsiColor> for ColorSpec {
 impl From<ColorSpec> for ColorAttribute {
     fn from(val: ColorSpec) -> Self {
         match val {
-            ColorSpec::AnsiColor(c) => ColorAttribute::PaletteIndex(c.into()),
+            ColorSpec::AnsiColor(c) => Self::PaletteIndex(c.into()),
             ColorSpec::Color(RgbaColor { color }) => {
-                ColorAttribute::TrueColorWithDefaultFallback(color)
+                Self::TrueColorWithDefaultFallback(color)
             }
-            ColorSpec::Default => ColorAttribute::Default,
+            ColorSpec::Default => Self::Default,
         }
     }
 }
@@ -120,13 +120,13 @@ impl From<ColorSpec> for TWColorSpec {
     fn from(val: ColorSpec) -> Self {
         match val {
             ColorSpec::AnsiColor(c) => c.into(),
-            ColorSpec::Color(RgbaColor { color }) => TWColorSpec::TrueColor(color),
-            ColorSpec::Default => TWColorSpec::Default,
+            ColorSpec::Color(RgbaColor { color }) => Self::TrueColor(color),
+            ColorSpec::Default => Self::Default,
         }
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
 pub struct Palette {
     /// The text color to use when the attributes are reset to default
     pub foreground: Option<RgbaColor>,
@@ -180,6 +180,7 @@ pub struct Palette {
 impl_lua_conversion_dynamic!(Palette);
 
 impl Palette {
+    #[must_use] 
     pub fn overlay_with(&self, other: &Self) -> Self {
         macro_rules! overlay {
             ($name:ident) => {
@@ -201,7 +202,7 @@ impl Palette {
             ansi: overlay!(ansi),
             brights: overlay!(brights),
             tab_bar: match (&self.tab_bar, &other.tab_bar) {
-                (Some(a), Some(b)) => Some(a.overlay_with(&b)),
+                (Some(a), Some(b)) => Some(a.overlay_with(b)),
                 (None, Some(b)) => Some(b.clone()),
                 (Some(a), None) => Some(a.clone()),
                 (None, None) => None,
@@ -234,46 +235,43 @@ impl Palette {
 }
 
 impl From<ColorPalette> for Palette {
-    fn from(cp: ColorPalette) -> Palette {
-        let mut p = Palette::default();
-        macro_rules! apply_color {
-            ($name:ident) => {
-                p.$name = Some(cp.$name.into());
-            };
+    fn from(cp: ColorPalette) -> Self {
+        let mut indexed = std::collections::HashMap::new();
+        for (idx, col) in cp.colors.0.iter().enumerate().skip(16) {
+            indexed.insert(idx as u8, (*col).into());
         }
-        apply_color!(foreground);
-        apply_color!(background);
-        apply_color!(cursor_fg);
-        apply_color!(cursor_bg);
-        apply_color!(cursor_border);
-        apply_color!(selection_fg);
-        apply_color!(selection_bg);
-        apply_color!(scrollbar_thumb);
-        apply_color!(split);
 
         let mut ansi = [RgbaColor::default(); 8];
         for (idx, col) in cp.colors.0[0..8].iter().enumerate() {
             ansi[idx] = (*col).into();
         }
-        p.ansi = Some(ansi);
 
         let mut brights = [RgbaColor::default(); 8];
         for (idx, col) in cp.colors.0[8..16].iter().enumerate() {
             brights[idx] = (*col).into();
         }
-        p.brights = Some(brights);
 
-        for (idx, col) in cp.colors.0.iter().enumerate().skip(16) {
-            p.indexed.insert(idx as u8, (*col).into());
+        Self {
+            foreground: Some(cp.foreground.into()),
+            background: Some(cp.background.into()),
+            cursor_fg: Some(cp.cursor_fg.into()),
+            cursor_bg: Some(cp.cursor_bg.into()),
+            cursor_border: Some(cp.cursor_border.into()),
+            selection_fg: Some(cp.selection_fg.into()),
+            selection_bg: Some(cp.selection_bg.into()),
+            scrollbar_thumb: Some(cp.scrollbar_thumb.into()),
+            split: Some(cp.split.into()),
+            ansi: Some(ansi),
+            brights: Some(brights),
+            indexed,
+            ..Self::default()
         }
-
-        p
     }
 }
 
 impl From<Palette> for ColorPalette {
-    fn from(cfg: Palette) -> ColorPalette {
-        let mut p = ColorPalette::default();
+    fn from(cfg: Palette) -> Self {
+        let mut p = Self::default();
         macro_rules! apply_color {
             ($name:ident) => {
                 if let Some($name) = cfg.$name {
@@ -304,9 +302,8 @@ impl From<Palette> for ColorPalette {
         for (&idx, &col) in &cfg.indexed {
             if idx < 16 {
                 log::warn!(
-                    "Ignoring invalid colors.indexed index {}; \
-                           use `ansi` or `brights` to specify lower indices",
-                    idx
+                    "Ignoring invalid colors.indexed index {idx}; \
+                           use `ansi` or `brights` to specify lower indices"
                 );
                 continue;
             }
@@ -317,7 +314,7 @@ impl From<Palette> for ColorPalette {
 }
 
 /// Specify the text styling for a tab in the tab bar
-#[derive(Debug, Clone, Default, PartialEq, FromDynamic, ToDynamic)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, FromDynamic, ToDynamic)]
 pub struct TabBarColor {
     /// Specifies the intensity attribute for the tab title text
     #[dynamic(default)]
@@ -338,6 +335,7 @@ pub struct TabBarColor {
 }
 
 impl TabBarColor {
+    #[must_use] 
     pub fn as_cell_attributes(&self) -> CellAttributes {
         let mut attr = CellAttributes::default();
         attr.set_intensity(self.intensity)
@@ -353,7 +351,7 @@ impl TabBarColor {
 /// Specifies the colors to use for the tab bar portion of the UI.
 /// These are not part of the terminal model and cannot be updated
 /// in the same way that the dynamic color schemes are.
-#[derive(Default, Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
 pub struct TabBarColors {
     /// The background color for the tab bar
     #[dynamic(default)]
@@ -427,6 +425,7 @@ impl TabBarColors {
             .unwrap_or_else(default_inactive_tab_edge_hover)
     }
 
+    #[must_use] 
     pub fn overlay_with(&self, other: &Self) -> Self {
         macro_rules! overlay {
             ($name:ident) => {
@@ -450,7 +449,7 @@ impl TabBarColors {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
 #[dynamic(try_from = "String")]
 pub enum IntegratedTitleButtonColor {
     #[default]
@@ -458,11 +457,11 @@ pub enum IntegratedTitleButtonColor {
     Custom(RgbaColor),
 }
 
-impl Into<String> for IntegratedTitleButtonColor {
-    fn into(self) -> String {
-        match self {
-            Self::Auto => "auto".to_string(),
-            Self::Custom(color) => color.into(),
+impl From<IntegratedTitleButtonColor> for String {
+    fn from(val: IntegratedTitleButtonColor) -> Self {
+        match val {
+            IntegratedTitleButtonColor::Auto => "auto".to_string(),
+            IntegratedTitleButtonColor::Custom(color) => color.into(),
         }
     }
 }
@@ -621,8 +620,8 @@ impl Default for WindowFrameConfig {
             active_titlebar_fg: default_active_titlebar_fg(),
             inactive_titlebar_border_bottom: default_inactive_titlebar_border_bottom(),
             active_titlebar_border_bottom: default_active_titlebar_border_bottom(),
-            button_fg: default_button_fg().into(),
-            button_bg: default_button_bg().into(),
+            button_fg: default_button_fg(),
+            button_bg: default_button_bg(),
             button_hover_fg: default_button_hover_fg(),
             button_hover_bg: default_button_hover_bg(),
             font: None,
@@ -731,7 +730,7 @@ fn dynamic_to_toml(value: Value) -> anyhow::Result<toml::Value> {
             toml::Value::Table(map)
         }
         Value::U64(i) => toml::Value::Integer(i.try_into()?),
-        Value::I64(i) => toml::Value::Integer(i.try_into()?),
+        Value::I64(i) => toml::Value::Integer(i),
         Value::F64(f) => toml::Value::Float(*f),
     })
 }
@@ -739,7 +738,7 @@ fn dynamic_to_toml(value: Value) -> anyhow::Result<toml::Value> {
 impl ColorSchemeFile {
     pub fn from_toml_value(value: &toml::Value) -> anyhow::Result<Self> {
         let scheme = Self::from_dynamic(&crate::toml_to_dynamic(value), Default::default())
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
 
         anyhow::ensure!(
             scheme.colors.ansi.is_some(),
@@ -756,12 +755,12 @@ impl ColorSchemeFile {
 
     pub fn to_toml_value(&self) -> anyhow::Result<toml::Value> {
         let value = self.to_dynamic();
-        Ok(dynamic_to_toml(value)?)
+        dynamic_to_toml(value)
     }
 
     pub fn from_json_value(value: &serde_json::Value) -> anyhow::Result<Self> {
         Self::from_dynamic(&crate::json_to_dynamic(value), Default::default())
-            .map_err(|e| anyhow::anyhow!("{}", e))
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {

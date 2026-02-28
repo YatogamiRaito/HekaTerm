@@ -34,7 +34,7 @@ impl WaylandConnection {
         let qh = event_queue.handle();
 
         let wayland_state = WaylandState::new(&globals, &qh)?;
-        let wayland_connection = WaylandConnection {
+        let wayland_connection = Self {
             connection: conn,
             should_terminate: RefCell::new(false),
             next_window_id: AtomicUsize::new(1),
@@ -87,7 +87,7 @@ impl WaylandConnection {
                 if let Err(err) = event_q.dispatch_pending(&mut wayland_state) {
                     // TODO: show the protocol error in the display
                     return Err(err)
-                        .with_context(|| format!("error during event_q.dispatch protcol_error"));
+                        .with_context(|| "error during event_q.dispatch protcol_error".to_string());
                 }
             }
 
@@ -96,7 +96,7 @@ impl WaylandConnection {
                 if err.kind() == std::io::ErrorKind::Interrupted {
                     continue;
                 }
-                bail!("polling for events: {:?}", err);
+                bail!("polling for events: {err:?}");
             }
 
             for event in &events {
@@ -104,9 +104,9 @@ impl WaylandConnection {
                     continue;
                 }
 
-                if let Some(guard) = event_q.prepare_read() {
-                    if let Err(err) = guard.read() {
-                        log::trace!("Event Q error: {:?}", err);
+                if let Some(guard) = event_q.prepare_read()
+                    && let Err(err) = guard.read() {
+                        log::trace!("Event Q error: {err:?}");
                         if let WaylandError::Protocol(perr) = err {
                             return Err(perr.into());
                             // TODO
@@ -116,7 +116,6 @@ impl WaylandConnection {
                             // })
                         }
                     }
-                }
             }
         }
 
@@ -191,11 +190,10 @@ impl ConnectionOps for WaylandConnection {
     fn screens(&self) -> anyhow::Result<crate::screen::Screens> {
         log::trace!("Getting screens for wayland connection");
 
-        if let Some(output_manager) = &self.wayland_state.borrow().output_manager {
-            if let Some(screens) = output_manager.screens() {
+        if let Some(output_manager) = &self.wayland_state.borrow().output_manager
+            && let Some(screens) = output_manager.screens() {
                 return Ok(screens);
             }
-        }
 
         let mut by_name = HashMap::new();
         let mut virtual_rect: ScreenRect = euclid::rect(0, 0, 0, 0);
@@ -217,8 +215,7 @@ impl ConnectionOps for WaylandConnection {
                 .modes
                 .iter()
                 .find(|mode| mode.current)
-                .map(|mode| mode.dimensions)
-                .unwrap_or((info.physical_size.0, info.physical_size.1));
+                .map_or((info.physical_size.0, info.physical_size.1), |mode| mode.dimensions);
 
             let rect = euclid::rect(
                 info.location.0 as isize,
@@ -227,7 +224,7 @@ impl ConnectionOps for WaylandConnection {
                 height as isize,
             );
 
-            let scale = info.scale_factor as f64;
+            let scale = f64::from(info.scale_factor);
 
             // FIXME: teach this how to resolve dpi_by_screen once
             // dispatch_pending_event knows how to do the same

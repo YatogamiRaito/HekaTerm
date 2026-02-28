@@ -26,27 +26,25 @@ pub mod image;
 
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Default)]
 enum SmallColor {
+    #[default]
     Default,
     PaletteIndex(PaletteIndex),
 }
 
-impl Default for SmallColor {
-    fn default() -> Self {
-        Self::Default
-    }
-}
 
-impl Into<ColorAttribute> for SmallColor {
-    fn into(self) -> ColorAttribute {
-        match self {
-            Self::Default => ColorAttribute::Default,
-            Self::PaletteIndex(idx) => ColorAttribute::PaletteIndex(idx),
+impl From<SmallColor> for ColorAttribute {
+    fn from(val: SmallColor) -> Self {
+        match val {
+            SmallColor::Default => Self::Default,
+            SmallColor::PaletteIndex(idx) => Self::PaletteIndex(idx),
         }
     }
 }
 
 /// Holds the attributes for a cell.
+///
 /// Most style attributes are stored internally as part of a bitfield
 /// to reduce per-cell overhead.
 /// The setter methods return a mutable self reference so that they can
@@ -60,7 +58,7 @@ pub struct CellAttributes {
     /// The background color
     background: SmallColor,
     /// Relatively rarely used attributes spill over to a heap
-    /// allocated struct in order to keep CellAttributes
+    /// allocated struct in order to keep `CellAttributes`
     /// smaller in the common case.
     fat: Option<Box<FatAttributes>>,
 }
@@ -93,7 +91,7 @@ struct FatAttributes {
     hyperlink: Option<Arc<Hyperlink>>,
     /// The image data, if any
     #[cfg(feature = "use_image")]
-    image: Vec<Box<ImageCell>>,
+    image: Vec<ImageCell>,
     /// The color of the underline.  If None, then
     /// the foreground color is to be used
     underline_color: ColorAttribute,
@@ -126,12 +124,12 @@ impl FatAttributes {
 macro_rules! bitfield {
     ($getter:ident, $setter:ident, $bitnum:expr) => {
         #[inline]
-        pub fn $getter(&self) -> bool {
+        pub const fn $getter(&self) -> bool {
             (self.attributes & (1 << $bitnum)) == (1 << $bitnum)
         }
 
         #[inline]
-        pub fn $setter(&mut self, value: bool) -> &mut Self {
+        pub const fn $setter(&mut self, value: bool) -> &mut Self {
             let attr_value = if value { 1 << $bitnum } else { 0 };
             self.attributes = (self.attributes & !(1 << $bitnum)) | attr_value;
             self
@@ -160,7 +158,7 @@ macro_rules! bitfield {
         }
 
         #[inline]
-        pub fn $setter(&mut self, value: $enum) -> &mut Self {
+        pub const fn $setter(&mut self, value: $enum) -> &mut Self {
             let value = value as u32;
             let clear = !($bitmask << $bitshift);
             let attr_value = (value & $bitmask) << $bitshift;
@@ -171,6 +169,7 @@ macro_rules! bitfield {
 }
 
 /// Describes the semantic "type" of the cell.
+///
 /// This categorizes cells into Output (from the actions the user is
 /// taking; this is the default if left unspecified),
 /// Input (that the user typed) and Prompt (effectively, "chrome" provided
@@ -178,17 +177,14 @@ macro_rules! bitfield {
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromDynamic, ToDynamic)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum SemanticType {
+    #[default]
     Output = 0,
     Input = 1,
     Prompt = 2,
 }
 
-impl Default for SemanticType {
-    fn default() -> Self {
-        Self::Output
-    }
-}
 
 pub use wezterm_escape_parser::csi::{Blink, Intensity, Underline, VerticalAlign};
 
@@ -211,6 +207,7 @@ impl CellAttributes {
     bitfield!(semantic_type, set_semantic_type, SemanticType, 0b11, 13);
     bitfield!(vertical_align, set_vertical_align, VerticalAlign, 0b11, 15);
 
+    #[must_use] 
     pub const fn blank() -> Self {
         Self {
             attributes: 0,
@@ -223,7 +220,8 @@ impl CellAttributes {
     /// Returns true if the attribute bits in both objects are equal.
     /// This can be used to cheaply test whether the styles of the two
     /// cells are the same, and is used by some `Renderer` implementations.
-    pub fn attribute_bits_equal(&self, other: &Self) -> bool {
+    #[must_use] 
+    pub const fn attribute_bits_equal(&self, other: &Self) -> bool {
         self.attributes == other.attributes
     }
 
@@ -264,12 +262,12 @@ impl CellAttributes {
         self
     }
 
+    #[must_use] 
     pub fn foreground(&self) -> ColorAttribute {
-        if let Some(fat) = self.fat.as_ref() {
-            if fat.foreground != ColorAttribute::Default {
+        if let Some(fat) = self.fat.as_ref()
+            && fat.foreground != ColorAttribute::Default {
                 return fat.foreground;
             }
-        }
         self.foreground.into()
     }
 
@@ -300,12 +298,12 @@ impl CellAttributes {
         self
     }
 
+    #[must_use] 
     pub fn background(&self) -> ColorAttribute {
-        if let Some(fat) = self.fat.as_ref() {
-            if fat.background != ColorAttribute::Default {
+        if let Some(fat) = self.fat.as_ref()
+            && fat.background != ColorAttribute::Default {
                 return fat.background;
             }
-        }
         self.background.into()
     }
 
@@ -331,7 +329,7 @@ impl CellAttributes {
         let deallocate = self
             .fat
             .as_ref()
-            .map(|fat| {
+            .is_some_and(|fat| {
                 #[cfg(feature = "use_image")]
                 {
                     if !fat.image.is_empty() {
@@ -342,8 +340,7 @@ impl CellAttributes {
                     && fat.underline_color == ColorAttribute::Default
                     && fat.foreground == ColorAttribute::Default
                     && fat.background == ColorAttribute::Default
-            })
-            .unwrap_or(false);
+            });
         if deallocate {
             self.fat.take();
         }
@@ -363,10 +360,10 @@ impl CellAttributes {
 
 #[cfg(feature = "use_image")]
 impl CellAttributes {
-    /// Assign a single image to a cell.
+    #[allow(clippy::boxed_local)]
     pub fn set_image(&mut self, image: Box<ImageCell>) -> &mut Self {
         self.allocate_fat_attributes();
-        self.fat.as_mut().unwrap().image = vec![image];
+        self.fat.as_mut().unwrap().image = vec![*image];
         self
     }
 
@@ -389,6 +386,7 @@ impl CellAttributes {
 
     /// Add an image attachement, preserving any existing attachments.
     /// The list of images is maintained in z-index order
+    #[allow(clippy::boxed_local)]
     pub fn attach_image(&mut self, image: Box<ImageCell>) -> &mut Self {
         self.allocate_fat_attributes();
         let fat = self.fat.as_mut().unwrap();
@@ -397,7 +395,7 @@ impl CellAttributes {
             .image
             .binary_search_by(|probe| probe.z_index().cmp(&z_index))
         {
-            Ok(idx) | Err(idx) => fat.image.insert(idx, image),
+            Ok(idx) | Err(idx) => fat.image.insert(idx, *image),
         }
         self
     }
@@ -421,6 +419,7 @@ impl CellAttributes {
 
     /// Clone the attributes, but exclude fancy extras such
     /// as hyperlinks or future sprite things
+    #[must_use] 
     pub fn clone_sgr_only(&self) -> Self {
         let mut res = Self {
             attributes: self.attributes,
@@ -428,16 +427,15 @@ impl CellAttributes {
             background: self.background,
             fat: None,
         };
-        if let Some(fat) = self.fat.as_ref() {
-            if fat.background != ColorAttribute::Default
-                || fat.foreground != ColorAttribute::Default
+        if let Some(fat) = self.fat.as_ref()
+            && (fat.background != ColorAttribute::Default
+                || fat.foreground != ColorAttribute::Default)
             {
                 res.allocate_fat_attributes();
                 let new_fat = res.fat.as_mut().unwrap();
                 new_fat.foreground = fat.foreground;
                 new_fat.background = fat.background;
             }
-        }
         // Reset the semantic type; clone_sgr_only is used primarily
         // to create a "blank" cell when clearing and we want that to
         // be deterministically tagged as Output so that we have an
@@ -461,6 +459,7 @@ impl CellAttributes {
         res
     }
 
+    #[must_use] 
     pub fn hyperlink(&self) -> Option<&Arc<Hyperlink>> {
         self.fat.as_ref().and_then(|fat| fat.hyperlink.as_ref())
     }
@@ -469,23 +468,24 @@ impl CellAttributes {
     /// Returns None if there are no attached images; will
     /// never return Some(vec![]).
     #[cfg(feature = "use_image")]
+    #[must_use] 
     pub fn images(&self) -> Option<Vec<ImageCell>> {
         let fat = self.fat.as_ref()?;
         if fat.image.is_empty() {
             return None;
         }
-        Some(fat.image.iter().map(|im| im.as_ref().clone()).collect())
+        Some(fat.image.to_vec())
     }
 
+    #[must_use] 
     pub fn underline_color(&self) -> ColorAttribute {
         self.fat
             .as_ref()
-            .map(|fat| fat.underline_color)
-            .unwrap_or(ColorAttribute::Default)
+            .map_or(ColorAttribute::Default, |fat| fat.underline_color)
     }
 
     pub fn apply_change(&mut self, change: &AttributeChange) {
-        use AttributeChange::*;
+        use AttributeChange::{Intensity, Underline, Italic, Blink, Reverse, StrikeThrough, Invisible, Foreground, Background, Hyperlink};
         match change {
             Intensity(value) => {
                 self.set_intensity(*value);
@@ -541,7 +541,7 @@ where
     s.serialize(serializer)
 }
 
-/// TeenyString encodes string storage in a single u64.
+/// `TeenyString` encodes string storage in a single u64.
 /// The scheme is simple but effective: strings that encode into a
 /// byte slice that is 1 less byte than the machine word size can
 /// be encoded directly into the usize bits stored in the struct.
@@ -551,7 +551,7 @@ where
 /// from the heap and the usize holds its raw pointer address.
 ///
 /// When the string is inlined, the next-MSB is used to short-cut
-/// calling grapheme_column_width; if it is set, then the TeenyString
+/// calling `grapheme_column_width`; if it is set, then the `TeenyString`
 /// has length 2, otherwise, it has length 1 (we don't allow zero-length
 /// strings).
 struct TeenyString(u64);
@@ -619,13 +619,29 @@ impl TeenyString {
         if len < core::mem::size_of::<u64>() && width < 3 {
             let mut word = 0u64;
             unsafe {
+                #[cfg(target_arch = "x86_64")]
+                {
+                    let src_ptr = bytes.as_ptr();
+                    let dst_ptr = (&raw mut word).cast::<u8>();
+                    core::arch::asm!(
+                        "mov {tmp}, qword ptr [{src}]",
+                        "mov qword ptr [{dst}], {tmp}",
+                        src = in(reg) src_ptr,
+                        dst = in(reg) dst_ptr,
+                        tmp = out(reg) _,
+                    );
+                    // Clear garbage past `len` bytes.
+                    let mask = if len == 8 { u64::MAX } else { (1 << (len * 8)) - 1 };
+                    word &= mask;
+                }
+                #[cfg(not(target_arch = "x86_64"))]
                 core::ptr::copy_nonoverlapping(
                     bytes.as_ptr(),
                     &mut word as *mut u64 as *mut u8,
                     len,
                 );
             }
-            let word = Self::set_marker_bit(word as u64, width);
+            let word = Self::set_marker_bit(word, width);
             Self(word)
         } else {
             let vec = Box::new(TeenyStringHeap {
@@ -650,11 +666,11 @@ impl TeenyString {
         Self::from_str(c.encode_utf8(&mut bytes), None, None)
     }
 
-    pub fn width(&self) -> usize {
+    pub const fn width(&self) -> usize {
         if Self::is_marker_bit_set(self.0) {
             if Self::is_double_width(self.0) { 2 } else { 1 }
         } else {
-            let heap = self.0 as *const u64 as *const TeenyStringHeap;
+            let heap = (self.0 as *const u64).cast::<TeenyStringHeap>();
             unsafe { (*heap).width }
         }
     }
@@ -667,7 +683,7 @@ impl TeenyString {
 
     pub fn as_bytes(&self) -> &[u8] {
         if Self::is_marker_bit_set(self.0) {
-            let bytes = &self.0 as *const u64 as *const u8;
+            let bytes = (&raw const self.0).cast::<u8>();
             let bytes =
                 unsafe { core::slice::from_raw_parts(bytes, core::mem::size_of::<u64>() - 1) };
             let len = bytes
@@ -677,7 +693,7 @@ impl TeenyString {
 
             &bytes[0..len]
         } else {
-            let heap = self.0 as *const u64 as *const TeenyStringHeap;
+            let heap = (self.0 as *const u64).cast::<TeenyStringHeap>();
             unsafe { (*heap).bytes.as_slice() }
         }
     }
@@ -686,7 +702,7 @@ impl TeenyString {
 impl Drop for TeenyString {
     fn drop(&mut self) {
         if !Self::is_marker_bit_set(self.0) {
-            let vec = unsafe { Box::from_raw(self.0 as *mut usize as *mut TeenyStringHeap) };
+            let vec = unsafe { Box::from_raw((self.0 as *mut usize).cast::<TeenyStringHeap>()) };
             drop(vec);
         }
     }
@@ -744,6 +760,7 @@ impl Cell {
     /// Create a new cell holding the specified character and with the
     /// specified cell attributes.
     /// All control and movement characters are rewritten as a space.
+    #[must_use] 
     pub fn new(text: char, attrs: CellAttributes) -> Self {
         let storage = TeenyString::from_char(text);
         Self {
@@ -752,6 +769,7 @@ impl Cell {
         }
     }
 
+    #[must_use] 
     pub const fn blank() -> Self {
         Self {
             text: TeenyString::space(),
@@ -759,6 +777,7 @@ impl Cell {
         }
     }
 
+    #[must_use] 
     pub const fn blank_with_attrs(attrs: CellAttributes) -> Self {
         Self {
             text: TeenyString::space(),
@@ -769,6 +788,7 @@ impl Cell {
     /// Indicates whether this cell has text or emoji presentation.
     /// The width already reflects that choice; this information
     /// is also useful when selecting an appropriate font.
+    #[must_use] 
     pub fn presentation(&self) -> Presentation {
         match Presentation::for_grapheme(self.str()) {
             (_, Some(variation)) => variation,
@@ -783,6 +803,7 @@ impl Cell {
     /// over.  This function technically allows for an arbitrary string to
     /// be passed but it should not be used to hold strings other than
     /// graphemes.
+    #[must_use] 
     pub fn new_grapheme(
         text: &str,
         attrs: CellAttributes,
@@ -796,6 +817,7 @@ impl Cell {
         }
     }
 
+    #[must_use] 
     pub fn new_grapheme_with_width(text: &str, width: usize, attrs: CellAttributes) -> Self {
         let storage = TeenyString::from_str(text, Some(width), None);
         Self {
@@ -805,21 +827,24 @@ impl Cell {
     }
 
     /// Returns the textual content of the cell
+    #[must_use] 
     pub fn str(&self) -> &str {
         self.text.str()
     }
 
     /// Returns the number of cells visually occupied by this grapheme
-    pub fn width(&self) -> usize {
+    #[must_use] 
+    pub const fn width(&self) -> usize {
         self.text.width()
     }
 
     /// Returns the attributes of the cell
-    pub fn attrs(&self) -> &CellAttributes {
+    #[must_use] 
+    pub const fn attrs(&self) -> &CellAttributes {
         &self.attrs
     }
 
-    pub fn attrs_mut(&mut self) -> &mut CellAttributes {
+    pub const fn attrs_mut(&mut self) -> &mut CellAttributes {
         &mut self.attrs
     }
 }
@@ -833,6 +858,7 @@ pub struct UnicodeVersion {
 }
 
 impl UnicodeVersion {
+    #[must_use] 
     pub const fn new(version: u8) -> Self {
         Self {
             version,
@@ -861,16 +887,16 @@ impl UnicodeVersion {
     #[inline]
     fn wcwidth(&self, c: char) -> usize {
         #[cfg(feature = "std")]
-        if let Some(ref cell_widths) = self.cell_widths {
-            if let Some(width) = cell_widths.get(&(c as u32)) {
+        if let Some(ref cell_widths) = self.cell_widths
+            && let Some(width) = cell_widths.get(&(c as u32)) {
                 return (*width).into();
             }
-        }
         self.width(WCWIDTH_TABLE.classify(c))
     }
 
     #[inline]
-    pub fn idx(&self) -> usize {
+    #[must_use] 
+    pub const fn idx(&self) -> usize {
         (if self.version > 9 { 2 } else { 0 }) | (if self.ambiguous_are_wide { 1 } else { 0 })
     }
 }
@@ -882,13 +908,15 @@ pub const LATEST_UNICODE_VERSION: UnicodeVersion = UnicodeVersion {
     cell_widths: None,
 };
 
-/// Returns true if the char `c` has the unicode White_Space property
+/// Returns true if the char `c` has the unicode `White_Space` property
+#[must_use] 
 pub fn is_white_space_char(c: char) -> bool {
     wezterm_char_props::white_space::WHITE_SPACE.contains_u32(c as u32)
 }
 
 /// Returns true if the grapheme string `g` consists entirely of characters
-/// that have the unicode White_Space property.
+/// that have the unicode `White_Space` property.
+#[must_use] 
 pub fn is_white_space_grapheme(g: &str) -> bool {
     for c in g.chars() {
         if !is_white_space_char(c) {
@@ -902,6 +930,7 @@ pub fn is_white_space_grapheme(g: &str) -> bool {
 /// of graphemes.
 /// Calls through to `grapheme_column_width` for each grapheme
 /// and sums up the length.
+#[must_use] 
 pub fn unicode_column_width(s: &str, version: Option<&UnicodeVersion>) -> usize {
     Graphemes::new(s)
         .map(|g| grapheme_column_width(g, version))
@@ -938,8 +967,9 @@ pub fn unicode_column_width(s: &str, version: Option<&UnicodeVersion>) -> usize 
 /// The terminal emulator can then pass the unicode version through to
 /// the Cell that is used to hold a grapheme, and that per-Cell version
 /// can then be used to calculate width.
+#[must_use] 
 pub fn grapheme_column_width(s: &str, version: Option<&UnicodeVersion>) -> usize {
-    let version = version.as_deref().unwrap_or(&LATEST_UNICODE_VERSION);
+    let version = version.unwrap_or(&LATEST_UNICODE_VERSION);
 
     // Optimization: if there is a single byte we can directly cast
     // that byte as a char which will be in the range 0.255.
@@ -999,6 +1029,9 @@ pub enum AttributeChange {
 
 #[cfg(test)]
 mod test {
+    extern crate std;
+    use std::eprintln;
+    use alloc::vec;
     use super::*;
 
     #[test]
@@ -1009,7 +1042,7 @@ mod test {
         );
 
         let s = TeenyString::from_char('a');
-        assert_eq!(s.as_bytes(), &[b'a']);
+        assert_eq!(s.as_bytes(), b"a");
 
         let longer = TeenyString::from_str("hellothere", None, None);
         assert_eq!(longer.as_bytes(), b"hellothere");

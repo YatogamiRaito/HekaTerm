@@ -40,7 +40,6 @@
 use anyhow::Error;
 use downcast_rs::{impl_downcast, Downcast};
 #[cfg(unix)]
-use libc;
 #[cfg(feature = "serde_support")]
 use serde::{Deserialize, Serialize};
 use std::io::Result as IoResult;
@@ -75,7 +74,7 @@ pub struct PtySize {
 
 impl Default for PtySize {
     fn default() -> Self {
-        PtySize {
+        Self {
             rows: 24,
             cols: 80,
             pixel_width: 0,
@@ -106,8 +105,8 @@ pub trait MasterPty: Downcast + Send {
     #[cfg(unix)]
     fn process_group_leader(&self) -> Option<libc::pid_t>;
 
-    /// If get_termios() and process_group_leader() are both implemented and
-    /// return Some, then as_raw_fd() should return the same underlying fd
+    /// If `get_termios()` and `process_group_leader()` are both implemented and
+    /// return Some, then `as_raw_fd()` should return the same underlying fd
     /// associated with the stream. This is to enable applications that
     /// "know things" to query similar information for themselves.
     #[cfg(unix)]
@@ -161,7 +160,7 @@ impl_downcast!(ChildKiller);
 /// Represents the slave side of a pty.
 /// Can be used to spawn processes into the pty.
 pub trait SlavePty {
-    /// Spawns the command specified by the provided CommandBuilder
+    /// Spawns the command specified by the provided `CommandBuilder`
     fn spawn_command(&self, cmd: CommandBuilder) -> Result<Box<dyn Child + Send + Sync>, Error>;
 }
 
@@ -173,12 +172,14 @@ pub struct ExitStatus {
 }
 
 impl ExitStatus {
-    /// Construct an ExitStatus from a process return code
-    pub fn with_exit_code(code: u32) -> Self {
+    /// Construct an `ExitStatus` from a process return code
+    #[must_use] 
+    pub const fn with_exit_code(code: u32) -> Self {
         Self { code, signal: None }
     }
 
-    /// Construct an ExitStatus from a signal name
+    /// Construct an `ExitStatus` from a signal name
+    #[must_use] 
     pub fn with_signal(signal: &str) -> Self {
         Self {
             code: 1,
@@ -187,26 +188,29 @@ impl ExitStatus {
     }
 
     /// Returns true if the status indicates successful completion
-    pub fn success(&self) -> bool {
+    #[must_use] 
+    pub const fn success(&self) -> bool {
         match self.signal {
             None => self.code == 0,
             Some(_) => false,
         }
     }
 
-    /// Returns the exit code that this ExitStatus was constructed with
-    pub fn exit_code(&self) -> u32 {
+    /// Returns the exit code that this `ExitStatus` was constructed with
+    #[must_use] 
+    pub const fn exit_code(&self) -> u32 {
         self.code
     }
 
-    /// Returns the signal if present that this ExitStatus was constructed with
+    /// Returns the signal if present that this `ExitStatus` was constructed with
+    #[must_use] 
     pub fn signal(&self) -> Option<&str> {
         self.signal.as_deref()
     }
 }
 
 impl From<std::process::ExitStatus> for ExitStatus {
-    fn from(status: std::process::ExitStatus) -> ExitStatus {
+    fn from(status: std::process::ExitStatus) -> Self {
         #[cfg(unix)]
         {
             use std::os::unix::process::ExitStatusExt;
@@ -214,14 +218,14 @@ impl From<std::process::ExitStatus> for ExitStatus {
             if let Some(signal) = status.signal() {
                 let signame = unsafe { libc::strsignal(signal) };
                 let signal = if signame.is_null() {
-                    format!("Signal {}", signal)
+                    format!("Signal {signal}")
                 } else {
                     let signame = unsafe { std::ffi::CStr::from_ptr(signame) };
                     signame.to_string_lossy().to_string()
                 };
 
-                return ExitStatus {
-                    code: status.code().map(|c| c as u32).unwrap_or(1),
+                return Self {
+                    code: status.code().map_or(1, |c| c as u32),
                     signal: Some(signal),
                 };
             }
@@ -229,11 +233,9 @@ impl From<std::process::ExitStatus> for ExitStatus {
 
         let code =
             status
-                .code()
-                .map(|c| c as u32)
-                .unwrap_or_else(|| if status.success() { 0 } else { 1 });
+                .code().map_or_else(|| u32::from(!status.success()), |c| c as u32);
 
-        ExitStatus { code, signal: None }
+        Self { code, signal: None }
     }
 }
 
@@ -243,7 +245,7 @@ impl std::fmt::Display for ExitStatus {
             write!(fmt, "Success")
         } else {
             match &self.signal {
-                Some(sig) => write!(fmt, "Terminated by {}", sig),
+                Some(sig) => write!(fmt, "Terminated by {sig}"),
                 None => write!(fmt, "Exited with code {}", self.code),
             }
         }
@@ -270,14 +272,11 @@ impl_downcast!(PtySystem);
 
 impl Child for std::process::Child {
     fn try_wait(&mut self) -> IoResult<Option<ExitStatus>> {
-        std::process::Child::try_wait(self).map(|s| match s {
-            Some(s) => Some(s.into()),
-            None => None,
-        })
+        Self::try_wait(self).map(|s| s.map(std::convert::Into::into))
     }
 
     fn wait(&mut self) -> IoResult<ExitStatus> {
-        std::process::Child::wait(self).map(Into::into)
+        Self::wait(self).map(Into::into)
     }
 
     fn process_id(&self) -> Option<u32> {
@@ -369,7 +368,7 @@ impl ChildKiller for std::process::Child {
             // it's still alive after a grace period, so proceed with a kill
         }
 
-        std::process::Child::kill(self)
+        Self::kill(self)
     }
 
     #[cfg(windows)]
@@ -397,6 +396,7 @@ impl ChildKiller for std::process::Child {
     }
 }
 
+#[must_use] 
 pub fn native_pty_system() -> Box<dyn PtySystem + Send> {
     Box::new(NativePtySystem::default())
 }

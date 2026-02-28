@@ -9,13 +9,15 @@ use sha2::Digest;
 pub struct ContentId([u8; 32]);
 
 impl ContentId {
+    #[must_use] 
     pub fn for_bytes(bytes: &[u8]) -> Self {
         let mut hasher = sha2::Sha256::new();
         hasher.update(bytes);
         Self(hasher.finalize().into())
     }
 
-    pub fn as_hash_bytes(&self) -> [u8; 32] {
+    #[must_use] 
+    pub const fn as_hash_bytes(&self) -> [u8; 32] {
         self.0
     }
 }

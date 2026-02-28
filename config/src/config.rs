@@ -96,7 +96,7 @@ pub struct Config {
     #[dynamic(default)]
     pub integrated_title_button_color: IntegratedTitleButtonColor,
 
-    /// When using FontKitXXX font systems, a set of directories to
+    /// When using `FontKitXXX` font systems, a set of directories to
     /// search ahead of the standard font locations for fonts.
     /// Relative paths are taken to be relative to the directory
     /// from which the config was loaded.
@@ -121,7 +121,7 @@ pub struct Config {
     #[dynamic(default)]
     pub font_rules: Vec<StyleRule>,
 
-    /// When true (the default), PaletteIndex 0-7 are shifted to
+    /// When true (the default), `PaletteIndex` 0-7 are shifted to
     /// bright when the font intensity is bold.  The brightening
     /// doesn't apply to text that is the default color.
     #[dynamic(default)]
@@ -142,7 +142,7 @@ pub struct Config {
     #[dynamic(default)]
     pub window_frame: WindowFrameConfig,
 
-    /// Font to use for CharSelect
+    /// Font to use for `CharSelect`
     #[dynamic(default)]
     pub char_select_font: Option<TextStyle>,
 
@@ -155,7 +155,7 @@ pub struct Config {
     #[dynamic(default = "default_char_select_bg_color")]
     pub char_select_bg_color: RgbaColor,
 
-    /// Font to use for ActivateCommandPalette
+    /// Font to use for `ActivateCommandPalette`
     #[dynamic(default)]
     pub command_palette_font: Option<TextStyle>,
 
@@ -169,7 +169,7 @@ pub struct Config {
     #[dynamic(default = "default_command_palette_bg_color")]
     pub command_palette_bg_color: RgbaColor,
 
-    /// Font to use for PaneSelect
+    /// Font to use for `PaneSelect`
     #[dynamic(default)]
     pub pane_select_font: Option<TextStyle>,
 
@@ -292,7 +292,7 @@ pub struct Config {
     /// Selects the freetype interpret version to use.
     /// Likely values are 35, 38 and 40 which have different
     /// characteristics with respective to subpixel hinting.
-    /// See https://freetype.org/freetype2/docs/subpixel-hinting.html
+    /// See <https://freetype.org/freetype2/docs/subpixel-hinting.html>
     pub freetype_interpreter_version: Option<u32>,
 
     #[dynamic(default)]
@@ -385,7 +385,7 @@ pub struct Config {
     #[dynamic(default = "default_ratelimit_line_prefetches_per_second")]
     pub ratelimit_mux_line_prefetches_per_second: u32,
 
-    /// The buffer size used by parse_buffered_data in the mux module.
+    /// The buffer size used by `parse_buffered_data` in the mux module.
     /// This should not be too large, otherwise the processing cost
     /// of applying a batch of actions to the terminal will be too
     /// high and the user experience will be laggy and less responsive.
@@ -492,7 +492,7 @@ pub struct Config {
     #[dynamic(default = "default_true")]
     pub show_close_tab_button_in_tabs: bool,
 
-    /// If true, show_tab_index_in_tab_bar uses a zero-based index.
+    /// If true, `show_tab_index_in_tab_bar` uses a zero-based index.
     /// The default is false and the tab shows a one-based index.
     #[dynamic(default)]
     pub tab_and_split_indices_are_zero_based: bool,
@@ -560,7 +560,7 @@ pub struct Config {
     #[dynamic(default)]
     pub background: Vec<BackgroundLayer>,
 
-    /// Only works on MacOS
+    /// Only works on `MacOS`
     #[dynamic(default)]
     pub macos_window_background_blur: i64,
 
@@ -577,7 +577,7 @@ pub struct Config {
 
     /// Specifies the alpha value to use when rendering the background
     /// of the window.  The background is taken either from the
-    /// window_background_image, or if there is none, the background
+    /// `window_background_image`, or if there is none, the background
     /// color of the cell in the current position.
     /// The default is 1.0 which is 100% opaque.  Setting it to a number
     /// between 0.0 and 1.0 will allow for the screen behind the window
@@ -588,8 +588,8 @@ pub struct Config {
     #[dynamic(default = "default_one_point_oh")]
     pub window_background_opacity: f32,
 
-    /// inactive_pane_hue, inactive_pane_saturation and
-    /// inactive_pane_brightness allow for transforming the color
+    /// `inactive_pane_hue`, `inactive_pane_saturation` and
+    /// `inactive_pane_brightness` allow for transforming the color
     /// of inactive panes.
     /// The pane colors are converted to HSV values and multiplied
     /// by these values before being converted back to RGB to
@@ -615,8 +615,8 @@ pub struct Config {
     /// it by half, and 2.0 will double the value.
     ///
     /// A subtle dimming effect can be achieved by setting:
-    /// inactive_pane_saturation = 0.9
-    /// inactive_pane_brightness = 0.8
+    /// `inactive_pane_saturation` = 0.9
+    /// `inactive_pane_brightness` = 0.8
     #[dynamic(default = "default_inactive_pane_hsb")]
     pub inactive_pane_hsb: HsbTransform,
 
@@ -738,7 +738,7 @@ pub struct Config {
     pub check_for_updates_interval_seconds: u64,
 
     /// When set to true, use the CSI-U encoding scheme as described
-    /// in http://www.leonerd.org.uk/hacks/fixterms/
+    /// in <http://www.leonerd.org.uk/hacks/fixterms>/
     /// This is off by default because @wez and @jsgf find the shift-space
     /// mapping annoying in vim :-p
     #[dynamic(default)]
@@ -889,15 +889,15 @@ pub struct Config {
 }
 impl_lua_conversion_dynamic!(Config);
 
-fn default_one() -> usize {
+const fn default_one() -> usize {
     1
 }
 
-fn default_ulimit_nofile() -> u64 {
+const fn default_ulimit_nofile() -> u64 {
     2048
 }
 
-fn default_ulimit_nproc() -> u64 {
+const fn default_ulimit_nproc() -> u64 {
     2048
 }
 
@@ -906,7 +906,7 @@ impl Default for Config {
         // Ask FromDynamic to provide the defaults based on the attributes
         // specified in the struct so that we don't have to repeat
         // the same thing in a different form down here
-        Config::from_dynamic(
+        Self::from_dynamic(
             &wezterm_dynamic::Value::Object(Default::default()),
             Default::default(),
         )
@@ -915,6 +915,7 @@ impl Default for Config {
 }
 
 impl Config {
+    #[must_use] 
     pub fn load() -> LoadedConfig {
         Self::load_with_overrides(&wezterm_dynamic::Value::default())
     }
@@ -922,6 +923,7 @@ impl Config {
     /// It is relatively expensive to parse all the ssh config files,
     /// so we defer producing the default list until someone explicitly
     /// asks for it
+    #[must_use] 
     pub fn ssh_domains(&self) -> Vec<SshDomain> {
         if let Some(domains) = &self.ssh_domains {
             domains.clone()
@@ -930,6 +932,7 @@ impl Config {
         }
     }
 
+    #[must_use] 
     pub fn wsl_domains(&self) -> Vec<WslDomain> {
         if let Some(domains) = &self.wsl_domains {
             domains.clone()
@@ -942,16 +945,10 @@ impl Config {
         #[cfg(unix)]
         {
             use nix::sys::resource::{getrlimit, rlim_t, setrlimit, Resource};
-            use std::convert::TryInto;
 
             let (no_file_soft, no_file_hard) = getrlimit(Resource::RLIMIT_NOFILE)?;
 
-            let ulimit_nofile: rlim_t = self.ulimit_nofile.try_into().with_context(|| {
-                format!(
-                    "ulimit_nofile value {} is out of range for this system",
-                    self.ulimit_nofile
-                )
-            })?;
+            let ulimit_nofile: rlim_t = self.ulimit_nofile as rlim_t;
 
             if no_file_soft < ulimit_nofile {
                 setrlimit(
@@ -961,8 +958,7 @@ impl Config {
                 )
                 .with_context(|| {
                     format!(
-                        "raise RLIMIT_NOFILE from {no_file_soft} to ulimit_nofile {}",
-                        ulimit_nofile
+                        "raise RLIMIT_NOFILE from {no_file_soft} to ulimit_nofile {ulimit_nofile}"
                     )
                 })?;
             }
@@ -971,16 +967,10 @@ impl Config {
         #[cfg(all(unix, not(target_os = "macos")))]
         {
             use nix::sys::resource::{getrlimit, rlim_t, setrlimit, Resource};
-            use std::convert::TryInto;
 
             let (nproc_soft, nproc_hard) = getrlimit(Resource::RLIMIT_NPROC)?;
 
-            let ulimit_nproc: rlim_t = self.ulimit_nproc.try_into().with_context(|| {
-                format!(
-                    "ulimit_nproc value {} is out of range for this system",
-                    self.ulimit_nproc
-                )
-            })?;
+            let ulimit_nproc: rlim_t = self.ulimit_nproc as rlim_t;
 
             if nproc_soft < ulimit_nproc {
                 setrlimit(
@@ -990,8 +980,7 @@ impl Config {
                 )
                 .with_context(|| {
                     format!(
-                        "raise RLIMIT_NPROC from {nproc_soft} to ulimit_nproc {}",
-                        ulimit_nproc
+                        "raise RLIMIT_NPROC from {nproc_soft} to ulimit_nproc {ulimit_nproc}"
                     )
                 })?;
             }
@@ -1008,7 +997,7 @@ impl Config {
 
         let mut paths = vec![PathPossibility::optional(HOME_DIR.join(".wezterm.lua"))];
         for dir in CONFIG_DIRS.iter() {
-            paths.push(PathPossibility::optional(dir.join("wezterm.lua")))
+            paths.push(PathPossibility::optional(dir.join("wezterm.lua")));
         }
 
         if cfg!(windows) {
@@ -1020,11 +1009,10 @@ impl Config {
             // the config of another user.
             // So we prioritize that here: if there is a config in the same
             // dir as the executable that will take precedence.
-            if let Ok(exe_name) = std::env::current_exe() {
-                if let Some(exe_dir) = exe_name.parent() {
+            if let Ok(exe_name) = std::env::current_exe()
+                && let Some(exe_dir) = exe_name.parent() {
                     paths.insert(0, PathPossibility::optional(exe_dir.join("wezterm.lua")));
                 }
-            }
         }
         if let Some(path) = std::env::var_os("WEZTERM_CONFIG_FILE") {
             log::trace!("Note: WEZTERM_CONFIG_FILE is set in the environment");
@@ -1058,8 +1046,10 @@ impl Config {
         // We didn't find (or were asked to skip) a wezterm.lua file, so
         // update the environment to make it simpler to understand this
         // state.
-        std::env::remove_var("WEZTERM_CONFIG_FILE");
-        std::env::remove_var("WEZTERM_CONFIG_DIR");
+        unsafe {
+            std::env::remove_var("WEZTERM_CONFIG_FILE");
+            std::env::remove_var("WEZTERM_CONFIG_DIR");
+        }
 
         match Self::try_default() {
             Err(err) => LoadedConfig {
@@ -1074,7 +1064,7 @@ impl Config {
 
     pub fn try_default() -> anyhow::Result<LoadedConfig> {
         let (config, warnings) =
-            wezterm_dynamic::Error::capture_warnings(|| -> anyhow::Result<Config> {
+            wezterm_dynamic::Error::capture_warnings(|| -> anyhow::Result<Self> {
                 Ok(default_config_with_overrides_applied()?.compute_extra_defaults(None))
             });
 
@@ -1105,8 +1095,8 @@ impl Config {
         let lua = make_lua_context(p)?;
 
         let (config, warnings) =
-            wezterm_dynamic::Error::capture_warnings(|| -> anyhow::Result<Config> {
-                let cfg: Config;
+            wezterm_dynamic::Error::capture_warnings(|| -> anyhow::Result<Self> {
+                let cfg: Self;
 
                 let config: mlua::Value = smol::block_on(
                     // Skip a potential BOM that Windows software may have placed in the
@@ -1116,9 +1106,9 @@ impl Config {
                         .set_name(p.to_string_lossy())
                         .eval_async(),
                 )?;
-                let config = Config::apply_overrides_to(&lua, config)?;
-                let config = Config::apply_overrides_obj_to(&lua, config, overrides)?;
-                cfg = Config::from_lua(config, &lua).with_context(|| {
+                let config = Self::apply_overrides_to(&lua, config)?;
+                let config = Self::apply_overrides_obj_to(&lua, config, overrides)?;
+                cfg = Self::from_lua(config, &lua).with_context(|| {
                     format!(
                         "Error converting lua value returned by script {} to Config struct",
                         p.display()
@@ -1130,9 +1120,11 @@ impl Config {
                 // problems earlier than we use them.
                 let _ = cfg.key_bindings();
 
-                std::env::set_var("WEZTERM_CONFIG_FILE", p);
-                if let Some(dir) = p.parent() {
-                    std::env::set_var("WEZTERM_CONFIG_DIR", dir);
+                unsafe {
+                    std::env::set_var("WEZTERM_CONFIG_FILE", p);
+                    if let Some(dir) = p.parent() {
+                        std::env::set_var("WEZTERM_CONFIG_DIR", dir);
+                    }
                 }
                 Ok(cfg)
             });
@@ -1156,12 +1148,12 @@ impl Config {
         // index function as managing that from Rust is a PITA.
         let setter: mlua::Function = lua
             .load(
-                r#"
+                r"
                     return function(config, key, value)
                         config[key] = value;
                         return config;
                     end
-                    "#,
+                    ",
             )
             .eval()?;
 
@@ -1206,9 +1198,9 @@ impl Config {
                 "#,
             );
             let chunk = lua.load(&code);
-            let chunk = chunk.set_name(format!("--config {}={}", key, value));
+            let chunk = chunk.set_name(format!("--config {key}={value}"));
             lua.globals().set("config", config.clone())?;
-            log::debug!("Apply {}={} to config", key, value);
+            log::debug!("Apply {key}={value} to config");
             config = chunk.eval()?;
         }
         Ok(config)
@@ -1256,12 +1248,17 @@ impl Config {
         Ok(())
     }
 
+    #[must_use] 
     pub fn default_config() -> Self {
         Self::default().compute_extra_defaults(None)
     }
 
+    #[must_use] 
     pub fn key_bindings(&self) -> KeyTables {
-        let mut tables = KeyTables::default();
+        let mut tables = KeyTables {
+            default: KeyTable::new(),
+            ..KeyTables::default()
+        };
 
         for k in &self.keys {
             let (key, mods) = k
@@ -1278,7 +1275,7 @@ impl Config {
         }
 
         for (name, keys) in &self.key_tables {
-            let mut table = KeyTable::default();
+            let mut table = KeyTable::new();
             for k in keys {
                 let (key, mods) = k
                     .key
@@ -1292,12 +1289,13 @@ impl Config {
                     },
                 );
             }
-            tables.by_name.insert(name.to_string(), table);
+            tables.by_name.insert(name.clone(), table);
         }
 
         tables
     }
 
+    #[must_use] 
     pub fn mouse_bindings(
         &self,
     ) -> HashMap<(MouseEventTrigger, MouseEventTriggerMods), KeyAssignment> {
@@ -1312,6 +1310,7 @@ impl Config {
 
     /// In some cases we need to compute expanded values based
     /// on those provided by the user.  This is where we do that.
+    #[must_use] 
     pub fn compute_extra_defaults(&self, config_path: Option<&Path>) -> Self {
         let mut cfg = self.clone();
 
@@ -1324,11 +1323,10 @@ impl Config {
                 }
             }
 
-            if let Some(path) = &self.window_background_image {
-                if !path.is_absolute() {
+            if let Some(path) = &self.window_background_image
+                && !path.is_absolute() {
                     cfg.window_background_image.replace(config_dir.join(path));
                 }
-            }
         }
 
         // Add some reasonable default font rules
@@ -1385,9 +1383,8 @@ impl Config {
             match cfg.resolve_color_scheme() {
                 None => {
                     log::error!(
-                        "Your configuration specifies color_scheme=\"{}\" \
-                        but that scheme was not found",
-                        scheme
+                        "Your configuration specifies color_scheme=\"{scheme}\" \
+                        but that scheme was not found"
                     );
                 }
                 Some(p) => {
@@ -1414,11 +1411,10 @@ impl Config {
         }
         if cfg!(windows) {
             // See commentary re: portable tools above!
-            if let Ok(exe_name) = std::env::current_exe() {
-                if let Some(exe_dir) = exe_name.parent() {
+            if let Ok(exe_name) = std::env::current_exe()
+                && let Some(exe_dir) = exe_name.parent() {
                     paths.insert(0, exe_dir.join("colors"));
                 }
-            }
         }
         paths
     }
@@ -1441,9 +1437,9 @@ impl Config {
         for colors_dir in paths {
             if let Ok(dir) = std::fs::read_dir(colors_dir) {
                 for entry in dir {
-                    if let Ok(entry) = entry {
-                        if let Some(name) = entry.file_name().to_str() {
-                            if let Some(scheme_name) = extract_scheme_name(name) {
+                    if let Ok(entry) = entry
+                        && let Some(name) = entry.file_name().to_str()
+                            && let Some(scheme_name) = extract_scheme_name(name) {
                                 if self.color_schemes.contains_key(scheme_name) {
                                     // This scheme has already been defined
                                     continue;
@@ -1472,8 +1468,6 @@ impl Config {
                                     }
                                 }
                             }
-                        }
-                    }
                 }
             }
         }
@@ -1491,6 +1485,7 @@ impl Config {
         }
     }
 
+    #[must_use] 
     pub fn initial_size(&self, dpi: u32, cell_pixel_dims: Option<(usize, usize)>) -> TerminalSize {
         // If we aren't passed the actual values, guess at a plausible
         // default set of pixel dimensions.
@@ -1555,11 +1550,10 @@ impl Config {
             cmd.cwd(cwd);
         }
 
-        if let Some(default_prog) = default_prog {
-            if cmd.is_default_prog() {
+        if let Some(default_prog) = default_prog
+            && cmd.is_default_prog() {
                 cmd.replace_default_prog(default_prog);
             }
-        }
 
         // Augment WSLENV so that TERM related environment propagates
         // across the win32/wsl boundary
@@ -1604,7 +1598,7 @@ impl Config {
     }
 }
 
-fn default_check_for_updates() -> bool {
+const fn default_check_for_updates() -> bool {
     cfg!(not(feature = "distro-defaults"))
 }
 
@@ -1616,16 +1610,16 @@ fn default_pane_select_bg_color() -> RgbaColor {
     SrgbaTuple(0., 0., 0., 0.5).into()
 }
 
-fn default_pane_select_font_size() -> f64 {
+const fn default_pane_select_font_size() -> f64 {
     36.0
 }
 
 fn default_integrated_title_buttons() -> Vec<IntegratedTitleButton> {
-    use IntegratedTitleButton::*;
+    use IntegratedTitleButton::{Hide, Maximize, Close};
     vec![Hide, Maximize, Close]
 }
 
-fn default_char_select_font_size() -> f64 {
+const fn default_char_select_font_size() -> f64 {
     18.0
 }
 
@@ -1637,7 +1631,7 @@ fn default_char_select_bg_color() -> RgbaColor {
     (0x33, 0x33, 0x33).into()
 }
 
-fn default_command_palette_font_size() -> f64 {
+const fn default_command_palette_font_size() -> f64 {
     14.0
 }
 
@@ -1649,41 +1643,41 @@ fn default_command_palette_bg_color() -> RgbaColor {
     (0x33, 0x33, 0x33).into()
 }
 
-fn default_swallow_mouse_click_on_window_focus() -> bool {
+const fn default_swallow_mouse_click_on_window_focus() -> bool {
     cfg!(target_os = "macos")
 }
 
-fn default_mux_output_parser_coalesce_delay_ms() -> u64 {
+const fn default_mux_output_parser_coalesce_delay_ms() -> u64 {
     3
 }
 
-fn default_mux_output_parser_buffer_size() -> usize {
+const fn default_mux_output_parser_buffer_size() -> usize {
     128 * 1024
 }
 
-fn default_ratelimit_line_prefetches_per_second() -> u32 {
+const fn default_ratelimit_line_prefetches_per_second() -> u32 {
     50
 }
 
-fn default_cursor_blink_rate() -> u64 {
+const fn default_cursor_blink_rate() -> u64 {
     800
 }
 
-fn default_text_blink_rate() -> u64 {
+const fn default_text_blink_rate() -> u64 {
     500
 }
 
-fn default_text_blink_rate_rapid() -> u64 {
+const fn default_text_blink_rate_rapid() -> u64 {
     250
 }
 
-fn default_swap_backspace_and_delete() -> bool {
+const fn default_swap_backspace_and_delete() -> bool {
     // cfg!(target_os = "macos")
     // See: https://github.com/wezterm/wezterm/issues/88
     false
 }
 
-fn default_scrollback_lines() -> usize {
+const fn default_scrollback_lines() -> usize {
     3500
 }
 
@@ -1697,14 +1691,15 @@ fn validate_scrollback_lines(value: &usize) -> Result<(), String> {
     Ok(())
 }
 
-fn default_initial_rows() -> u16 {
+const fn default_initial_rows() -> u16 {
     24
 }
 
-fn default_initial_cols() -> u16 {
+const fn default_initial_cols() -> u16 {
     80
 }
 
+#[must_use] 
 pub fn default_hyperlink_rules() -> Vec<hyperlink::Rule> {
     vec![
         // First handle URLs wrapped with punctuation (i.e. brackets)
@@ -1733,11 +1728,11 @@ fn default_term() -> String {
     "xterm-256color".into()
 }
 
-fn default_font_size() -> f64 {
+const fn default_font_size() -> f64 {
     12.0
 }
 
-pub(crate) fn compute_cache_dir() -> anyhow::Result<PathBuf> {
+pub fn compute_cache_dir() -> anyhow::Result<PathBuf> {
     if let Some(runtime) = dirs_next::cache_dir() {
         return Ok(runtime.join("wezterm"));
     }
@@ -1745,7 +1740,7 @@ pub(crate) fn compute_cache_dir() -> anyhow::Result<PathBuf> {
     Ok(crate::HOME_DIR.join(".local/share/wezterm"))
 }
 
-pub(crate) fn compute_data_dir() -> anyhow::Result<PathBuf> {
+pub fn compute_data_dir() -> anyhow::Result<PathBuf> {
     if let Some(runtime) = dirs_next::data_dir() {
         return Ok(runtime.join("wezterm"));
     }
@@ -1753,7 +1748,7 @@ pub(crate) fn compute_data_dir() -> anyhow::Result<PathBuf> {
     Ok(crate::HOME_DIR.join(".local/share/wezterm"))
 }
 
-pub(crate) fn compute_runtime_dir() -> anyhow::Result<PathBuf> {
+pub fn compute_runtime_dir() -> anyhow::Result<PathBuf> {
     if let Some(runtime) = dirs_next::runtime_dir() {
         return Ok(runtime.join("wezterm"));
     }
@@ -1765,19 +1760,22 @@ pub fn pki_dir() -> anyhow::Result<PathBuf> {
     compute_runtime_dir().map(|d| d.join("pki"))
 }
 
-pub fn default_read_timeout() -> Duration {
+#[must_use] 
+pub const fn default_read_timeout() -> Duration {
     Duration::from_secs(60)
 }
 
-pub fn default_write_timeout() -> Duration {
+#[must_use] 
+pub const fn default_write_timeout() -> Duration {
     Duration::from_secs(60)
 }
 
-pub fn default_local_echo_threshold_ms() -> Option<u64> {
+#[must_use] 
+pub const fn default_local_echo_threshold_ms() -> Option<u64> {
     Some(100)
 }
 
-fn default_bypass_mouse_reporting_modifiers() -> Modifiers {
+const fn default_bypass_mouse_reporting_modifiers() -> Modifiers {
     Modifiers::SHIFT
 }
 
@@ -1786,7 +1784,7 @@ fn default_gui_startup_args() -> Vec<String> {
 }
 
 // Coupled with term/src/config.rs:TerminalConfiguration::unicode_version
-fn default_unicode_version() -> u8 {
+const fn default_unicode_version() -> u8 {
     9
 }
 
@@ -1798,11 +1796,11 @@ fn default_mux_env_remove() -> Vec<String> {
     ]
 }
 
-fn default_anim_fps() -> u8 {
+const fn default_anim_fps() -> u8 {
     10
 }
 
-fn default_max_fps() -> u64 {
+const fn default_max_fps() -> u64 {
     60
 }
 
@@ -1817,7 +1815,7 @@ fn default_tiling_desktop_environments() -> Vec<String> {
         "X11 xmonad",
     ]
     .iter()
-    .map(|s| s.to_string())
+    .map(std::string::ToString::to_string)
     .collect()
 }
 
@@ -1835,15 +1833,15 @@ fn default_stateless_process_list() -> Vec<String> {
         "powershell.exe",
     ]
     .iter()
-    .map(|s| s.to_string())
+    .map(std::string::ToString::to_string)
     .collect()
 }
 
-fn default_status_update_interval() -> u64 {
+const fn default_status_update_interval() -> u64 {
     1_000
 }
 
-fn default_alternate_buffer_wheel_scroll_speed() -> u8 {
+const fn default_alternate_buffer_wheel_scroll_speed() -> u8 {
     3
 }
 
@@ -1860,27 +1858,27 @@ fn default_word_boundary() -> String {
     " \t\n{[}]()\"'`".to_string()
 }
 
-fn default_enq_answerback() -> String {
-    "".to_string()
+const fn default_enq_answerback() -> String {
+    String::new()
 }
 
-fn default_tab_max_width() -> usize {
+const fn default_tab_max_width() -> usize {
     16
 }
 
-fn default_update_interval() -> u64 {
+const fn default_update_interval() -> u64 {
     86400
 }
 
-fn default_prefer_egl() -> bool {
+const fn default_prefer_egl() -> bool {
     !cfg!(windows)
 }
 
-fn default_clean_exits() -> Vec<u32> {
+const fn default_clean_exits() -> Vec<u32> {
     vec![]
 }
 
-fn default_inactive_pane_hsb() -> HsbTransform {
+const fn default_inactive_pane_hsb() -> HsbTransform {
     HsbTransform {
         brightness: 0.8,
         saturation: 0.9,
@@ -1900,7 +1898,8 @@ pub enum DefaultCursorStyle {
 }
 
 impl DefaultCursorStyle {
-    pub fn effective_shape(self, shape: CursorShape) -> CursorShape {
+    #[must_use] 
+    pub const fn effective_shape(self, shape: CursorShape) -> CursorShape {
         match shape {
             CursorShape::Default => match self {
                 Self::BlinkingBlock => CursorShape::BlinkingBlock,
@@ -1999,14 +1998,14 @@ struct PathPossibility {
     is_required: bool,
 }
 impl PathPossibility {
-    pub fn required(path: PathBuf) -> PathPossibility {
-        PathPossibility {
+    pub const fn required(path: PathBuf) -> Self {
+        Self {
             path,
             is_required: true,
         }
     }
-    pub fn optional(path: PathBuf) -> PathPossibility {
-        PathPossibility {
+    pub const fn optional(path: PathBuf) -> Self {
+        Self {
             path,
             is_required: false,
         }
@@ -2059,10 +2058,11 @@ impl Default for DroppedFileQuoting {
 }
 
 impl DroppedFileQuoting {
+    #[must_use] 
     pub fn escape(self, s: &str) -> String {
         match self {
             Self::None => s.to_string(),
-            Self::SpacesOnly => s.replace(" ", "\\ "),
+            Self::SpacesOnly => s.replace(' ', "\\ "),
             // https://docs.rs/shlex/latest/shlex/fn.quote.html
             Self::Posix => shlex::try_quote(s)
                 .unwrap_or_else(|_| "".into())
@@ -2070,33 +2070,33 @@ impl DroppedFileQuoting {
             Self::Windows => {
                 let chars_need_quoting = [' ', '\t', '\n', '\x0b', '\"'];
                 if s.chars().any(|c| chars_need_quoting.contains(&c)) {
-                    format!("\"{}\"", s)
+                    format!("\"{s}\"")
                 } else {
                     s.to_string()
                 }
             }
-            Self::WindowsAlwaysQuoted => format!("\"{}\"", s),
+            Self::WindowsAlwaysQuoted => format!("\"{s}\""),
         }
     }
 }
 
-fn default_glyph_cache_image_cache_size() -> usize {
+const fn default_glyph_cache_image_cache_size() -> usize {
     256
 }
 
-fn default_shape_cache_size() -> usize {
+const fn default_shape_cache_size() -> usize {
     1024
 }
 
-fn default_line_state_cache_size() -> usize {
+const fn default_line_state_cache_size() -> usize {
     1024
 }
 
-fn default_line_quad_cache_size() -> usize {
+const fn default_line_quad_cache_size() -> usize {
     1024
 }
 
-fn default_line_to_ele_shape_cache_size() -> usize {
+const fn default_line_to_ele_shape_cache_size() -> usize {
     1024
 }
 
@@ -2136,7 +2136,7 @@ impl FromDynamic for BoldBrightening {
 
 #[derive(Debug, FromDynamic, ToDynamic, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ImePreeditRendering {
-    /// IME preedit is rendered by WezTerm itself
+    /// IME preedit is rendered by `WezTerm` itself
     #[default]
     Builtin,
     /// IME preedit is rendered by system
@@ -2171,12 +2171,12 @@ fn validate_line_height(value: &f64) -> Result<(), String> {
     }
 }
 
-pub(crate) fn validate_domain_name(name: &str) -> Result<(), String> {
+pub fn validate_domain_name(name: &str) -> Result<(), String> {
     if name == "local" {
         Err(format!(
             "\"{name}\" is a built-in domain and cannot be redefined"
         ))
-    } else if name == "" {
+    } else if name.is_empty() {
         Err("the empty string is an invalid domain name".to_string())
     } else {
         Ok(())
@@ -2186,10 +2186,10 @@ pub(crate) fn validate_domain_name(name: &str) -> Result<(), String> {
 /// <https://github.com/wezterm/wezterm/pull/2435>
 /// <https://github.com/wezterm/wezterm/issues/2771>
 /// <https://github.com/wezterm/wezterm/issues/2630>
-fn default_macos_forward_mods() -> Modifiers {
+const fn default_macos_forward_mods() -> Modifiers {
     Modifiers::SHIFT
 }
 
-fn default_colr_rasterizer() -> FontRasterizerSelection {
+const fn default_colr_rasterizer() -> FontRasterizerSelection {
     FontRasterizerSelection::Harfbuzz
 }

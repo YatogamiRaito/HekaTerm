@@ -18,7 +18,7 @@ pub struct PlacementInfo {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ImageAttachParams {
-    /// Dimensions of the underlying ImageData, in pixels
+    /// Dimensions of the underlying `ImageData`, in pixels
     pub image_width: u32,
     pub image_height: u32,
 
@@ -41,7 +41,7 @@ pub struct ImageAttachParams {
     pub z_index: i32,
 
     /// Desired number of cells to span.
-    /// If None, then compute based on source_width and source_height
+    /// If None, then compute based on `source_width` and `source_height`
     pub columns: Option<usize>,
     pub rows: Option<usize>,
 
@@ -198,10 +198,7 @@ impl TerminalState {
                     TextureCoordinate::new(xpos + x_delta, ypos + y_delta),
                     params.data.clone(),
                     params.z_index,
-                    cell_padding_left,
-                    cell_padding_top,
-                    padding_right,
-                    padding_bottom,
+                    (cell_padding_left, cell_padding_top, padding_right, padding_bottom),
                     params.image_id,
                     params.placement_id,
                 ));
@@ -270,7 +267,7 @@ impl TerminalState {
     }
 }
 
-pub(crate) fn check_image_dimensions(width: u32, height: u32) -> anyhow::Result<()> {
+pub fn check_image_dimensions(width: u32, height: u32) -> anyhow::Result<()> {
     const MAX_IMAGE_SIZE: u32 = 100_000_000;
     let size = width.saturating_mul(height).saturating_mul(4);
     if size > MAX_IMAGE_SIZE {
@@ -290,13 +287,13 @@ pub(crate) fn check_image_dimensions(width: u32, height: u32) -> anyhow::Result<
 }
 
 #[derive(Debug)]
-pub(crate) struct ImageInfo {
+pub struct ImageInfo {
     pub width: u32,
     pub height: u32,
     pub format: image::ImageFormat,
 }
 
-pub(crate) fn dimensions(data: &[u8]) -> anyhow::Result<ImageInfo> {
+pub fn dimensions(data: &[u8]) -> anyhow::Result<ImageInfo> {
     let reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format()?;
     let format = reader
         .format()

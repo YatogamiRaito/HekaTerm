@@ -1,10 +1,10 @@
-use super::*;
+use super::{Path, Scheme, apply_nightly_version, fetch_url};
 use tar::Archive;
 use tempfile::NamedTempFile;
 
-fn load_sexy_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Scheme>
+fn load_sexy_file<P>(path: P) -> anyhow::Result<Scheme>
 where
-    P: std::fmt::Debug,
+    P: AsRef<Path> + std::fmt::Debug,
 {
     let mut scheme = color_funcs::schemes::sexy::Sexy::load_file(&path)?;
     let name = format!("{} (terminal.sexy)", scheme.metadata.name.unwrap());

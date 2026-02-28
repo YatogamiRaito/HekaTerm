@@ -3,7 +3,7 @@ use crate::pane::{
     CachePolicy, CloseReason, ForEachPaneLogicalLine, LogicalLine, Pane, PaneId, Pattern,
     SearchResult, WithPaneLines,
 };
-use crate::renderable::*;
+use crate::renderable::{StableCursorPosition, terminal_get_cursor_position, terminal_get_dirty_lines, terminal_for_each_logical_line_in_stable_range_mut, terminal_with_lines_mut, RenderableDimensions, terminal_get_dimensions};
 use crate::tmux::{TmuxDomain, TmuxDomainState};
 use crate::{Domain, Mux, MuxNotification};
 use anyhow::Error;
@@ -93,7 +93,7 @@ impl CachedLeaderInfo {
         me
     }
 
-    fn can_update(&self) -> bool {
+    const fn can_update(&self) -> bool {
         self.fd != -1 && !self.updating
     }
 
@@ -204,7 +204,7 @@ impl Pane for LocalPane {
     }
 
     fn with_lines_mut(&self, lines: Range<StableRowIndex>, with_lines: &mut dyn WithPaneLines) {
-        terminal_with_lines_mut(&mut self.terminal.lock(), lines, with_lines)
+        terminal_with_lines_mut(&mut self.terminal.lock(), lines, with_lines);
     }
 
     fn get_lines(&self, lines: Range<StableRowIndex>) -> (StableRowIndex, Vec<Line>) {
@@ -220,7 +220,7 @@ impl Pane for LocalPane {
     }
 
     fn copy_user_vars(&self) -> HashMap<String, String> {
-        self.terminal.lock().user_vars().clone()
+        self.terminal.lock().user_vars().iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 
     fn exit_behavior(&self) -> Option<ExitBehavior> {
@@ -230,8 +230,7 @@ impl Pane for LocalPane {
         let mut pty = self.pty.lock();
         let is_ssh_connecting = pty
             .downcast_mut::<crate::ssh::WrappedSshPty>()
-            .map(|s| s.is_connecting())
-            .unwrap_or(false);
+            .is_some_and(super::ssh::WrappedSshPty::is_connecting);
         let is_failed_spawn = pty.is::<crate::domain::FailedSpawnPty>();
 
         if is_ssh_connecting || is_failed_spawn {
@@ -288,12 +287,9 @@ impl Pane for LocalPane {
                 };
 
                 if let Some(status) = status {
-                    let success = match status.success() {
-                        true => true,
-                        false => configuration()
-                            .clean_exit_codes
-                            .contains(&status.exit_code()),
-                    };
+                    let success = if status.success() { true } else { configuration()
+                    .clean_exit_codes
+                    .contains(&status.exit_code()) };
 
                     match (
                         self.exit_behavior()
@@ -324,13 +320,13 @@ impl Pane for LocalPane {
                         }
                         (ExitBehavior::Hold, _, true) => *proc = ProcessState::Dead,
                     }
-                    log::debug!("child terminated, new state is {:?}", proc);
+                    log::debug!("child terminated, new state is {proc:?}");
                 }
             }
             ProcessState::DeadPendingClose { killed } => {
                 if *killed {
                     *proc = ProcessState::Dead;
-                    log::debug!("child state -> {:?}", proc);
+                    log::debug!("child state -> {proc:?}");
                 }
             }
             ProcessState::Dead => {}
@@ -388,7 +384,7 @@ impl Pane for LocalPane {
     }
 
     fn perform_actions(&self, actions: Vec<termwiz::escape::Action>) {
-        self.terminal.lock().perform_actions(actions)
+        self.terminal.lock().perform_actions(actions);
     }
 
     fn mouse_event(&self, event: MouseEvent) -> Result<(), Error> {
@@ -399,11 +395,11 @@ impl Pane for LocalPane {
     fn key_down(&self, key: KeyCode, mods: KeyModifiers) -> Result<(), Error> {
         Mux::get().record_input_for_current_identity();
         if self.tmux_domain.lock().is_some() {
-            log::trace!("key: {:?}", key);
+            log::trace!("key: {key:?}");
             if key == KeyCode::Char('q') {
                 self.terminal.lock().send_paste("detach\n")?;
             }
-            return Ok(());
+            Ok(())
         } else {
             self.terminal.lock().key_down(key, mods)
         }
@@ -450,14 +446,13 @@ impl Pane for LocalPane {
         let title = self.terminal.lock().get_title().to_string();
         // If the title is the default pane title, then try to spice
         // things up a bit by returning the process basename instead
-        if title == "wezterm" {
-            if let Some(proc_name) = self.get_foreground_process_name(CachePolicy::AllowStale) {
+        if title == "wezterm"
+            && let Some(proc_name) = self.get_foreground_process_name(CachePolicy::AllowStale) {
                 let proc_name = std::path::Path::new(&proc_name);
                 if let Some(name) = proc_name.file_name() {
                     return name.to_string_lossy().to_string();
                 }
             }
-        }
 
         title
     }
@@ -571,7 +566,7 @@ impl Pane for LocalPane {
                     None => return Ok(None),
                 };
                 let v = config::lua::emit_sync_callback(
-                    &*lua,
+                    &lua,
                     ("mux-is-process-stateful".to_string(), (info.root.clone())),
                 )?;
                 match v {
@@ -615,8 +610,7 @@ impl Pane for LocalPane {
                 Err(err) => {
                     log::error!(
                         "Error while running mux-is-process-stateful \
-                         hook: {:#}, falling back to default behavior",
-                        err
+                         hook: {err:#}, falling back to default behavior"
                     );
                     default_stateful_check(&info.root)
                 }
@@ -671,12 +665,11 @@ impl Pane for LocalPane {
         let mut uniq_matches: HashMap<String, usize> = HashMap::new();
 
         screen.for_each_logical_line_in_stable_range(range, |sr, lines| {
-            if let Some(limit) = limit {
-                if results.len() == limit as usize {
+            if let Some(limit) = limit
+                && results.len() == limit as usize {
                     // We've reach the limit, stop iteration.
                     return false;
                 }
-            }
 
             if lines.is_empty() {
                 // Nothing to do on this iteration, carry on with the next.
@@ -720,24 +713,22 @@ impl Pane for LocalPane {
                 }
                 CompiledPattern::Regex(re) => {
                     // Allow for the regex to contain captures
-                    for capture_res in re.captures_iter(&haystack) {
-                        if let Ok(c) = capture_res {
-                            // Look for the captures in reverse order, as index==0 is
-                            // the whole matched string.  We can't just call
-                            // `c.iter().rev()` as the capture iterator isn't double-ended.
-                            for idx in (0..c.len()).rev() {
-                                if let Some(m) = c.get(idx) {
-                                    found_match(
-                                        m.as_str(),
-                                        m.start(),
-                                        lines,
-                                        stable_idx,
-                                        &mut uniq_matches,
-                                        &mut coords,
-                                        &mut results,
-                                    );
-                                    break;
-                                }
+                    for c in re.captures_iter(&haystack).flatten() {
+                        // Look for the captures in reverse order, as index==0 is
+                        // the whole matched string.  We can't just call
+                        // `c.iter().rev()` as the capture iterator isn't double-ended.
+                        for idx in (0..c.len()).rev() {
+                            if let Some(m) = c.get(idx) {
+                                found_match(
+                                    m.as_str(),
+                                    m.start(),
+                                    lines,
+                                    stable_idx,
+                                    &mut uniq_matches,
+                                    &mut coords,
+                                    &mut results,
+                                );
+                                break;
                             }
                         }
                     }
@@ -769,21 +760,18 @@ impl Pane for LocalPane {
             }
             let coords = coords.as_ref().unwrap();
 
-            let match_id = match uniq_matches.get(text).copied() {
-                Some(id) => id,
-                None => {
-                    let id = uniq_matches.len();
-                    uniq_matches.insert(text.to_owned(), id);
-                    id
-                }
+            let match_id = if let Some(id) = uniq_matches.get(text).copied() { id } else {
+                let id = uniq_matches.len();
+                uniq_matches.insert(text.to_owned(), id);
+                id
             };
             let (start_x, start_y) = haystack_idx_to_coord(byte_idx, coords);
             let (end_x, end_y) = haystack_idx_to_coord(byte_idx + text.len(), coords);
             results.push(SearchResult {
-                start_x,
                 start_y,
-                end_x,
+                start_x,
                 end_y,
+                end_x,
                 match_id,
             });
         }
@@ -811,7 +799,7 @@ impl Pane for LocalPane {
                 .binary_search_by(|ele| ele.byte_idx.cmp(&idx))
                 .or_else(|i| -> Result<usize, usize> { Ok(i) })
                 .unwrap();
-            let coord = coords.get(c).map(|c| *c).unwrap_or_else(|| {
+            let coord = coords.get(c).copied().unwrap_or_else(|| {
                 let last = coords.last().unwrap();
                 Coord {
                     grapheme_idx: last.grapheme_idx + 1,
@@ -880,7 +868,7 @@ impl wezterm_term::DeviceControlHandler for LocalPaneDCSHandler {
                 // if so we should arrange to call domain.attach() and make
                 // it do the right thing.
                 } else if configuration().log_unknown_escape_sequences {
-                    log::warn!("unknown DeviceControlMode::Enter {:?}", mode,);
+                    log::warn!("unknown DeviceControlMode::Enter {mode:?}",);
                 }
             }
             DeviceControlMode::Exit => {
@@ -911,7 +899,7 @@ impl wezterm_term::DeviceControlHandler for LocalPaneDCSHandler {
             }
             _ => {
                 if configuration().log_unknown_escape_sequences {
-                    log::warn!("unhandled: {:?}", control);
+                    log::warn!("unhandled: {control:?}");
                 }
             }
         }
@@ -929,18 +917,16 @@ impl AlertHandler for LocalPaneNotifHandler {
             let mux = Mux::get();
             match &alert {
                 Alert::WindowTitleChanged(title) => {
-                    if let Some((_domain, window_id, _tab_id)) = mux.resolve_pane_id(pane_id) {
-                        if let Some(mut window) = mux.get_window_mut(window_id) {
+                    if let Some((_domain, window_id, _tab_id)) = mux.resolve_pane_id(pane_id)
+                        && let Some(mut window) = mux.get_window_mut(window_id) {
                             window.set_title(title);
                         }
-                    }
                 }
                 Alert::TabTitleChanged(title) => {
-                    if let Some((_domain, _window_id, tab_id)) = mux.resolve_pane_id(pane_id) {
-                        if let Some(tab) = mux.get_tab(tab_id) {
+                    if let Some((_domain, _window_id, tab_id)) = mux.resolve_pane_id(pane_id)
+                        && let Some(tab) = mux.get_tab(tab_id) {
                             tab.set_title(title.as_deref().unwrap_or(""));
                         }
-                    }
                 }
                 _ => {}
             }
@@ -1077,8 +1063,7 @@ impl LocalPane {
             let expired = policy == CachePolicy::FetchImmediate
                 || proc_list
                     .as_ref()
-                    .map(|info| info.updated.elapsed() > PROC_INFO_CACHE_TTL)
-                    .unwrap_or(true);
+                    .is_none_or(|info| info.updated.elapsed() > PROC_INFO_CACHE_TTL);
 
             if expired {
                 log::trace!("CachedProcInfo expired, refresh");
@@ -1126,11 +1111,7 @@ impl LocalPane {
 
     #[allow(dead_code)]
     fn divine_foreground_process(&self, policy: CachePolicy) -> Option<LocalProcessInfo> {
-        if let Some(info) = self.divine_process_list(policy) {
-            Some(info.foreground.clone())
-        } else {
-            None
-        }
+        self.divine_process_list(policy).map(|info| info.foreground.clone())
     }
 }
 

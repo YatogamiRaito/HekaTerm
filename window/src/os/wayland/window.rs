@@ -67,17 +67,17 @@ trait WaylandDimensions {
 
 impl WaylandDimensions for Dimensions {
     fn dpi_factor(&self) -> f64 {
-        self.dpi as f64 / crate::DEFAULT_DPI as f64
+        self.dpi as f64 / crate::DEFAULT_DPI
     }
 
     fn pixels_to_surface(&self, pixels: i32) -> i32 {
         // Take care to round up, otherwise we can lose a pixel
         // and that can effectively lose the final row of the terminal
-        (pixels as f64 / self.dpi_factor()).ceil() as i32
+        (f64::from(pixels) / self.dpi_factor()).ceil() as i32
     }
 
     fn surface_to_pixels(&self, surface: i32) -> i32 {
-        (surface as f64 * self.dpi_factor()).ceil() as i32
+        (f64::from(surface) * self.dpi_factor()).ceil() as i32
     }
 }
 
@@ -263,10 +263,7 @@ impl WaylandWindow {
             FallbackFrame::new(&window, shm, subcompositor, qh.clone())
                 .expect("failed to create csd frame")
         };
-        let hidden = match decor_mode {
-            Some(DecorationMode::Client) => false,
-            _ => true,
-        };
+        let hidden = !matches!(decor_mode, Some(DecorationMode::Client));
         window_frame.set_hidden(hidden);
         if !hidden {
             window_frame.resize(
@@ -290,6 +287,7 @@ impl WaylandWindow {
         let pending_mouse = PendingMouse::create(window_id, &copy_and_paste);
 
         {
+            #[allow(clippy::mutable_key_type)]
             let surface_to_pending = &mut conn.wayland_state.borrow_mut().surface_to_pending;
             surface_to_pending.insert(surface.id(), Arc::clone(&pending_mouse));
         }
@@ -332,7 +330,7 @@ impl WaylandWindow {
             gl_state: None,
         }));
 
-        let window_handle = Window::Wayland(WaylandWindow(window_id));
+        let window_handle = Window::Wayland(Self(window_id));
 
         inner
             .borrow_mut()
@@ -463,10 +461,10 @@ impl WindowOps for WaylandWindow {
                         promise.ok(result.replace("\r\n", "\n"));
                     }
                     Err(e) => {
-                        log::error!("while reading clipboard: {}", e);
-                        promise.err(anyhow!("{}", e));
+                        log::error!("while reading clipboard: {e}");
+                        promise.err(anyhow!("{e}"));
                     }
-                };
+                }
             });
             Ok(())
         });
@@ -496,11 +494,17 @@ impl WindowOps for WaylandWindow {
     }
 
     fn maximize(&self) {
-        WaylandConnection::with_window_inner(self.0, move |inner| Ok(inner.maximize()));
+        WaylandConnection::with_window_inner(self.0, move |inner| {
+            let _: () = inner.maximize();
+            Ok(())
+        });
     }
 
     fn restore(&self) {
-        WaylandConnection::with_window_inner(self.0, move |inner| Ok(inner.restore()));
+        WaylandConnection::with_window_inner(self.0, move |inner| {
+            let _: () = inner.restore();
+            Ok(())
+        });
     }
 
     fn config_did_change(&self, config: &ConfigHandle) {
@@ -545,15 +549,15 @@ pub(crate) fn read_pipe_with_timeout(mut file: ReadPipe) -> anyhow::Result<Strin
     let mut buf = [0u8; 8192];
 
     loop {
-        if unsafe { libc::poll(&mut pfd, 1, 3000) == 1 } {
+        if unsafe { libc::poll(&raw mut pfd, 1, 3000) == 1 } {
             match file.read(&mut buf) {
-                Ok(size) if size == 0 => {
+                Ok(0) => {
                     break;
                 }
                 Ok(size) => {
                     result.extend_from_slice(&buf[..size]);
                 }
-                Err(e) => bail!("error reading from pipe: {}", e),
+                Err(e) => bail!("error reading from pipe: {e}"),
             }
         } else {
             bail!("timed out reading from pipe");
@@ -635,9 +639,7 @@ impl WaylandWindowInner {
 
         log::trace!("Enable opengl");
 
-        let gl_state = if !egl_is_available() {
-            Err(anyhow!("!egl_is_available"))
-        } else {
+        let gl_state = if egl_is_available() {
             let window = self
                 .window
                 .as_ref()
@@ -650,7 +652,7 @@ impl WaylandWindowInner {
                 self.dimensions.pixel_height as i32,
             )?);
 
-            log::trace!("WEGL Surface here {:?}", wegl_surface);
+            log::trace!("WEGL Surface here {wegl_surface:?}");
 
             match wayland_conn.gl_connection.borrow().as_ref() {
                 Some(glconn) => crate::egl::GlState::create_wayland_with_existing_connection(
@@ -662,6 +664,8 @@ impl WaylandWindowInner {
                     wegl_surface.as_ref().unwrap(),
                 ),
             }
+        } else {
+            Err(anyhow!("!egl_is_available"))
         };
         let gl_state = gl_state.map(Rc::new).and_then(|state| unsafe {
             wayland_conn
@@ -755,13 +759,13 @@ impl WaylandWindowInner {
         }
 
         if let Some((value_x, value_y)) = PendingMouse::scroll(&pending_mouse) {
-            let factor = self.get_dpi_factor() as f64;
+            let factor = self.get_dpi_factor();
 
             if value_x.signum() != self.hscroll_remainder.signum() {
                 // reset accumulator when changing scroll direction
                 self.hscroll_remainder = 0.0;
             }
-            let scaled_x = (value_x * factor) + self.hscroll_remainder;
+            let scaled_x = value_x.mul_add(factor, self.hscroll_remainder);
             let discrete_x = scaled_x.trunc();
             self.hscroll_remainder = scaled_x - discrete_x;
             if discrete_x != 0. {
@@ -781,7 +785,7 @@ impl WaylandWindowInner {
             if value_y.signum() != self.vscroll_remainder.signum() {
                 self.vscroll_remainder = 0.0;
             }
-            let scaled_y = (value_y * factor) + self.vscroll_remainder;
+            let scaled_y = value_y.mul_add(factor, self.vscroll_remainder);
             let discrete_y = scaled_y.trunc();
             self.vscroll_remainder = scaled_y - discrete_y;
             if discrete_y != 0. {
@@ -826,8 +830,8 @@ impl WaylandWindowInner {
             self.window_state = window_state;
         }
 
-        if pending.configure.is_none() {
-            if pending.dpi.is_some() {
+        if pending.configure.is_none()
+            && pending.dpi.is_some() {
                 // Synthesize a pending configure event for the dpi change
                 pending.configure.replace((
                     self.pixels_to_surface(self.dimensions.pixel_width as i32) as u32,
@@ -835,7 +839,6 @@ impl WaylandWindowInner {
                 ));
                 log::debug!("synthesize configure with {:?}", pending.configure);
             }
-        }
 
         if let Some(ref window_config) = pending.window_configure {
             self.window_frame.update_state(window_config.state);
@@ -847,7 +850,7 @@ impl WaylandWindowInner {
             log::trace!("Pending configure: w:{w}, h{h} -- {:?}", self.window);
             if self.window.is_some() {
                 let surface_udata = SurfaceUserData::from_wl(self.surface());
-                let factor = surface_udata.surface_data.scale_factor() as f64;
+                let factor = f64::from(surface_udata.surface_data.scale_factor());
                 let old_dimensions = self.dimensions;
 
                 // FIXME: teach this how to resolve dpi_by_screen
@@ -864,11 +867,11 @@ impl WaylandWindowInner {
                     if let Some(incr) = self.resize_increments {
                         let min_width = incr.base_width + incr.x;
                         let min_height = incr.base_height + incr.y;
-                        let extra_width = (pixel_width - incr.base_width as i32) % incr.x as i32;
-                        let extra_height = (pixel_height - incr.base_height as i32) % incr.y as i32;
-                        let desired_pixel_width = max(pixel_width - extra_width, min_width as i32);
+                        let extra_width = (pixel_width - i32::from(incr.base_width)) % i32::from(incr.x);
+                        let extra_height = (pixel_height - i32::from(incr.base_height)) % i32::from(incr.y);
+                        let desired_pixel_width = max(pixel_width - extra_width, i32::from(min_width));
                         let desired_pixel_height =
-                            max(pixel_height - extra_height, min_height as i32);
+                            max(pixel_height - extra_height, i32::from(min_height));
                         w = self.pixels_to_surface(desired_pixel_width) as u32;
                         h = self.pixels_to_surface(desired_pixel_height) as u32;
                         pixel_width = self.surface_to_pixels(w.try_into().unwrap());
@@ -882,7 +885,7 @@ impl WaylandWindowInner {
                     let width = NonZeroU32::new(w).unwrap_or(NonZeroU32::new(1).unwrap());
                     let height = NonZeroU32::new(h).unwrap_or(NonZeroU32::new(1).unwrap());
                     self.window_frame.resize(width, height);
-                    pending.refresh_decorations = true
+                    pending.refresh_decorations = true;
                 }
                 let (x, y) = self.window_frame.location();
                 let surface_width = self.pixels_to_surface(pixel_width);
@@ -985,12 +988,12 @@ impl WaylandWindowInner {
                         MouseCursor::Text => CursorIcon::Text,
                     },
                 ) {
-                    log::error!("set_cursor: {}", err);
+                    log::error!("set_cursor: {err}");
                 }
             }
             None => {
                 if let Err(err) = pointer.hide_cursor() {
-                    log::error!("hide_cursor: {}", err)
+                    log::error!("hide_cursor: {err}");
                 }
             }
         }
@@ -1011,16 +1014,16 @@ impl WaylandWindowInner {
         let active_surface_id = state.active_surface_id.borrow();
         let surface_id = surface.id();
 
-        if let Some(active_surface_id) = active_surface_id.as_ref() {
-            if surface_id == active_surface_id.clone() {
-                if self.text_cursor.map(|prior| prior != rect).unwrap_or(true) {
+        if let Some(active_surface_id) = active_surface_id.as_ref()
+            && surface_id == active_surface_id.clone()
+                && (self.text_cursor != Some(rect)) {
                     self.text_cursor.replace(rect);
 
                     let surface_udata = SurfaceUserData::from_wl(&surface);
                     let factor = surface_udata.surface_data().scale_factor();
 
-                    if let Some(text_input) = &state.text_input {
-                        if let Some(input) = text_input.get_text_input_for_surface(&surface) {
+                    if let Some(text_input) = &state.text_input
+                        && let Some(input) = text_input.get_text_input_for_surface(&surface) {
                             input.set_cursor_rectangle(
                                 rect.min_x() as i32 / factor,
                                 rect.min_y() as i32 / factor,
@@ -1029,18 +1032,14 @@ impl WaylandWindowInner {
                             );
                             input.commit();
                         }
-                    }
                 }
-            }
-        }
     }
 
     fn set_title(&mut self, title: String) {
-        if let Some(last_title) = self.title.as_ref() {
-            if last_title == &title {
+        if let Some(last_title) = self.title.as_ref()
+            && last_title == &title {
                 return;
             }
-        }
         if let Some(window) = self.window.as_ref() {
             window.set_title(title.clone());
         }
@@ -1048,7 +1047,7 @@ impl WaylandWindowInner {
         self.title = Some(title);
     }
 
-    fn set_resize_increments(&mut self, incr: ResizeIncrement) -> anyhow::Result<()> {
+    const fn set_resize_increments(&mut self, incr: ResizeIncrement) -> anyhow::Result<()> {
         self.resize_increments.replace(incr);
         Ok(())
     }
@@ -1097,7 +1096,7 @@ impl WaylandWindowInner {
 
         let callback = self.surface().frame(&qh, self.surface().clone());
 
-        log::trace!("do_paint - callback: {:?}", callback);
+        log::trace!("do_paint - callback: {callback:?}");
         self.frame_callback.replace(callback);
 
         // The repaint has the side of effect of committing the surface,
@@ -1158,7 +1157,7 @@ impl WaylandWindowInner {
                     .chunks_exact(4)
                     .map(|c| u32::from_ne_bytes(c.try_into().unwrap()))
                     .collect::<Vec<_>>();
-                log::trace!("keyboard event: Enter with keys: {:?}", key_codes);
+                log::trace!("keyboard event: Enter with keys: {key_codes:?}");
                 self.emit_focus(mapper, true);
             }
             WlKeyboardEvent::Leave { .. } => {
@@ -1229,7 +1228,7 @@ impl WaylandWindowInner {
                 self.window
                     .as_ref()
                     .unwrap()
-                    .show_window_menu(seat, serial, (x, y))
+                    .show_window_menu(seat, serial, (x, y));
             }
             FrameAction::Resize(edge) => {
                 let edge = match edge {
@@ -1244,10 +1243,10 @@ impl WaylandWindowInner {
                     ResizeEdge::BottomRight => XdgResizeEdge::BottomRight,
                     _ => return, // Realistically, there probably won't be any new edges added.
                 };
-                self.window.as_ref().unwrap().resize(seat, serial, edge)
+                self.window.as_ref().unwrap().resize(seat, serial, edge);
             }
             FrameAction::Move => self.window.as_ref().unwrap().move_(seat, serial),
-            _ => log::warn!("unhandled FrameAction: {:?}", action),
+            _ => log::warn!("unhandled FrameAction: {action:?}"),
         }
     }
 
@@ -1304,11 +1303,11 @@ impl WaylandState {
             WaylandWindowEvent::Close => {
                 // TODO: This should the new queue function
                 // p.queue_close()
-                if !pending_event.close {
+                if pending_event.close {
+                    false
+                } else {
                     pending_event.close = true;
                     true
-                } else {
-                    false
                 }
             }
             WaylandWindowEvent::Request(configure) => {
@@ -1484,7 +1483,7 @@ impl SurfaceUserData {
         wl.data()
             .expect("User data should be associated with WlSurface")
     }
-    pub(super) fn try_from_wl(wl: &WlSurface) -> Option<&SurfaceUserData> {
+    pub(super) fn try_from_wl(wl: &WlSurface) -> Option<&Self> {
         wl.data()
     }
 }
@@ -1507,7 +1506,7 @@ impl HasDisplayHandle for WaylandWindowInner {
 impl HasWindowHandle for WaylandWindowInner {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
         let handle = WaylandWindowHandle::new(
-            NonNull::new(self.surface().id().as_ptr() as _).expect("non-null"),
+            NonNull::new(self.surface().id().as_ptr().cast()).expect("non-null"),
         );
         unsafe { Ok(WindowHandle::borrow_raw(RawWindowHandle::Wayland(handle))) }
     }

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Frecency {
     /// The frecency score decays to half its value when
-    /// half_life has elapsed since its previous access.
+    /// `half_life` has elapsed since its previous access.
     #[serde_as(as = "serde_with::DurationSeconds<i64>")]
     half_life: Duration,
     #[serde_as(as = "serde_with::TimestampSeconds<i64>")]
@@ -26,13 +26,15 @@ impl Default for Frecency {
 
 impl Frecency {
     /// Creates a new Frecency that initially has no accesses
+    #[must_use] 
     pub fn new() -> Self {
         Self::new_at_time(Utc::now())
     }
 
     /// Creates a new Frecency that initially has no accesses.
     /// `now` is the current time, if you happen to already know it.
-    pub fn new_at_time(now: DateTime<Utc>) -> Self {
+    #[must_use] 
+    pub const fn new_at_time(now: DateTime<Utc>) -> Self {
         Self {
             half_life: Duration::days(3),
             frecency: 0.0,
@@ -55,29 +57,33 @@ impl Frecency {
     }
 
     /// Returns the number of accesses
-    pub fn num_accesses(&self) -> u64 {
+    #[must_use] 
+    pub const fn num_accesses(&self) -> u64 {
         self.num_accesses
     }
 
     /// Returns the time when the item was last accessed
-    pub fn last_accessed(&self) -> &DateTime<Utc> {
+    #[must_use] 
+    pub const fn last_accessed(&self) -> &DateTime<Utc> {
         &self.last_accessed
     }
 
     /// Compute the frecency score
+    #[must_use] 
     pub fn score(&self) -> f64 {
         self.score_at_time(Utc::now())
     }
 
     /// Compute the frecency score at a particular time
+    #[must_use] 
     pub fn score_at_time(&self, now: DateTime<Utc>) -> f64 {
         let elapsed = duration_secs_f64(now - self.last_accessed);
-        self.frecency / 2.0_f64.powf(elapsed / duration_secs_f64(self.half_life))
+        self.frecency / (elapsed / duration_secs_f64(self.half_life)).exp2()
     }
 
     fn set_frecency_at_time(&mut self, value: f64, now: DateTime<Utc>) {
         let elapsed = duration_secs_f64(now - self.last_accessed);
-        self.frecency = value * 2.0_f64.powf(elapsed / duration_secs_f64(self.half_life));
+        self.frecency = value * (elapsed / duration_secs_f64(self.half_life)).exp2();
     }
 }
 
@@ -127,7 +133,7 @@ mod tests {
     #[test]
     fn serialize() {
         use chrono::TimeZone;
-        let now = Utc.with_ymd_and_hms(2022, 08, 31, 22, 16, 0).unwrap();
+        let now = Utc.with_ymd_and_hms(2022, 8, 31, 22, 16, 0).unwrap();
         let f = Frecency::new_at_time(now);
         assert_eq!(serde_json::to_string(&f).unwrap(), "{\"half_life\":259200,\"last_accessed\":1661984160,\"frecency\":0.0,\"num_accesses\":0}");
     }

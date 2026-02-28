@@ -48,7 +48,6 @@ pub fn open_with(url: &str, app: &str) {
 
         if let Ok(status) = cmd.status() {
             if status.success() {
-                return;
             }
         }
     });

@@ -24,7 +24,7 @@ impl TlsCredsCommand {
             // preceeding cert, so the CA should come last
             println!("{}", creds.ca_cert_pem);
         } else {
-            codec::Pdu::GetTlsCredsResponse(creds).encode(std::io::stdout().lock(), 0)?;
+            codec::Pdu::GetTlsCredsResponse(Box::new(creds)).encode(std::io::stdout().lock(), 0)?;
         }
         Ok(())
     }

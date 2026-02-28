@@ -12,7 +12,7 @@ pub struct DaemonOptions {
 
 /// Set the sticky bit on path.
 /// This is used in a couple of situations where we want files that
-/// we create in the RUNTIME_DIR to not be removed by a potential
+/// we create in the `RUNTIME_DIR` to not be removed by a potential
 /// tmpwatch daemon.
 pub fn set_sticky_bit(path: &Path) {
     #[cfg(unix)]
@@ -21,8 +21,8 @@ pub fn set_sticky_bit(path: &Path) {
         if let Ok(metadata) = path.metadata() {
             let mut perms = metadata.permissions();
             let mode = perms.mode();
-            perms.set_mode(mode | libc::S_ISVTX as u32);
-            let _ = std::fs::set_permissions(&path, perms);
+            perms.set_mode(mode | libc::S_ISVTX);
+            let _ = std::fs::set_permissions(path, perms);
         }
     }
 
@@ -46,24 +46,24 @@ fn open_log(path: PathBuf) -> anyhow::Result<File> {
 
 impl DaemonOptions {
     #[cfg_attr(windows, allow(dead_code))]
+    #[must_use] 
     pub fn pid_file(&self) -> PathBuf {
         self.pid_file
-            .as_ref()
-            .cloned()
+            .clone()
             .unwrap_or_else(|| RUNTIME_DIR.join("pid"))
     }
 
+    #[must_use] 
     pub fn stdout(&self) -> PathBuf {
         self.stdout
-            .as_ref()
-            .cloned()
+            .clone()
             .unwrap_or_else(|| RUNTIME_DIR.join("log"))
     }
 
+    #[must_use] 
     pub fn stderr(&self) -> PathBuf {
         self.stderr
-            .as_ref()
-            .cloned()
+            .clone()
             .unwrap_or_else(|| RUNTIME_DIR.join("log"))
     }
 

@@ -6,12 +6,12 @@ use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum CellStorage {
+pub enum CellStorage {
     V(VecStorage),
     C(ClusteredLine),
 }
 
-pub(crate) enum VisibleCellIter<'a> {
+pub enum VisibleCellIter<'a> {
     V(VecStorageIter<'a>),
     C(ClusterLineCellIter<'a>),
 }

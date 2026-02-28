@@ -4,7 +4,7 @@ use core::hash::{Hash, Hasher};
 use serde::{Deserialize, Serialize};
 use wezterm_dynamic::{FromDynamic, ToDynamic};
 
-use crate::allocate::*;
+use crate::allocate::{HashMap, String, ToString, ToOwned};
 
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
@@ -17,6 +17,7 @@ pub struct Hyperlink {
 }
 
 impl Hyperlink {
+    #[must_use] 
     pub fn uri(&self) -> &str {
         &self.uri
     }
@@ -30,7 +31,8 @@ impl Hyperlink {
         self.implicit.hash(hasher);
     }
 
-    pub fn params(&self) -> &HashMap<String, String> {
+    #[must_use] 
+    pub const fn params(&self) -> &HashMap<String, String> {
         &self.params
     }
 
@@ -43,7 +45,8 @@ impl Hyperlink {
     }
 
     #[inline]
-    pub fn is_implicit(&self) -> bool {
+    #[must_use] 
+    pub const fn is_implicit(&self) -> bool {
         self.implicit
     }
 
@@ -73,7 +76,7 @@ impl Hyperlink {
         }
     }
 
-    pub fn parse(osc: &[&[u8]]) -> Result<Option<Hyperlink>> {
+    pub fn parse(osc: &[&[u8]]) -> Result<Option<Self>> {
         ensure!(osc.len() == 3, "wrong param count");
         if osc[1].is_empty() && osc[2].is_empty() {
             // Clearing current hyperlink
@@ -92,7 +95,7 @@ impl Hyperlink {
                 }
             }
 
-            Ok(Some(Hyperlink::new_with_params(uri, params)))
+            Ok(Some(Self::new_with_params(uri, params)))
         }
     }
 }
@@ -105,7 +108,7 @@ impl core::fmt::Display for Hyperlink {
             if idx > 0 {
                 write!(f, ":")?;
             }
-            write!(f, "{}={}", k, v)?;
+            write!(f, "{k}={v}")?;
         }
         // TODO: ensure that link.uri doesn't contain characters
         // outside the range 32-126.  Need to pull in a URI/URL

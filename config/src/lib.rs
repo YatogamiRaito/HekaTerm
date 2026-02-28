@@ -1,7 +1,7 @@
 //! Configuration for the gui portion of the terminal
 
 use anyhow::{anyhow, bail, Context, Error};
-use lazy_static::lazy_static;
+
 use mlua::Lua;
 use ordered_float::NotNan;
 use smol::channel::{Receiver, Sender};
@@ -65,24 +65,21 @@ pub use wsl::*;
 
 type ErrorCallback = fn(&str);
 
-lazy_static! {
-    pub static ref HOME_DIR: PathBuf = dirs_next::home_dir().expect("can't find HOME dir");
-    pub static ref CONFIG_DIRS: Vec<PathBuf> = config_dirs();
-    pub static ref RUNTIME_DIR: PathBuf = compute_runtime_dir().unwrap();
-    pub static ref DATA_DIR: PathBuf = compute_data_dir().unwrap();
-    pub static ref CACHE_DIR: PathBuf = compute_cache_dir().unwrap();
-    static ref CONFIG: Configuration = Configuration::new();
-    static ref CONFIG_FILE_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
-    static ref CONFIG_SKIP: AtomicBool = AtomicBool::new(false);
-    static ref CONFIG_OVERRIDES: Mutex<Vec<(String, String)>> = Mutex::new(vec![]);
-    static ref SHOW_ERROR: Mutex<Option<ErrorCallback>> =
-        Mutex::new(Some(|e| log::error!("{}", e)));
-    static ref LUA_PIPE: LuaPipe = LuaPipe::new();
-    pub static ref COLOR_SCHEMES: HashMap<String, Palette> = build_default_schemes();
-}
+pub static HOME_DIR: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| dirs_next::home_dir().expect("can't find HOME dir"));
+pub static CONFIG_DIRS: std::sync::LazyLock<Vec<PathBuf>> = std::sync::LazyLock::new(config_dirs);
+pub static RUNTIME_DIR: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| compute_runtime_dir().unwrap());
+pub static DATA_DIR: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| compute_data_dir().unwrap());
+pub static CACHE_DIR: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| compute_cache_dir().unwrap());
+static CONFIG: std::sync::LazyLock<Configuration> = std::sync::LazyLock::new(Configuration::new);
+static CONFIG_FILE_OVERRIDE: std::sync::LazyLock<Mutex<Option<PathBuf>>> = std::sync::LazyLock::new(|| Mutex::new(None));
+static CONFIG_SKIP: std::sync::LazyLock<AtomicBool> = std::sync::LazyLock::new(|| AtomicBool::new(false));
+static CONFIG_OVERRIDES: std::sync::LazyLock<Mutex<Vec<(String, String)>>> = std::sync::LazyLock::new(|| Mutex::new(vec![]));
+static SHOW_ERROR: std::sync::LazyLock<Mutex<Option<ErrorCallback>>> = std::sync::LazyLock::new(|| Mutex::new(Some(|e| log::error!("{e}"))));
+static LUA_PIPE: std::sync::LazyLock<LuaPipe> = std::sync::LazyLock::new(LuaPipe::new);
+pub static COLOR_SCHEMES: std::sync::LazyLock<HashMap<String, Palette>> = std::sync::LazyLock::new(build_default_schemes);
 
 thread_local! {
-    static LUA_CONFIG: RefCell<Option<LuaConfigState>> = RefCell::new(None);
+    static LUA_CONFIG: RefCell<Option<LuaConfigState>> = const { RefCell::new(None) };
 }
 
 fn toml_table_has_numeric_keys(t: &toml::value::Table) -> bool {
@@ -114,7 +111,7 @@ fn toml_to_dynamic(value: &toml::Value) -> Value {
         ),
         toml::Value::Table(t) => Value::Object(
             t.iter()
-                .map(|(k, v)| (Value::String(k.to_string()), toml_to_dynamic(v)))
+                .map(|(k, v)| (Value::String(k.clone()), toml_to_dynamic(v)))
                 .collect::<BTreeMap<_, _>>()
                 .into(),
         ),
@@ -151,16 +148,17 @@ fn json_to_dynamic(value: &serde_json::Value) -> Value {
         ),
         serde_json::Value::Object(t) => Value::Object(
             t.iter()
-                .map(|(k, v)| (Value::String(k.to_string()), json_to_dynamic(v)))
+                .map(|(k, v)| (Value::String(k.clone()), json_to_dynamic(v)))
                 .collect::<BTreeMap<_, _>>()
                 .into(),
         ),
     }
 }
 
+#[must_use] 
 pub fn build_default_schemes() -> HashMap<String, Palette> {
     let mut color_schemes = HashMap::new();
-    for (scheme_name, data) in scheme_data::SCHEMES.iter() {
+    for (scheme_name, data) in &scheme_data::SCHEMES {
         let scheme_name = scheme_name.to_string();
         let scheme = ColorSchemeFile::from_toml_str(data).unwrap();
         color_schemes.insert(scheme_name, scheme.colors.clone());
@@ -196,12 +194,12 @@ impl LuaPipe {
 /// A further complication is that config reloading tends to happen in
 /// a background filesystem watching thread.
 ///
-/// The result of all these constraints is that the LuaPipe struct above
+/// The result of all these constraints is that the `LuaPipe` struct above
 /// is used as a channel to transport newly loaded lua configs to the
 /// main thread.
 ///
 /// The main thread pops the loaded configs to obtain the latest one
-/// and updates LuaConfigState
+/// and updates `LuaConfigState`
 struct LuaConfigState {
     lua: Option<Rc<mlua::Lua>>,
 }
@@ -209,7 +207,7 @@ struct LuaConfigState {
 impl LuaConfigState {
     /// Consume any lua contexts sent to us via the
     /// config loader until we end up with the most
-    /// recent one being referenced by LUA_CONFIG.
+    /// recent one being referenced by `LUA_CONFIG`.
     fn update_to_latest(&mut self) {
         while let Ok(lua) = LUA_PIPE.receiver.try_recv() {
             self.lua.replace(Rc::new(lua));
@@ -365,7 +363,7 @@ pub fn assign_error_callback(cb: ErrorCallback) {
 pub fn show_error(err: &str) {
     let factory = SHOW_ERROR.lock().unwrap();
     if let Some(cb) = factory.as_ref() {
-        cb(err)
+        cb(err);
     }
 }
 
@@ -395,7 +393,7 @@ fn config_dirs() -> Vec<PathBuf> {
 
     #[cfg(unix)]
     if let Some(d) = std::env::var_os("XDG_CONFIG_DIRS") {
-        dirs.extend(std::env::split_paths(&d).map(|s| PathBuf::from(s).join("wezterm")));
+        dirs.extend(std::env::split_paths(&d).map(|s| s.join("wezterm")));
     }
 
     dirs
@@ -456,7 +454,7 @@ pub fn reload() {
 /// return it, otherwise return the current configuration
 pub fn configuration_result() -> Result<ConfigHandle, Error> {
     if let Some(error) = CONFIG.get_error() {
-        bail!("{}", error);
+        bail!("{error}");
     }
     Ok(CONFIG.get())
 }
@@ -527,7 +525,7 @@ impl ConfigInner {
                 }
 
                 while let Ok(event) = rx.recv() {
-                    log::debug!("event:{:?}", event);
+                    log::debug!("event:{event:?}");
                     match event {
                         Ok(event) => {
                             let mut paths = extract_path(event);
@@ -540,7 +538,7 @@ impl ConfigInner {
                                 }
                                 paths.sort();
                                 paths.dedup();
-                                log::debug!("paths {:?} changed, reload config", path);
+                                log::debug!("paths {path:?} changed, reload config");
                                 reload();
                             }
                         }
@@ -562,10 +560,8 @@ impl ConfigInner {
 
     fn accumulate_watch_paths(lua: &Lua, watch_paths: &mut Vec<PathBuf>) {
         if let Ok(mlua::Value::Table(tbl)) = lua.named_registry_value("wezterm-watch-paths") {
-            for path in tbl.sequence_values::<String>() {
-                if let Ok(path) = path {
-                    watch_paths.push(PathBuf::from(path));
-                }
+            for path in tbl.sequence_values::<String>().flatten() {
+                watch_paths.push(PathBuf::from(path));
             }
         }
     }
@@ -596,14 +592,14 @@ impl ConfigInner {
                 // don't keep reloading every time something in the
                 // home dir changes!
                 // <https://github.com/wezterm/wezterm/issues/1895>
-                if parent != &*HOME_DIR {
+                if parent != *HOME_DIR {
                     watch_paths.push(parent.to_path_buf());
                 }
             }
             watch_paths.push(path);
         }
         if let Some(lua) = &lua {
-            ConfigInner::accumulate_watch_paths(lua, &mut watch_paths);
+            Self::accumulate_watch_paths(lua, &mut watch_paths);
         }
 
         match config {
@@ -623,7 +619,7 @@ impl ConfigInner {
                 log::debug!("Reloaded configuration! generation={}", self.generation);
             }
             Err(err) => {
-                let err = format!("{:#}", err);
+                let err = format!("{err:#}");
                 if self.generation > 0 {
                     // Only generate the message for an actual reload
                     show_error(&err);
@@ -689,7 +685,14 @@ pub struct Configuration {
     inner: Mutex<ConfigInner>,
 }
 
+impl Default for Configuration {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Configuration {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(ConfigInner::new()),
@@ -752,7 +755,7 @@ impl Configuration {
     /// The error message is not cleared.
     pub fn get_error(&self) -> Option<String> {
         let inner = self.inner.lock().unwrap();
-        inner.error.as_ref().cloned()
+        inner.error.clone()
     }
 
     pub fn get_warnings_and_errors(&self) -> Vec<String> {
@@ -787,10 +790,12 @@ impl ConfigHandle {
     /// allowing consuming code to know whether the config
     /// has been reloading since they last derived some
     /// information from the configuration
-    pub fn generation(&self) -> usize {
+    #[must_use] 
+    pub const fn generation(&self) -> usize {
         self.generation
     }
 
+    #[must_use] 
     pub fn default_config() -> Self {
         Self {
             config: Arc::new(Config::default_config()),
@@ -798,6 +803,7 @@ impl ConfigHandle {
         }
     }
 
+    #[must_use] 
     pub fn unicode_version(&self) -> UnicodeVersion {
         UnicodeVersion {
             version: self.config.unicode_version,
@@ -810,7 +816,7 @@ impl ConfigHandle {
 impl std::ops::Deref for ConfigHandle {
     type Target = Config;
     fn deref(&self) -> &Config {
-        &*self.config
+        &self.config
     }
 }
 
@@ -821,14 +827,14 @@ pub struct LoadedConfig {
     pub warnings: Vec<String>,
 }
 
-fn default_one_point_oh_f64() -> f64 {
+const fn default_one_point_oh_f64() -> f64 {
     1.0
 }
 
-fn default_one_point_oh() -> f32 {
+const fn default_one_point_oh() -> f32 {
     1.0
 }
 
-fn default_true() -> bool {
+const fn default_true() -> bool {
     true
 }

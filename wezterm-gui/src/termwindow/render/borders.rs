@@ -27,8 +27,7 @@ impl crate::TermWindow {
                     self.config
                         .window_frame
                         .border_top_color
-                        .map(|c| c.to_linear())
-                        .unwrap_or(border_dimensions.color),
+                        .map_or(border_dimensions.color, |c| c.to_linear()),
                 )?;
             }
 
@@ -41,8 +40,7 @@ impl crate::TermWindow {
                     self.config
                         .window_frame
                         .border_left_color
-                        .map(|c| c.to_linear())
-                        .unwrap_or(border_dimensions.color),
+                        .map_or(border_dimensions.color, |c| c.to_linear()),
                 )?;
             }
 
@@ -55,8 +53,7 @@ impl crate::TermWindow {
                     self.config
                         .window_frame
                         .border_bottom_color
-                        .map(|c| c.to_linear())
-                        .unwrap_or(border_dimensions.color),
+                        .map_or(border_dimensions.color, |c| c.to_linear()),
                 )?;
             }
 
@@ -69,8 +66,7 @@ impl crate::TermWindow {
                     self.config
                         .window_frame
                         .border_right_color
-                        .map(|c| c.to_linear())
-                        .unwrap_or(border_dimensions.color),
+                        .map_or(border_dimensions.color, |c| c.to_linear()),
                 )?;
             }
         }

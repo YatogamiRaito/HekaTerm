@@ -2,7 +2,7 @@
 authors = ["Wez Furlong"]
 name = "wezterm-surface"
 version = "0.1.0"
-edition = "2018"
+edition = "2024"
 repository = "https://github.com/wezterm/wezterm"
 description = "Surface and Line types for terminals"
 license = "MIT"
@@ -11,6 +11,7 @@ keywords = ["terminal", "surface", "line"]
 
 [dependencies]
 bitflags = "2.0"
+memchr.workspace = true
 fancy-regex.workspace = true
 finl_unicode.workspace = true
 fixedbitset.workspace = true

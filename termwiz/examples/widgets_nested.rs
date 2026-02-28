@@ -1,4 +1,5 @@
 //! This example shows how to make an app that uses parent/child widgets
+#![allow(clippy::result_large_err)]
 #[cfg(feature = "widgets")]
 mod inner {
     use termwiz::caps::Capabilities;

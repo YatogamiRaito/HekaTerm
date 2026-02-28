@@ -4,9 +4,7 @@ use libc::{mode_t, umask};
 use std::sync::Mutex;
 
 #[cfg(unix)]
-lazy_static::lazy_static! {
-static ref SAVED_UMASK: Mutex<Option<libc::mode_t>> = Mutex::new(None);
-}
+static SAVED_UMASK: std::sync::LazyLock<Mutex<Option<libc::mode_t>>> = std::sync::LazyLock::new(|| Mutex::new(None));
 
 /// Unfortunately, novice unix users can sometimes be running
 /// with an overly permissive umask so we take care to install
@@ -17,6 +15,12 @@ static ref SAVED_UMASK: Mutex<Option<libc::mode_t>> = Mutex::new(None);
 pub struct UmaskSaver {
     #[cfg(unix)]
     mask: mode_t,
+}
+
+impl Default for UmaskSaver {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl UmaskSaver {
@@ -34,9 +38,9 @@ impl UmaskSaver {
         me
     }
 
-    /// Retrieves the mask saved by a UmaskSaver, without
-    /// having a reference to the UmaskSaver.
-    /// This is only meaningful if a single UmaskSaver is
+    /// Retrieves the mask saved by a `UmaskSaver`, without
+    /// having a reference to the `UmaskSaver`.
+    /// This is only meaningful if a single `UmaskSaver` is
     /// used in a program.
     #[cfg(unix)]
     pub fn saved_umask() -> Option<mode_t> {

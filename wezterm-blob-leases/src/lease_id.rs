@@ -13,14 +13,22 @@ impl std::fmt::Display for LeaseId {
     }
 }
 
+impl Default for LeaseId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LeaseId {
+    #[must_use] 
     pub fn new() -> Self {
         let uuid = Uuid::new_v4();
         let pid = std::process::id();
         Self { uuid, pid }
     }
 
-    pub fn pid(&self) -> u32 {
+    #[must_use] 
+    pub const fn pid(&self) -> u32 {
         self.pid
     }
 }

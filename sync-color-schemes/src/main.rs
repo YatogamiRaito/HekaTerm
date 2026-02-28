@@ -15,9 +15,7 @@ mod iterm2;
 mod scheme;
 mod sexy;
 
-lazy_static::lazy_static! {
-    static ref CACHE: Cache = make_cache();
-}
+static CACHE: std::sync::LazyLock<Cache> = std::sync::LazyLock::new(make_cache);
 
 fn apply_nightly_version(metadata: &mut ColorSchemeMetaData) {
     metadata
@@ -27,7 +25,7 @@ fn apply_nightly_version(metadata: &mut ColorSchemeMetaData) {
 
 fn make_cache() -> Cache {
     let file_name = "/tmp/wezterm-sync-color-schemes.sqlite";
-    let connection = sqlite_cache::rusqlite::Connection::open(&file_name).unwrap();
+    let connection = sqlite_cache::rusqlite::Connection::open(file_name).unwrap();
     Cache::new(sqlite_cache::CacheConfig::default(), connection).unwrap()
 }
 
@@ -62,7 +60,7 @@ pub async fn fetch_url(url: &str) -> anyhow::Result<Vec<u8>> {
     let mut ttl = Duration::from_secs(86400);
     if let Some(value) = response.headers().get(reqwest::header::CACHE_CONTROL) {
         if let Ok(value) = value.to_str() {
-            let fields = value.splitn(2, "=").collect::<Vec<_>>();
+            let fields = value.splitn(2, '=').collect::<Vec<_>>();
             if fields.len() == 2 && fields[0] == "max-age" {
                 if let Ok(secs) = fields[1].parse::<u64>() {
                     ttl = Duration::from_secs(secs);
@@ -177,14 +175,14 @@ pub const SCHEMES: [(&'static str, &'static str); {count}] = [\n
     }
 
     let json = serde_json::to_string_pretty(&doc_data)?;
-    let update = match std::fs::read_to_string(&DATA_FILE_NAME) {
+    let update = match std::fs::read_to_string(DATA_FILE_NAME) {
         Ok(existing) => existing != json,
         Err(_) => true,
     };
 
     if update {
         println!("Updating {DATA_FILE_NAME}");
-        std::fs::write(&DATA_FILE_NAME, json)?;
+        std::fs::write(DATA_FILE_NAME, json)?;
     }
 
     Ok(())
@@ -209,7 +207,7 @@ impl SchemeSet {
         let mut names_by_color_scheme = BTreeMap::new();
         let mut version_by_name = BTreeMap::new();
 
-        if let Ok(data) = std::fs::read_to_string(&DATA_FILE_NAME) {
+        if let Ok(data) = std::fs::read_to_string(DATA_FILE_NAME) {
             #[derive(Deserialize)]
             struct Entry {
                 colors: serde_json::Value,
@@ -226,15 +224,15 @@ impl SchemeSet {
             for item in existing {
                 if let Some(version) = &item.metadata.wezterm_version {
                     let ident = serde_json::to_string(&item.colors)?;
-                    version_by_color_scheme.insert(ident.to_string(), version.to_string());
-                    version_by_name.insert(item.metadata.name.to_string(), version.to_string());
+                    version_by_color_scheme.insert(ident.clone(), version.clone());
+                    version_by_name.insert(item.metadata.name.clone(), version.clone());
 
                     let mut names = item.metadata.aliases;
                     names.insert(0, item.metadata.name);
 
                     for name in names {
                         names_by_color_scheme
-                            .entry(ident.to_string())
+                            .entry(ident.clone())
                             .or_insert_with(Vec::new)
                             .push(name);
                     }
@@ -247,9 +245,9 @@ impl SchemeSet {
                 if data.colors.ansi.is_none() {
                     continue;
                 }
-                let name = data.metadata.name.as_ref().unwrap().to_string();
+                let name = data.metadata.name.as_ref().unwrap().clone();
                 by_name.insert(
-                    name.to_string(),
+                    name.clone(),
                     Scheme {
                         name,
                         file_name: None,
@@ -296,7 +294,7 @@ impl SchemeSet {
                 .data
                 .metadata
                 .wezterm_version
-                .replace(version.to_string());
+                .replace(version.clone());
         }
 
         if let Some(existing) = self.by_name.remove(&candidate.name) {
@@ -307,7 +305,7 @@ impl SchemeSet {
         } else {
             println!("Adding {}", candidate.name);
         }
-        self.by_name.insert(candidate.name.to_string(), candidate);
+        self.by_name.insert(candidate.name.clone(), candidate);
     }
 
     async fn sync_toml(
@@ -331,8 +329,7 @@ impl SchemeSet {
                 .path()?
                 .extension()
                 .and_then(|s| s.to_str())
-                .map(|s| s == "toml")
-                .unwrap_or(false)
+                .is_some_and(|s| s == "toml")
             {
                 let dest_file = NamedTempFile::new()?;
                 entry.unpack(dest_file.path())?;

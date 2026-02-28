@@ -4,7 +4,7 @@ use mux::termwiztermtab::TermWizTerminal;
 use mux_lua::MuxPane;
 use std::rc::Rc;
 use termwiz::input::{InputEvent, KeyCode, KeyEvent};
-use termwiz::lineedit::*;
+use termwiz::lineedit::{BasicHistory, LineEditorHost, History, LineEditor, Action};
 use termwiz::surface::Change;
 use termwiz::terminal::Terminal;
 
@@ -61,7 +61,7 @@ pub fn show_line_prompt_overlay(
     };
 
     term.no_grab_mouse_in_raw_mode();
-    let mut text = args.description.replace("\r\n", "\n").replace("\n", "\r\n");
+    let mut text = args.description.replace("\r\n", "\n").replace('\n', "\r\n");
     text.push_str("\r\n");
     term.render(&[Change::Text(text)])?;
 
@@ -99,7 +99,7 @@ async fn do_event(
         let args = lua.pack_multi((window, pane, line))?;
 
         if let Err(err) = config::lua::emit_event(&lua, (name.clone(), args)).await {
-            log::error!("while processing {} event: {:#}", name, err);
+            log::error!("while processing {name} event: {err:#}");
         }
     }
 

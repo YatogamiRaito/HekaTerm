@@ -1,4 +1,4 @@
-//! Implements zwp_text_input_v3 for handling IME
+//! Implements `zwp_text_input_v3` for handling IME
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -55,15 +55,15 @@ impl TextInputState {
         let inner = self.inner.lock().unwrap();
         let keyboard_id = keyboard.id();
         let seat_id = inner.keyboard_to_seat.get(&keyboard_id)?;
-        inner.input_by_seat.get(&seat_id).cloned()
+        inner.input_by_seat.get(seat_id).cloned()
     }
 
     pub(super) fn get_text_input_for_surface(&self, surface: &WlSurface) -> Option<ZwpTextInputV3> {
         let inner = self.inner.lock().unwrap();
         let surface_id = surface.id();
         let keyboard_id = inner.surface_to_keyboard.get(&surface_id)?;
-        let seat_id = inner.keyboard_to_seat.get(&keyboard_id)?;
-        inner.input_by_seat.get(&seat_id).cloned()
+        let seat_id = inner.keyboard_to_seat.get(keyboard_id)?;
+        inner.input_by_seat.get(seat_id).cloned()
     }
 
     fn get_text_input_for_seat(
@@ -75,8 +75,8 @@ impl TextInputState {
         let mut inner = self.inner.lock().unwrap();
         let seat_id = seat.id();
         let input = inner.input_by_seat.entry(seat_id).or_insert_with(|| {
-            let input = mgr.get_text_input(seat, &qh, TextInputData::default());
-            input.into()
+            
+            mgr.get_text_input(seat, qh, TextInputData::default())
         });
         Some(input.clone())
     }
@@ -213,12 +213,11 @@ impl Dispatch<ZwpTextInputV3, TextInputData, WaylandState> for TextInputState {
 
 impl WaylandState {
     fn dispatch_to_focused_window(&self, event: WindowEvent) {
-        if let Some(&window_id) = self.keyboard_window_id.borrow().as_ref() {
-            if let Some(win) = self.window_by_id(window_id) {
+        if let Some(&window_id) = self.keyboard_window_id.borrow().as_ref()
+            && let Some(win) = self.window_by_id(window_id) {
                 let mut inner = win.borrow_mut();
                 inner.events.dispatch(event);
             }
-        }
     }
 }
 

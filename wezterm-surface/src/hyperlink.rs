@@ -1,9 +1,10 @@
 //! Handling hyperlinks.
+//!
 //! This gist describes an escape sequence for explicitly managing hyperlinks:
 //! <https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda>
 //! We use that as the foundation of our hyperlink support, and the game
 //! plan is to then implicitly enable the hyperlink attribute for a cell
-//! as we recognize linkable input text during print() processing.
+//! as we recognize linkable input text during `print()` processing.
 use alloc::sync::Arc;
 use core::ops::Range;
 use fancy_regex::{Captures, Regex};
@@ -67,21 +68,21 @@ impl FromDynamic for RegexWrap {
     fn from_dynamic(
         value: &Value,
         options: FromDynamicOptions,
-    ) -> Result<RegexWrap, wezterm_dynamic::Error> {
+    ) -> Result<Self, wezterm_dynamic::Error> {
         let s = String::from_dynamic(value, options)?;
-        Ok(RegexWrap(Regex::new(&s).map_err(|e| e.to_string())?))
+        Ok(Self(Regex::new(&s).map_err(|e| e.to_string())?))
     }
 }
 
 impl From<&Regex> for RegexWrap {
-    fn from(regex: &Regex) -> RegexWrap {
-        RegexWrap(regex.clone())
+    fn from(regex: &Regex) -> Self {
+        Self(regex.clone())
     }
 }
 
-impl Into<Regex> for RegexWrap {
-    fn into(self) -> Regex {
-        self.0
+impl From<RegexWrap> for Regex {
+    fn from(val: RegexWrap) -> Self {
+        val.0
     }
 }
 
@@ -97,7 +98,7 @@ where
     D: Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
-    Regex::new(&s).map_err(|e| serde::de::Error::custom(format!("{:?}", e)))
+    Regex::new(&s).map_err(|e| serde::de::Error::custom(format!("{e:?}")))
 }
 
 #[cfg(feature = "use_serde")]
@@ -110,7 +111,7 @@ where
 }
 
 /// Holds a resolved rule match.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct RuleMatch {
     /// Holds the span (measured in bytes) of the matched text
     pub range: Range<usize>,
@@ -126,7 +127,7 @@ struct Match<'t> {
     captures: Captures<'t>,
 }
 
-impl<'t> Match<'t> {
+impl Match<'_> {
     /// Returns the length of the matched text in bytes (not cells!)
     fn len(&self) -> usize {
         let c0 = self.highlight().unwrap();
@@ -144,17 +145,19 @@ impl<'t> Match<'t> {
     }
 
     /// Expand replacements in the format string to yield the URL
-    /// The replacement is as described on Rule::format.
+    /// The replacement is as described on `Rule::format`.
     fn expand(&self) -> String {
         let mut result = self.rule.format.clone();
         // Start with the highest numbered capture and decrement.
         // This avoids ambiguity when replacing $11 vs $1.
         for n in (0..self.captures.len()).rev() {
-            let search = format!("${}", n);
-            if let Some(rep) = self.captures.get(n) {
-                result = result.replace(&search, rep.as_str());
-            } else {
-                result = result.replace(&search, "");
+            let search = format!("${n}");
+            if memchr::memmem::find(result.as_bytes(), search.as_bytes()).is_some() {
+                if let Some(rep) = self.captures.get(n) {
+                    result = result.replace(&search, rep.as_str());
+                } else {
+                    result = result.replace(&search, "");
+                }
             }
         }
         result
@@ -166,7 +169,7 @@ pub const GENERIC_HYPERLINK_PATTERN: &str = r"\b\w+://\S+[_/a-zA-Z0-9-]";
 
 impl Rule {
     /// Construct a new rule.  It may fail if the regex is invalid.
-    pub fn new(regex: &str, format: &str) -> Result<Self, fancy_regex::Error> {
+    pub fn new(regex: &str, format: &str) -> Result<Self, Box<fancy_regex::Error>> {
         Self::with_highlight(regex, format, 0)
     }
 
@@ -174,32 +177,31 @@ impl Rule {
         regex: &str,
         format: &str,
         highlight: usize,
-    ) -> Result<Self, fancy_regex::Error> {
+    ) -> Result<Self, Box<fancy_regex::Error>> {
         Ok(Self {
-            regex: Regex::new(regex)?,
+            regex: Regex::new(regex).map_err(Box::new)?,
             format: format.to_owned(),
             highlight,
         })
     }
 
     /// Given a line of text from the terminal screen, and a set of
-    /// rules, return the set of RuleMatches.
-    pub fn match_hyperlinks(line: &str, rules: &[Rule]) -> Vec<RuleMatch> {
+    /// rules, return the set of `RuleMatches`.
+    #[must_use] 
+    pub fn match_hyperlinks(line: &str, rules: &[Self]) -> Vec<RuleMatch> {
         let mut matches = Vec::new();
-        for rule in rules.iter() {
-            for capture_result in rule.regex.captures_iter(line) {
-                if let Ok(captures) = capture_result {
-                    let m = Match { rule, captures };
-                    if m.highlight().is_some() {
-                        matches.push(m);
-                    }
+        for rule in rules {
+            for captures in rule.regex.captures_iter(line).flatten() {
+                let m = Match { rule, captures };
+                if m.highlight().is_some() {
+                    matches.push(m);
                 }
             }
         }
         // Sort the matches by descending match length.
         // This is to avoid confusion if multiple rules match the
         // same sections of text.
-        matches.sort_by(|a, b| b.len().cmp(&a.len()));
+        matches.sort_by_key(|b| core::cmp::Reverse(b.len()));
 
         matches
             .into_iter()

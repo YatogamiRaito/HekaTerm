@@ -23,7 +23,7 @@ fn openpty(size: PtySize) -> anyhow::Result<(UnixMasterPty, UnixSlavePty)> {
     let mut master: RawFd = -1;
     let mut slave: RawFd = -1;
 
-    let mut size = winsize {
+    let size = winsize {
         ws_row: size.rows,
         ws_col: size.cols,
         ws_xpixel: size.pixel_width,
@@ -34,11 +34,11 @@ fn openpty(size: PtySize) -> anyhow::Result<(UnixMasterPty, UnixSlavePty)> {
         // BSDish systems may require mut pointers to some args
         #[allow(clippy::unnecessary_mut_passed)]
         libc::openpty(
-            &mut master,
-            &mut slave,
+            &raw mut master,
+            &raw mut slave,
             ptr::null_mut(),
             ptr::null_mut(),
-            &mut size,
+            &raw const size,
         )
     };
 
@@ -136,7 +136,7 @@ fn tty_name(fd: RawFd) -> Option<PathBuf> {
 /// so we need to make a pass through the open descriptors beyond just the
 /// stdio descriptors and close them all out.
 /// This is approximately equivalent to the darwin `posix_spawnattr_setflags`
-/// option POSIX_SPAWN_CLOEXEC_DEFAULT which is used as a bit of a cheat
+/// option `POSIX_SPAWN_CLOEXEC_DEFAULT` which is used as a bit of a cheat
 /// on macOS.
 /// On Linux, gnome/mutter leak shell extension fds to wezterm too, so we
 /// also need to make an effort to clean up the mess.
@@ -162,11 +162,9 @@ pub fn close_random_fds() {
                 .map(|e| e.file_name())
                 .and_then(|s| s.into_string().ok())
                 .and_then(|n| n.parse::<libc::c_int>().ok())
-            {
-                if num > 2 {
+                && num > 2 {
                     fds.push(num);
                 }
-            }
         }
         for fd in fds {
             unsafe {
@@ -189,7 +187,7 @@ impl PtyFd {
             libc::ioctl(
                 self.0.as_raw_fd(),
                 libc::TIOCSWINSZ as _,
-                &ws_size as *const _,
+                &raw const ws_size,
             )
         } != 0
         {
@@ -208,7 +206,7 @@ impl PtyFd {
             libc::ioctl(
                 self.0.as_raw_fd(),
                 libc::TIOCGWINSZ as _,
-                &mut size as *mut _,
+                &raw mut size,
             )
         } != 0
         {
@@ -251,7 +249,7 @@ impl PtyFd {
                     }
 
                     let empty_set: libc::sigset_t = std::mem::zeroed();
-                    libc::sigprocmask(libc::SIG_SETMASK, &empty_set, std::ptr::null_mut());
+                    libc::sigprocmask(libc::SIG_SETMASK, &raw const empty_set, std::ptr::null_mut());
 
                     // Establish ourselves as a session leader.
                     if libc::setsid() == -1 {
@@ -393,7 +391,7 @@ struct UnixMasterWriter {
 impl Drop for UnixMasterWriter {
     fn drop(&mut self) {
         let mut t: libc::termios = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
-        if unsafe { libc::tcgetattr(self.fd.0.as_raw_fd(), &mut t) } == 0 {
+        if unsafe { libc::tcgetattr(self.fd.0.as_raw_fd(), &raw mut t) } == 0 {
             // EOF is only interpreted after a newline, so if it is set,
             // we send a newline followed by EOF.
             let eot = t.c_cc[libc::VEOF];

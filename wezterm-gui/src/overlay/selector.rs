@@ -117,8 +117,8 @@ impl SelectorState {
         ];
 
         let labels = &self.labels;
-        let max_label_len = labels.iter().map(|s| s.len()).max().unwrap_or(0);
-        let mut labels_iter = labels.into_iter();
+        let max_label_len = labels.iter().map(std::string::String::len).max().unwrap_or(0);
+        let mut labels_iter = labels.iter();
 
         let config = configuration();
         let colors = &config.resolved_palette;
@@ -207,7 +207,7 @@ impl SelectorState {
     fn trigger_event(&self, entry: Option<InputSelectorEntry>) {
         let name = self.event_name.clone();
         let window = self.window.clone();
-        let pane = self.pane.clone();
+        let pane = self.pane;
 
         promise::spawn::spawn_into_main_thread(async move {
             trampoline(name, window, pane, entry);
@@ -225,7 +225,7 @@ impl SelectorState {
         }
     }
 
-    fn move_up(&mut self) {
+    const fn move_up(&mut self) {
         self.active_idx = self.active_idx.saturating_sub(1);
         if self.active_idx < self.top_row {
             self.top_row = self.active_idx;
@@ -251,7 +251,7 @@ impl SelectorState {
                         // since the number of labels is always <= self.max_items
                         // by construction, we have pos as usize <= self.max_items
                         // for free
-                        self.active_idx = self.top_row + pos as usize;
+                        self.active_idx = self.top_row + pos;
                         if self.launch(self.active_idx) {
                             break;
                         }
@@ -291,23 +291,18 @@ impl SelectorState {
                     key: KeyCode::Backspace,
                     ..
                 }) => {
-                    if !self.filtering {
-                        self.selection.pop();
-                    } else {
+                    if self.filtering {
                         if self.filter_term.pop().is_none() && !self.always_fuzzy {
                             self.filtering = false;
                         }
                         self.update_filter();
+                    } else {
+                        self.selection.pop();
                     }
                 }
                 InputEvent::Key(KeyEvent {
-                    key: KeyCode::Char('G' | 'C'),
-                    modifiers: Modifiers::CTRL,
-                })
-                | InputEvent::Key(KeyEvent {
-                    key: KeyCode::Escape,
-                    ..
-                }) => {
+key: KeyCode::Char('G' | 'C'), modifiers: Modifiers::CTRL } | KeyEvent {
+key: KeyCode::Escape, .. }) => {
                     self.trigger_event(None);
                     break;
                 }
@@ -354,11 +349,10 @@ impl SelectorState {
                     if y > 0 && y as usize <= self.filtered_entries.len() {
                         self.active_idx = self.top_row + y as usize - 1;
 
-                        if mouse_buttons == MouseButtons::LEFT {
-                            if self.launch(self.active_idx) {
+                        if mouse_buttons == MouseButtons::LEFT
+                            && self.launch(self.active_idx) {
                                 break;
                             }
-                        }
                     }
                     if mouse_buttons != MouseButtons::NONE {
                         // Treat any other mouse button as cancel
@@ -400,12 +394,12 @@ async fn do_event(
 ) -> anyhow::Result<()> {
     if let Some(lua) = lua {
         let id = entry.as_ref().map(|entry| entry.id.clone());
-        let label = entry.as_ref().map(|entry| entry.label.to_string());
+        let label = entry.as_ref().map(|entry| entry.label.clone());
 
         let args = lua.pack_multi((window, pane, id, label))?;
 
         if let Err(err) = config::lua::emit_event(&lua, (name.clone(), args)).await {
-            log::error!("while processing {} event: {:#}", name, err);
+            log::error!("while processing {name} event: {err:#}");
         }
     }
 
@@ -419,7 +413,7 @@ pub fn selector(
     pane: MuxPane,
 ) -> anyhow::Result<()> {
     let event_name = match *args.action {
-        KeyAssignment::EmitEvent(ref id) => id.to_string(),
+        KeyAssignment::EmitEvent(ref id) => id.clone(),
         _ => {
             anyhow::bail!("InputSelector requires action to be defined by wezterm.action_callback")
         }
@@ -441,7 +435,7 @@ pub fn selector(
     };
 
     term.set_raw_mode()?;
-    term.render(&[Change::Title(state.args.title.to_string())])?;
+    term.render(&[Change::Title(state.args.title.clone())])?;
     state.update_filter();
     state.render(&mut term)?;
     state.run_loop(&mut term)

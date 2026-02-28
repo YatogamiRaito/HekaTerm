@@ -1,8 +1,8 @@
-use crate::auth::*;
+use crate::auth::AuthenticationEvent;
 use crate::config::ConfigMap;
-use crate::host::*;
-use crate::pty::*;
-use crate::sessioninner::*;
+use crate::host::{HostVerificationEvent, HostVerificationFailed};
+use crate::pty::{NewPty, SshPty, SshChildProcess, ResizePty};
+use crate::sessioninner::{ChannelId, SessionInner};
 use crate::sftp::{Sftp, SftpRequest};
 use filedescriptor::{socketpair, FileDescriptor};
 use portable_pty::PtySize;
@@ -23,7 +23,7 @@ pub enum SessionEvent {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SessionSender {
+pub struct SessionSender {
     pub tx: Sender<SessionRequest>,
     pub pipe: Arc<Mutex<FileDescriptor>>,
 }
@@ -52,7 +52,7 @@ impl SessionSender {
 pub struct DeadSession;
 
 #[derive(Debug)]
-pub(crate) enum SessionRequest {
+pub enum SessionRequest {
     NewPty(NewPty, Sender<anyhow::Result<(SshPty, SshChildProcess)>>),
     ResizePty(ResizePty, Option<Sender<anyhow::Result<()>>>),
     Exec(Exec, Sender<anyhow::Result<ExecResult>>),
@@ -62,13 +62,13 @@ pub(crate) enum SessionRequest {
 }
 
 #[derive(Debug)]
-pub(crate) struct SignalChannel {
+pub struct SignalChannel {
     pub channel: ChannelId,
     pub signame: &'static str,
 }
 
 #[derive(Debug)]
-pub(crate) struct Exec {
+pub struct Exec {
     pub command_line: String,
     pub env: Option<HashMap<String, String>>,
 }
@@ -141,7 +141,7 @@ impl Session {
                 NewPty {
                     term: term.to_string(),
                     size,
-                    command_line: command_line.map(|s| s.to_string()),
+                    command_line: command_line.map(std::string::ToString::to_string),
                     env,
                 },
                 reply,
@@ -182,6 +182,7 @@ impl Session {
     /// This does not actually initialize the sftp subsystem and only provides
     /// a reference to a means to perform sftp operations. Upon requesting the
     /// first sftp operation, the sftp subsystem will be initialized.
+    #[must_use] 
     pub fn sftp(&self) -> Sftp {
         Sftp {
             tx: self.tx.clone(),

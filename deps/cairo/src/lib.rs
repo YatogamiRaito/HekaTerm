@@ -252,15 +252,16 @@ pub struct cairo_bool_t {
 }
 
 impl cairo_bool_t {
-    pub fn as_bool(self) -> bool {
+    #[must_use] 
+    pub const fn as_bool(self) -> bool {
         self.value != 0
     }
 }
 
 impl From<bool> for cairo_bool_t {
-    fn from(b: bool) -> cairo_bool_t {
+    fn from(b: bool) -> Self {
         let value = c_int::from(b);
-        cairo_bool_t { value }
+        Self { value }
     }
 }
 

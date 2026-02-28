@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 
-/// AgentProxy manages an agent.PID symlink in the wezterm runtime
+/// `AgentProxy` manages an agent.PID symlink in the wezterm runtime
 /// directory.
 /// The intent is to maintain the symlink and have it point to the
 /// appropriate ssh agent socket path for the most recently active
@@ -35,10 +35,9 @@ use std::sync::Arc;
 /// This number was selected because it is unlike for a human
 /// to be able to switch devices that quickly.
 ///
-/// How is this used? The Mux::client_had_input function
-/// will call AgentProxy::update_target to signal when
+/// How is this used? The `Mux::client_had_input` function
+/// will call `AgentProxy::update_target` to signal when
 /// the active client may have changed.
-
 pub struct AgentProxy {
     sock_path: PathBuf,
     current_target: RwLock<Option<Arc<ClientId>>>,
@@ -79,16 +78,21 @@ fn update_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: P, link: Q) -> anyho
     }
 }
 
+impl Default for AgentProxy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AgentProxy {
     pub fn new() -> Self {
         let pid = unsafe { libc::getpid() };
         let sock_path = config::RUNTIME_DIR.join(format!("agent.{pid}"));
 
-        if let Some(inherited) = Self::default_ssh_auth_sock() {
-            if let Err(err) = update_symlink(&inherited, &sock_path) {
+        if let Some(inherited) = Self::default_ssh_auth_sock()
+            && let Err(err) = update_symlink(&inherited, &sock_path) {
                 log::error!("failed to set {sock_path:?} to initial inherited SSH_AUTH_SOCK value of {inherited:?}: {err:#}");
             }
-        }
 
         let (sender, receiver) = sync_channel(16);
 
@@ -101,9 +105,10 @@ impl AgentProxy {
         }
     }
 
+    #[must_use] 
     pub fn default_ssh_auth_sock() -> Option<String> {
         match &config::configuration().default_ssh_auth_sock {
-            Some(value) => Some(value.to_string()),
+            Some(value) => Some(value.clone()),
             None => std::env::var("SSH_AUTH_SOCK").ok(),
         }
     }
@@ -121,17 +126,16 @@ impl AgentProxy {
     }
 
     fn process_updates(receiver: Receiver<()>) {
-        while let Ok(_) = receiver.recv() {
+        while receiver.recv().is_ok() {
             // De-bounce multiple input events so that we don't quickly
             // thrash between the host and proxy value
             std::thread::sleep(std::time::Duration::from_millis(100));
             while receiver.try_recv().is_ok() {}
 
-            if let Some(mux) = Mux::try_get() {
-                if let Some(agent) = &mux.agent {
+            if let Some(mux) = Mux::try_get()
+                && let Some(agent) = &mux.agent {
                     agent.update_now();
                 }
-            }
         }
     }
 
@@ -174,7 +178,7 @@ impl AgentProxy {
         });
 
         log::trace!("filtered to {clients:#?}");
-        match clients.get(0) {
+        match clients.first() {
             Some(info) => {
                 let current = self.current_target.read().clone();
                 let needs_update = match (current, &info.client_id) {

@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use crate::allocate::*;
+use crate::allocate::{String, Box, ToString};
 
 /// The termwiz Error type encapsulates a range of internal
 /// errors in an opaque manner.  You can use the `source`
@@ -81,7 +81,7 @@ pub enum InternalError {
 
 impl From<String> for InternalError {
     fn from(s: String) -> Self {
-        InternalError::StringErr(StringWrap(s))
+        Self::StringErr(StringWrap(s))
     }
 }
 

@@ -16,7 +16,7 @@ fn main() {
             );
         }
         for libname in &lib.libs {
-            println!("cargo:rustc-link-lib={}", libname);
+            println!("cargo:rustc-link-lib={libname}");
         }
     } else {
         // deliberately not erroring out here as fontconfig is an

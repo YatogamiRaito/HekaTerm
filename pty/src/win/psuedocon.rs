@@ -3,7 +3,7 @@ use crate::cmdbuilder::CommandBuilder;
 use crate::win::procthreadattr::ProcThreadAttributeList;
 use anyhow::{bail, ensure, Error};
 use filedescriptor::{FileDescriptor, OwnedHandle};
-use lazy_static::lazy_static;
+
 use shared_library::shared_library;
 use std::ffi::OsString;
 use std::io::Error as IoError;
@@ -59,9 +59,7 @@ fn load_conpty() -> ConPtyFuncs {
     }
 }
 
-lazy_static! {
-    static ref CONPTY: ConPtyFuncs = load_conpty();
-}
+static CONPTY: std::sync::LazyLock<ConPtyFuncs> = std::sync::LazyLock::new(|| load_conpty());
 
 pub struct PsuedoCon {
     con: HPCON,

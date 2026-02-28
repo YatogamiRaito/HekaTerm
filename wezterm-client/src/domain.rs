@@ -31,7 +31,7 @@ pub struct ClientInner {
 impl ClientInner {
     fn remote_to_local_window(&self, remote_window_id: WindowId) -> Option<WindowId> {
         let map = self.remote_to_local_window.lock().unwrap();
-        map.get(&remote_window_id).cloned()
+        map.get(&remote_window_id).copied()
     }
 
     pub(crate) fn expire_stale_mappings(&self) {
@@ -93,9 +93,7 @@ impl ClientInner {
         let mut map = self.remote_to_local_window.lock().unwrap();
         map.insert(remote_window_id, local_window_id);
         log::trace!(
-            "record_remote_to_local_window_mapping: {} -> {}",
-            remote_window_id,
-            local_window_id
+            "record_remote_to_local_window_mapping: {remote_window_id} -> {local_window_id}"
         );
     }
 
@@ -132,13 +130,12 @@ impl ClientInner {
             if pane.domain_id() != self.local_domain_id {
                 continue;
             }
-            if let Some(pane) = pane.downcast_ref::<ClientPane>() {
-                if pane.remote_pane_id() == remote_pane_id {
+            if let Some(pane) = pane.downcast_ref::<ClientPane>()
+                && pane.remote_pane_id() == remote_pane_id {
                     let local_pane_id = pane.pane_id();
                     pane_map.insert(remote_pane_id, local_pane_id);
                     return Some(local_pane_id);
                 }
-            }
         }
         None
     }
@@ -170,7 +167,7 @@ impl ClientInner {
         map.get(&remote_tab_id).copied()
     }
 
-    pub fn is_local(&self) -> bool {
+    pub const fn is_local(&self) -> bool {
         self.client.is_local
     }
 }
@@ -183,35 +180,39 @@ pub enum ClientDomainConfig {
 }
 
 impl ClientDomainConfig {
+    #[must_use] 
     pub fn name(&self) -> &str {
         match self {
-            ClientDomainConfig::Unix(unix) => &unix.name,
-            ClientDomainConfig::Tls(tls) => &tls.name,
-            ClientDomainConfig::Ssh(ssh) => &ssh.name,
+            Self::Unix(unix) => &unix.name,
+            Self::Tls(tls) => &tls.name,
+            Self::Ssh(ssh) => &ssh.name,
         }
     }
 
-    pub fn local_echo_threshold_ms(&self) -> Option<u64> {
+    #[must_use] 
+    pub const fn local_echo_threshold_ms(&self) -> Option<u64> {
         match self {
-            ClientDomainConfig::Unix(unix) => unix.local_echo_threshold_ms,
-            ClientDomainConfig::Tls(tls) => tls.local_echo_threshold_ms,
-            ClientDomainConfig::Ssh(ssh) => ssh.local_echo_threshold_ms,
+            Self::Unix(unix) => unix.local_echo_threshold_ms,
+            Self::Tls(tls) => tls.local_echo_threshold_ms,
+            Self::Ssh(ssh) => ssh.local_echo_threshold_ms,
         }
     }
 
-    pub fn overlay_lag_indicator(&self) -> bool {
+    #[must_use] 
+    pub const fn overlay_lag_indicator(&self) -> bool {
         match self {
-            ClientDomainConfig::Unix(unix) => unix.overlay_lag_indicator,
-            ClientDomainConfig::Tls(tls) => tls.overlay_lag_indicator,
-            ClientDomainConfig::Ssh(ssh) => ssh.overlay_lag_indicator,
+            Self::Unix(unix) => unix.overlay_lag_indicator,
+            Self::Tls(tls) => tls.overlay_lag_indicator,
+            Self::Ssh(ssh) => ssh.overlay_lag_indicator,
         }
     }
 
+    #[must_use] 
     pub fn label(&self) -> String {
         match self {
-            ClientDomainConfig::Unix(unix) => format!("unix mux {}", unix.socket_path().display()),
-            ClientDomainConfig::Tls(tls) => format!("TLS mux {}", tls.remote_address),
-            ClientDomainConfig::Ssh(ssh) => {
+            Self::Unix(unix) => format!("unix mux {}", unix.socket_path().display()),
+            Self::Tls(tls) => format!("TLS mux {}", tls.remote_address),
+            Self::Ssh(ssh) => {
                 if let Some(user) = &ssh.username {
                     format!("SSH mux {}@{}", user, ssh.remote_address)
                 } else {
@@ -221,16 +222,18 @@ impl ClientDomainConfig {
         }
     }
 
-    pub fn connect_automatically(&self) -> bool {
+    #[must_use] 
+    pub const fn connect_automatically(&self) -> bool {
         match self {
-            ClientDomainConfig::Unix(unix) => unix.connect_automatically,
-            ClientDomainConfig::Tls(tls) => tls.connect_automatically,
-            ClientDomainConfig::Ssh(ssh) => ssh.connect_automatically,
+            Self::Unix(unix) => unix.connect_automatically,
+            Self::Tls(tls) => tls.connect_automatically,
+            Self::Ssh(ssh) => ssh.connect_automatically,
         }
     }
 }
 
 impl ClientInner {
+    #[must_use] 
     pub fn new(
         local_domain_id: DomainId,
         client: Client,
@@ -339,8 +342,8 @@ fn mux_notify_client_domain(local_domain_id: DomainId, notif: MuxNotification) -
             .detach();
         }
         MuxNotification::TabTitleChanged { tab_id, title } => {
-            if let Some(remote_tab_id) = client_domain.local_to_remote_tab_id(tab_id) {
-                if let Some(inner) = client_domain.inner() {
+            if let Some(remote_tab_id) = client_domain.local_to_remote_tab_id(tab_id)
+                && let Some(inner) = client_domain.inner() {
                     promise::spawn::spawn(async move {
                         inner
                             .client
@@ -352,14 +355,13 @@ fn mux_notify_client_domain(local_domain_id: DomainId, notif: MuxNotification) -
                     })
                     .detach();
                 }
-            }
         }
         MuxNotification::WindowTitleChanged {
             window_id,
             title: _,
         } => {
-            if let Some(remote_window_id) = client_domain.local_to_remote_window_id(window_id) {
-                if let Some(inner) = client_domain.inner() {
+            if let Some(remote_window_id) = client_domain.local_to_remote_window_id(window_id)
+                && let Some(inner) = client_domain.inner() {
                     promise::spawn::spawn_into_main_thread(async move {
                         // De-bounce the title propagation.
                         // There is a bit of a race condition with these async
@@ -388,7 +390,6 @@ fn mux_notify_client_domain(local_domain_id: DomainId, notif: MuxNotification) -
                     })
                     .detach();
                 }
-            }
         }
         _ => {}
     }
@@ -396,6 +397,7 @@ fn mux_notify_client_domain(local_domain_id: DomainId, notif: MuxNotification) -
 }
 
 impl ClientDomain {
+    #[must_use] 
     pub fn new(config: ClientDomainConfig) -> Self {
         let local_domain_id = alloc_domain_id();
         let label = config.label();
@@ -412,7 +414,7 @@ impl ClientDomain {
         self.inner.lock().unwrap().as_ref().map(Arc::clone)
     }
 
-    pub fn connect_automatically(&self) -> bool {
+    pub const fn connect_automatically(&self) -> bool {
         self.config.connect_automatically()
     }
 
@@ -447,10 +449,10 @@ impl ClientDomain {
         let mux = Mux::get();
         let domain = mux
             .get_domain(domain_id)
-            .ok_or_else(|| anyhow!("invalid domain id {}", domain_id))?;
+            .ok_or_else(|| anyhow!("invalid domain id {domain_id}"))?;
         let domain = domain
             .downcast_ref::<Self>()
-            .ok_or_else(|| anyhow!("domain {} is not a ClientDomain", domain_id))?;
+            .ok_or_else(|| anyhow!("domain {domain_id} is not a ClientDomain"))?;
 
         if let Some(inner) = domain.inner() {
             Ok(inner)
@@ -482,23 +484,19 @@ impl ClientDomain {
     }
 
     pub fn process_remote_window_title_change(&self, remote_window_id: WindowId, title: String) {
-        if let Some(inner) = self.inner() {
-            if let Some(local_window_id) = inner.remote_to_local_window(remote_window_id) {
-                if let Some(mut window) = Mux::get().get_window_mut(local_window_id) {
+        if let Some(inner) = self.inner()
+            && let Some(local_window_id) = inner.remote_to_local_window(remote_window_id)
+                && let Some(mut window) = Mux::get().get_window_mut(local_window_id) {
                     window.set_title(&title);
                 }
-            }
-        }
     }
 
     pub fn process_remote_tab_title_change(&self, remote_tab_id: TabId, title: String) {
-        if let Some(inner) = self.inner() {
-            if let Some(local_tab_id) = inner.remote_to_local_tab_id(remote_tab_id) {
-                if let Some(tab) = Mux::get().get_tab(local_tab_id) {
+        if let Some(inner) = self.inner()
+            && let Some(local_tab_id) = inner.remote_to_local_tab_id(remote_tab_id)
+                && let Some(tab) = Mux::get().get_tab(local_tab_id) {
                     tab.set_title(&title);
                 }
-            }
-        }
     }
 
     fn process_pane_list(
@@ -550,23 +548,20 @@ impl ClientDomain {
                 remote_tabs_to_forget.remove(&remote_tab_id);
 
                 if let Some(tab_id) = inner.remote_to_local_tab_id(remote_tab_id) {
-                    match mux.get_tab(tab_id) {
-                        Some(t) => tab = t,
-                        None => {
-                            // We likely decided that we hit EOF on the tab and
-                            // removed it from the mux.  Let's add it back, but
-                            // with a new id.
-                            log::trace!(
-                                "we had remote_to_local_tab_id mapping of \
-                                 {remote_tab_id} -> {tab_id}, but the local \
-                                 tab is not in the mux, make a new tab"
-                            );
-                            inner.remove_old_tab_mapping(remote_tab_id);
-                            tab = Arc::new(Tab::new(&root_size));
-                            inner.record_remote_to_local_tab_mapping(remote_tab_id, tab.tab_id());
-                            mux.add_tab_no_panes(&tab);
-                        }
-                    };
+                    if let Some(t) = mux.get_tab(tab_id) { tab = t } else {
+                        // We likely decided that we hit EOF on the tab and
+                        // removed it from the mux.  Let's add it back, but
+                        // with a new id.
+                        log::trace!(
+                            "we had remote_to_local_tab_id mapping of \
+                             {remote_tab_id} -> {tab_id}, but the local \
+                             tab is not in the mux, make a new tab"
+                        );
+                        inner.remove_old_tab_mapping(remote_tab_id);
+                        tab = Arc::new(Tab::new(&root_size));
+                        inner.record_remote_to_local_tab_mapping(remote_tab_id, tab.tab_id());
+                        mux.add_tab_no_panes(&tab);
+                    }
                 } else {
                     tab = Arc::new(Tab::new(&root_size));
                     mux.add_tab_no_panes(&tab);
@@ -581,23 +576,20 @@ impl ClientDomain {
                     workspace.replace(entry.workspace.clone());
                     remote_panes_to_forget.remove(&entry.pane_id);
                     if let Some(pane_id) = inner.remote_to_local_pane_id(entry.pane_id) {
-                        match mux.get_pane(pane_id) {
-                            Some(pane) => pane,
-                            None => {
-                                // We likely decided that we hit EOF on the tab and
-                                // removed it from the mux.  Let's add it back, but
-                                // with a new id.
-                                inner.remove_old_pane_mapping(entry.pane_id);
-                                let pane: Arc<dyn Pane> = Arc::new(ClientPane::new(
-                                    &inner,
-                                    entry.tab_id,
-                                    entry.pane_id,
-                                    entry.size,
-                                    &entry.title,
-                                ));
-                                mux.add_pane(&pane).expect("failed to add pane to mux");
-                                pane
-                            }
+                        if let Some(pane) = mux.get_pane(pane_id) { pane } else {
+                            // We likely decided that we hit EOF on the tab and
+                            // removed it from the mux.  Let's add it back, but
+                            // with a new id.
+                            inner.remove_old_pane_mapping(entry.pane_id);
+                            let pane: Arc<dyn Pane> = Arc::new(ClientPane::new(
+                                &inner,
+                                entry.tab_id,
+                                entry.pane_id,
+                                entry.size,
+                                &entry.title,
+                            ));
+                            mux.add_pane(&pane).expect("failed to add pane to mux");
+                            pane
                         }
                     } else {
                         let pane: Arc<dyn Pane> = Arc::new(ClientPane::new(
@@ -644,9 +636,7 @@ impl ClientDomain {
                     {
                         // Yes! We can use this window
                         log::debug!(
-                            "adding remote window {} as tab to local window {}",
-                            remote_window_id,
-                            local_window_id
+                            "adding remote window {remote_window_id} as tab to local window {local_window_id}"
                         );
                         inner.record_remote_to_local_window_mapping(
                             remote_window_id,
@@ -658,9 +648,7 @@ impl ClientDomain {
                     }
                 }
                 log::debug!(
-                    "making new local window for remote {} in workspace {:?}",
-                    remote_window_id,
-                    workspace
+                    "making new local window for remote {remote_window_id} in workspace {workspace:?}"
                 );
                 let position = None;
                 let local_window_id = mux.new_empty_window(workspace.take(), position);
@@ -716,10 +704,10 @@ impl ClientDomain {
         let mux = Mux::get();
         let domain = mux
             .get_domain(domain_id)
-            .ok_or_else(|| anyhow!("invalid domain id {}", domain_id))?;
+            .ok_or_else(|| anyhow!("invalid domain id {domain_id}"))?;
         let domain = domain
             .downcast_ref::<Self>()
-            .ok_or_else(|| anyhow!("domain {} is not a ClientDomain", domain_id))?;
+            .ok_or_else(|| anyhow!("domain {domain_id} is not a ClientDomain"))?;
         let threshold = domain.config.local_echo_threshold_ms();
         let overlay_lag_indicator = domain.config.overlay_lag_indicator();
 
@@ -748,7 +736,7 @@ impl Domain for ClientDomain {
     }
 
     async fn domain_label(&self) -> String {
-        self.label.to_string()
+        self.label.clone()
     }
 
     async fn spawn_pane(
@@ -775,10 +763,10 @@ impl Domain for ClientDomain {
 
         let local_pane = Mux::get()
             .get_pane(pane_id)
-            .ok_or_else(|| anyhow!("pane_id {} is invalid", pane_id))?;
+            .ok_or_else(|| anyhow!("pane_id {pane_id} is invalid"))?;
         let pane = local_pane
             .downcast_ref::<ClientPane>()
-            .ok_or_else(|| anyhow!("pane_id {} is not a ClientPane", pane_id))?;
+            .ok_or_else(|| anyhow!("pane_id {pane_id} is not a ClientPane"))?;
 
         let remote_window_id =
             window_id.and_then(|local_window| self.local_to_remote_window_id(local_window));
@@ -875,13 +863,13 @@ impl Domain for ClientDomain {
 
         let tab = mux
             .get_tab(tab_id)
-            .ok_or_else(|| anyhow!("tab_id {} is invalid", tab_id))?;
+            .ok_or_else(|| anyhow!("tab_id {tab_id} is invalid"))?;
         let local_pane = mux
             .get_pane(pane_id)
-            .ok_or_else(|| anyhow!("pane_id {} is invalid", pane_id))?;
+            .ok_or_else(|| anyhow!("pane_id {pane_id} is invalid"))?;
         let pane = local_pane
             .downcast_ref::<ClientPane>()
-            .ok_or_else(|| anyhow!("pane_id {} is not a ClientPane", pane_id))?;
+            .ok_or_else(|| anyhow!("pane_id {pane_id} is not a ClientPane"))?;
 
         let (command, command_dir, move_pane_id) = match source {
             SplitSource::Spawn {
@@ -917,7 +905,7 @@ impl Domain for ClientDomain {
             .find(|p| p.pane.pane_id() == pane_id)
         {
             Some(p) => p.index,
-            None => anyhow::bail!("invalid pane id {}", pane_id),
+            None => anyhow::bail!("invalid pane id {pane_id}"),
         };
 
         tab.split_and_insert(pane_index, split_request, Arc::clone(&pane))
@@ -974,12 +962,12 @@ impl Domain for ClientDomain {
                     "Server has {} tabs.  Attaching to local UI...\n",
                     panes.tabs.len()
                 ));
-                ClientDomain::finish_attach(domain_id, client, panes, window_id)
+                Self::finish_attach(domain_id, client, panes, window_id)
             }
         })
         .await
         .map_err(|e| {
-            ui.output_str(&format!("Error during attach: {:#}\n", e));
+            ui.output_str(&format!("Error during attach: {e:#}\n"));
             e
         })?;
 

@@ -25,7 +25,7 @@ fn run_confirmation_impl(message: &str, term: &mut TermWizTerminal) -> anyhow::R
     // Fit text to the width
     let wrapped = textwrap::fill(message, text_width);
 
-    let message_rows = wrapped.split("\n").count();
+    let message_rows = wrapped.split('\n').count();
     // Now we want to vertically center the prompt in the view.
     // After the prompt there will be a blank line and then the "buttons",
     // so we add two to the number of rows.
@@ -53,7 +53,7 @@ fn run_confirmation_impl(message: &str, term: &mut TermWizTerminal) -> anyhow::R
             Change::CursorVisibility(CursorVisibility::Hidden),
         ];
 
-        for (y, row) in wrapped.split("\n").enumerate() {
+        for (y, row) in wrapped.split('\n').enumerate() {
             let row = row.trim_end();
             changes.push(Change::CursorPosition {
                 x: Position::Absolute(x_pos),
@@ -99,14 +99,8 @@ fn run_confirmation_impl(message: &str, term: &mut TermWizTerminal) -> anyhow::R
             }) => {
                 return Ok(true);
             }
-            InputEvent::Key(KeyEvent {
-                key: KeyCode::Char('n' | 'N'),
-                ..
-            })
-            | InputEvent::Key(KeyEvent {
-                key: KeyCode::Escape,
-                ..
-            }) => {
+            InputEvent::Key(KeyEvent { key: KeyCode::Char('n' | 'N'), .. } | KeyEvent {
+key: KeyCode::Escape, .. }) => {
                 return Ok(false);
             }
             InputEvent::Mouse(MouseEvent {
@@ -163,15 +157,14 @@ pub fn show_confirmation_overlay(
                 anyhow::Result::<()>::Ok(())
             })
             .detach();
-        } else if let Some(key_assignment) = args.cancel {
-            if let KeyAssignment::EmitEvent(id) = *key_assignment {
+        } else if let Some(key_assignment) = args.cancel
+            && let KeyAssignment::EmitEvent(id) = *key_assignment {
                 promise::spawn::spawn_into_main_thread(async move {
                     trampoline(id, window, pane);
                     anyhow::Result::<()>::Ok(())
                 })
                 .detach();
             }
-        }
     }
     Ok(())
 }
@@ -193,7 +186,7 @@ async fn do_event(
         let args = lua.pack_multi((window, pane))?;
 
         if let Err(err) = config::lua::emit_event(&lua, (name.clone(), args)).await {
-            log::error!("while processing {} event: {:#}", name, err);
+            log::error!("while processing {name} event: {err:#}");
         }
     }
 

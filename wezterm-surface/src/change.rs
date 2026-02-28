@@ -113,13 +113,15 @@ pub enum Change {
 }
 
 impl Change {
-    pub fn is_text(&self) -> bool {
-        matches!(self, Change::Text(_))
+    #[must_use] 
+    pub const fn is_text(&self) -> bool {
+        matches!(self, Self::Text(_))
     }
 
+    #[must_use] 
     pub fn text(&self) -> &str {
         match self {
-            Change::Text(text) => text,
+            Self::Text(text) => text,
             _ => panic!("you must use Change::is_text() to guard calls to Change::text()"),
         }
     }
@@ -127,31 +129,31 @@ impl Change {
 
 impl From<String> for Change {
     fn from(s: String) -> Self {
-        Change::Text(s)
+        Self::Text(s)
     }
 }
 
 impl From<&str> for Change {
     fn from(s: &str) -> Self {
-        Change::Text(s.into())
+        Self::Text(s.into())
     }
 }
 
 impl From<AttributeChange> for Change {
     fn from(c: AttributeChange) -> Self {
-        Change::Attribute(c)
+        Self::Attribute(c)
     }
 }
 
 impl From<LineAttribute> for Change {
     fn from(attr: LineAttribute) -> Self {
-        Change::LineAttribute(attr)
+        Self::LineAttribute(attr)
     }
 }
 
 /// Keeps track of a run of changes and allows reasoning about the cursor
 /// position and the extent of the screen that the sequence will affect.
-/// This is useful for example when implementing something like a LineEditor
+/// This is useful for example when implementing something like a `LineEditor`
 /// where you don't want to take control over the entire surface but do want
 /// to be able to emit a dynamically sized output relative to the cursor
 /// position at the time that the editor is invoked.
@@ -166,7 +168,8 @@ pub struct ChangeSequence {
 }
 
 impl ChangeSequence {
-    pub fn new(rows: usize, cols: usize) -> Self {
+    #[must_use] 
+    pub const fn new(rows: usize, cols: usize) -> Self {
         Self {
             changes: vec![],
             screen_rows: rows,
@@ -178,12 +181,14 @@ impl ChangeSequence {
         }
     }
 
+    #[must_use] 
     pub fn consume(self) -> Vec<Change> {
         self.changes
     }
 
     /// Returns the cursor position, (x, y).
-    pub fn current_cursor_position(&self) -> (usize, isize) {
+    #[must_use] 
+    pub const fn current_cursor_position(&self) -> (usize, isize) {
         (self.cursor_x, self.cursor_y)
     }
 
@@ -195,8 +200,9 @@ impl ChangeSequence {
     }
 
     /// Returns the total number of rows affected
+    #[must_use] 
     pub fn render_height(&self) -> usize {
-        (self.render_y_max - self.render_y_min).max(0).abs() as usize
+        (self.render_y_max - self.render_y_min).max(0).unsigned_abs()
     }
 
     fn update_render_height(&mut self) {
@@ -262,7 +268,7 @@ impl ChangeSequence {
 
                 self.cursor_y = match y {
                     Position::Relative(y) => {
-                        (self.cursor_y as isize + y) % self.screen_rows as isize
+                        (self.cursor_y + y) % self.screen_rows as isize
                     }
                     Position::Absolute(y) => (y % self.screen_rows) as isize,
                     Position::EndRelative(y) => {
@@ -303,7 +309,7 @@ pub struct Image {
     /// measure in cells
     pub height: usize,
     /// Texture coordinate for the top left of this image block.
-    /// (0,0) is the top left of the ImageData. (1, 1) is
+    /// (0,0) is the top left of the `ImageData`. (1, 1) is
     /// the bottom right.
     pub top_left: TextureCoordinate,
     /// Texture coordinates for the bottom right of this image block.

@@ -14,20 +14,19 @@ pub fn name_equals_value(arg: &str) -> Result<(String, String), String> {
         let right = right[1..].trim();
         if left.is_empty() || right.is_empty() {
             return Err(format!(
-                "Got empty name/value `{}`; expected name=value",
-                arg
+                "Got empty name/value `{arg}`; expected name=value"
             ));
         }
         Ok((left.to_string(), right.to_string()))
     } else {
-        Err(format!("Expected name=value, but got {}", arg))
+        Err(format!("Expected name=value, but got {arg}"))
     }
 }
 
 #[derive(Debug, Parser, Default, Clone)]
 #[command(trailing_var_arg = true)]
 pub struct StartCommand {
-    /// If true, do not connect to domains marked as connect_automatically
+    /// If true, do not connect to domains marked as `connect_automatically`
     /// in your wezterm configuration file.
     #[arg(long = "no-auto-connect")]
     pub no_auto_connect: bool,
@@ -64,7 +63,7 @@ pub struct StartCommand {
     /// Override the default windowing system class.
     /// The default is "org.wezfurlong.wezterm".
     /// Under X11 and Windows this changes the window class.
-    /// Under Wayland this changes the app_id.
+    /// Under Wayland this changes the `app_id`.
     /// This changes the class for all windows spawned by this
     /// instance of wezterm, including error, update and ssh
     /// authentication dialogs.
@@ -123,7 +122,7 @@ pub struct SshCommand {
     /// `wezterm ssh` is able to parse some (but not all!) options
     /// from your `~/.ssh/config` and `/etc/ssh/ssh_config` files.
     /// This command line switch allows you to override or otherwise
-    /// specify ssh_config style options.
+    /// specify `ssh_config` style options.
     ///
     /// For example:
     ///
@@ -145,7 +144,7 @@ pub struct SshCommand {
     /// Override the default windowing system class.
     /// The default is "org.wezfurlong.wezterm".
     /// Under X11 and Windows this changes the window class.
-    /// Under Wayland this changes the app_id.
+    /// Under Wayland this changes the `app_id`.
     /// This changes the class for all windows spawned by this
     /// instance of wezterm, including error, update and ssh
     /// authentication dialogs.
@@ -177,7 +176,7 @@ pub struct SerialCommand {
     /// Override the default windowing system class.
     /// The default is "org.wezfurlong.wezterm".
     /// Under X11 and Windows this changes the window class.
-    /// Under Wayland this changes the app_id.
+    /// Under Wayland this changes the `app_id`.
     /// This changes the class for all windows spawned by this
     /// instance of wezterm, including error, update and ssh
     /// authentication dialogs.
@@ -215,7 +214,7 @@ pub struct ConnectCommand {
     /// Override the default windowing system class.
     /// The default is "org.wezfurlong.wezterm".
     /// Under X11 and Windows this changes the window class.
-    /// Under Wayland this changes the app_id.
+    /// Under Wayland this changes the `app_id`.
     /// This changes the class for all windows spawned by this
     /// instance of wezterm, including error, update and ssh
     /// authentication dialogs.

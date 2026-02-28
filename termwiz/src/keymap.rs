@@ -4,7 +4,7 @@ use std::fmt::Debug;
 #[derive(Debug, Clone)]
 struct Node<Value: Debug> {
     label: u8,
-    children: Vec<Node<Value>>,
+    children: Vec<Self>,
     value: Option<Value>,
 }
 
@@ -31,7 +31,7 @@ impl<Value: Debug> Node<Value> {
                 self.children[idx].insert(&key[1..], value);
             }
             Err(idx) => {
-                self.children.insert(idx, Node::new(key[0]));
+                self.children.insert(idx, Self::new(key[0]));
                 self.children[idx].insert(&key[1..], value);
             }
         }

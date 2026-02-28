@@ -20,11 +20,12 @@ pub fn wezterm_target_triple() -> &'static str {
         .unwrap_or(&"someone forgot to call assign_version_info")
 }
 
+#[must_use] 
 pub fn running_under_wsl() -> bool {
     #[cfg(unix)]
     unsafe {
         let mut name: libc::utsname = std::mem::zeroed();
-        if libc::uname(&mut name) == 0 {
+        if libc::uname(&raw mut name) == 0 {
             let version = std::ffi::CStr::from_ptr(name.version.as_ptr())
                 .to_string_lossy()
                 .into_owned();

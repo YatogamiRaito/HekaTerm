@@ -43,11 +43,9 @@ fn compute_repo_dir(url: &str) -> String {
 
 fn get_remote(repo: &Repository) -> anyhow::Result<Option<Remote<'_>>> {
     let remotes = repo.remotes()?;
-    for remote in remotes.iter() {
-        if let Some(name) = remote {
-            let remote = repo.find_remote(name)?;
-            return Ok(Some(remote));
-        }
+    if let Some(name) = remotes.iter().flatten().next() {
+        let remote = repo.find_remote(name)?;
+        return Ok(Some(remote));
     }
     Ok(None)
 }
@@ -59,7 +57,7 @@ impl RepoSpec {
             anyhow::bail!("invalid repo spec {url}");
         }
 
-        let plugin_dir = RepoSpec::plugins_dir().join(&component);
+        let plugin_dir = Self::plugins_dir().join(&component);
 
         Ok(Self {
             url,
@@ -76,7 +74,7 @@ impl RepoSpec {
             .ok_or_else(|| anyhow!("{path:?} isn't unicode"))?
             .to_string();
 
-        let plugin_dir = RepoSpec::plugins_dir().join(&component);
+        let plugin_dir = Self::plugins_dir().join(&component);
 
         let repo = Repository::open(&path)?;
         let remote = get_remote(&repo)?.ok_or_else(|| anyhow!("no remotes!?"))?;
@@ -84,8 +82,8 @@ impl RepoSpec {
         if let Some(url) = url {
             let url = url.to_string();
             return Ok(Self {
-                component,
                 url,
+                component,
                 plugin_dir,
             });
         }
@@ -163,7 +161,7 @@ impl RepoSpec {
         let target_dir = target_dir.keep();
         let checkout_path = self.checkout_path();
         match std::fs::rename(&target_dir, &checkout_path) {
-            Ok(_) => {
+            Ok(()) => {
                 log::info!("Cloned {} into {checkout_path:?}", self.url);
                 Ok(())
             }
@@ -192,7 +190,7 @@ fn require_plugin(lua: &Lua, url: String) -> anyhow::Result<Value<'_>> {
     }
 
     let require: mlua::Function = lua.globals().get("require")?;
-    match require.call::<_, Value>(spec.component.to_string()) {
+    match require.call::<_, Value>(spec.component.clone()) {
         Ok(value) => Ok(value),
         Err(err) => {
             log::error!(
@@ -232,7 +230,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     plugin_mod.set(
         "list",
-        lua.create_function(|lua, _: ()| {
+        lua.create_function(|lua, (): ()| {
             let plugins = list_plugins().map_err(|e| mlua::Error::external(format!("{e:#}")))?;
             to_lua(lua, plugins)
         })?,
@@ -240,11 +238,11 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     plugin_mod.set(
         "update_all",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             let plugins = list_plugins().map_err(|e| mlua::Error::external(format!("{e:#}")))?;
             for p in plugins {
                 match p.update() {
-                    Ok(_) => log::info!("Updated {p:?}"),
+                    Ok(()) => log::info!("Updated {p:?}"),
                     Err(err) => log::error!("Failed to update {p:?}: {err:#}"),
                 }
             }

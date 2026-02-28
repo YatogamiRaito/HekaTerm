@@ -11,9 +11,7 @@ use std::time::{Duration, Instant};
 use tabout::{tabulate_output, Alignment, Column};
 
 static ENABLE_STAT_PRINT: AtomicBool = AtomicBool::new(true);
-lazy_static::lazy_static! {
-    static ref INNER: Arc<Mutex<Inner>> = make_inner();
-}
+static INNER: std::sync::LazyLock<Arc<Mutex<Inner>>> = std::sync::LazyLock::new(make_inner);
 
 struct ThroughputInner {
     hist: Histogram<u64>,
@@ -60,7 +58,7 @@ impl ThroughputInner {
         } else {
             // Start a new window
             self.last = Some(Instant::now());
-        };
+        }
         self.count += value;
     }
 
@@ -105,9 +103,9 @@ impl ScaledHistogram {
 
     fn latency_percentiles(&self) -> (Duration, Duration, Duration) {
         let hist = self.hist.lock();
-        let p50 = pctile_latency(&*hist, 50.);
-        let p75 = pctile_latency(&*hist, 75.);
-        let p95 = pctile_latency(&*hist, 95.);
+        let p50 = pctile_latency(&hist, 50.);
+        let p75 = pctile_latency(&hist, 75.);
+        let p95 = pctile_latency(&hist, 95.);
         (p50, p75, p95)
     }
 }
@@ -143,7 +141,7 @@ struct Inner {
 }
 
 impl Inner {
-    fn run(inner: Arc<Mutex<Inner>>) {
+    fn run(inner: Arc<Mutex<Self>>) {
         let mut last_print = Instant::now();
 
         let rate_cols = vec![
@@ -292,7 +290,7 @@ impl Stats {
         let inner = Arc::clone(&stats.inner);
         std::thread::spawn(move || Inner::run(inner));
         metrics::set_global_recorder(stats)
-            .map_err(|e| anyhow::anyhow!("Failed to set metrics recorder:{}", e))
+            .map_err(|e| anyhow::anyhow!("Failed to set metrics recorder:{e}"))
     }
 }
 
@@ -305,15 +303,12 @@ impl Recorder for Stats {
 
     fn register_counter(&self, key: &Key, _metadata: &Metadata) -> Counter {
         let mut inner = self.inner.lock();
-        match inner.counters.get(key) {
-            Some(existing) => Counter::from_arc(existing.clone()),
-            None => {
-                let counter = Arc::new(MyCounter {
-                    value: AtomicUsize::new(0),
-                });
-                inner.counters.insert(key.clone(), counter.clone());
-                metrics::Counter::from_arc(counter)
-            }
+        if let Some(existing) = inner.counters.get(key) { Counter::from_arc(existing.clone()) } else {
+            let counter = Arc::new(MyCounter {
+                value: AtomicUsize::new(0),
+            });
+            inner.counters.insert(key.clone(), counter.clone());
+            metrics::Counter::from_arc(counter)
         }
     }
 
@@ -324,32 +319,24 @@ impl Recorder for Stats {
     fn register_histogram(&self, key: &Key, _metadata: &Metadata) -> metrics::Histogram {
         let mut inner = self.inner.lock();
         if key.name().ends_with(".rate") {
-            match inner.throughput.get(key) {
-                Some(existing) => metrics::Histogram::from_arc(existing.clone()),
-                None => {
-                    let tput = Arc::new(Throughput::new());
-                    inner.throughput.insert(key.clone(), tput.clone());
+            if let Some(existing) = inner.throughput.get(key) { metrics::Histogram::from_arc(existing.clone()) } else {
+                let tput = Arc::new(Throughput::new());
+                inner.throughput.insert(key.clone(), tput.clone());
 
-                    metrics::Histogram::from_arc(tput)
-                }
+                metrics::Histogram::from_arc(tput)
             }
-        } else {
-            match inner.histograms.get(key) {
-                Some(existing) => metrics::Histogram::from_arc(existing.clone()),
-                None => {
-                    let scale = if key.name().ends_with(".size") {
-                        1.0
-                    } else {
-                        // Assume seconds; convert to nanoseconds
-                        1_000_000_000.0
-                    };
+        } else if let Some(existing) = inner.histograms.get(key) { metrics::Histogram::from_arc(existing.clone()) } else {
+            let scale = if key.name().ends_with(".size") {
+                1.0
+            } else {
+                // Assume seconds; convert to nanoseconds
+                1_000_000_000.0
+            };
 
-                    let histogram = ScaledHistogram::new(scale);
-                    inner.histograms.insert(key.clone(), histogram.clone());
+            let histogram = ScaledHistogram::new(scale);
+            inner.histograms.insert(key.clone(), histogram.clone());
 
-                    metrics::Histogram::from_arc(histogram)
-                }
-            }
+            metrics::Histogram::from_arc(histogram)
         }
     }
 }
@@ -358,7 +345,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let metrics_mod = get_or_create_sub_module(lua, "metrics")?;
     metrics_mod.set(
         "get_counters",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             let inner = INNER.lock();
             let counters: HashMap<String, usize> = inner
                 .counters
@@ -370,7 +357,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
     metrics_mod.set(
         "get_throughput",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             let mut inner = INNER.lock();
             let counters: HashMap<String, HashMap<String, u64>> = inner
                 .throughput
@@ -390,7 +377,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
     metrics_mod.set(
         "get_sizes",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             let mut inner = INNER.lock();
             let counters: HashMap<String, HashMap<String, u64>> = inner
                 .histograms
@@ -413,21 +400,21 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
     metrics_mod.set(
         "get_latency",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             let mut inner = INNER.lock();
             let counters: HashMap<String, HashMap<String, String>> = inner
                 .histograms
                 .iter_mut()
                 .filter_map(|(key, hist)| {
-                    if !key.name().ends_with(".size") {
+                    if key.name().ends_with(".size") {
+                        None
+                    } else {
                         let mut res = HashMap::new();
                         let (p50, p75, p95) = hist.latency_percentiles();
                         res.insert("p50".to_string(), format!("{p50:?}"));
                         res.insert("p75".to_string(), format!("{p75:?}"));
                         res.insert("p95".to_string(), format!("{p95:?}"));
                         Some((key.name().to_string(), res))
-                    } else {
-                        None
                     }
                 })
                 .collect();

@@ -45,7 +45,7 @@ pub struct GoghTheme {
 
 impl GoghTheme {
     pub fn load_all(slice: &[u8]) -> anyhow::Result<Vec<ColorSchemeFile>> {
-        let data: Vec<GoghTheme> = serde_json::from_slice(slice)?;
+        let data: Vec<Self> = serde_json::from_slice(slice)?;
         let mut schemes = vec![];
         for s in data {
             let cursor = RgbaColor::try_from(s.cursorColor)?;
@@ -88,7 +88,7 @@ impl GoghTheme {
                     wezterm_version: None,
                     aliases: vec![],
                 },
-            })
+            });
         }
         Ok(schemes)
     }

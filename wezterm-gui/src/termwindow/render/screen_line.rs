@@ -47,10 +47,10 @@ impl crate::TermWindow {
             Some(params.config.inactive_pane_hsb)
         };
 
-        let width_scale = if !params.line.is_single_width() {
-            2.0
-        } else {
+        let width_scale = if params.line.is_single_width() {
             1.0
+        } else {
+            2.0
         };
 
         let height_scale = if params.line.is_double_height_top() {
@@ -105,13 +105,13 @@ impl crate::TermWindow {
         let cursor_range = if composition_width > 0 {
             params.cursor.x..params.cursor.x + composition_width
         } else if params.stable_line_idx == Some(params.cursor.y) {
-            params.cursor.x..params.cursor.x + cursor_cell.as_ref().map(|c| c.width()).unwrap_or(1)
+            params.cursor.x..params.cursor.x + cursor_cell.as_ref().map_or(1, wezterm_term::CellRef::width)
         } else {
             0..0
         };
 
-        let cursor_range_pixels = params.left_pixel_x + cursor_range.start as f32 * cell_width
-            ..params.left_pixel_x + cursor_range.end as f32 * cell_width;
+        let cursor_range_pixels = (cursor_range.start as f32).mul_add(cell_width, params.left_pixel_x)
+            ..(cursor_range.end as f32).mul_add(cell_width, params.left_pixel_x);
 
         let mut shaped = None;
         let mut invalidate_on_hover_change = false;
@@ -119,7 +119,7 @@ impl crate::TermWindow {
         if let Some(shape_key) = &params.shape_key {
             let mut cache = self.line_to_ele_shape_cache.borrow_mut();
             if let Some(entry) = cache.get(shape_key) {
-                let expired = entry.expires.map(|i| Instant::now() >= i).unwrap_or(false);
+                let expired = entry.expires.is_some_and(|i| Instant::now() >= i);
                 let hover_changed = if entry.invalidate_on_hover_change {
                     !same_hyperlink(
                         entry.current_highlight.as_ref(),
@@ -162,7 +162,7 @@ impl crate::TermWindow {
             cell_height,
         );
 
-        fn phys(x: usize, num_cols: usize, direction: Direction) -> usize {
+        const fn phys(x: usize, num_cols: usize, direction: Direction) -> usize {
             match direction {
                 Direction::LeftToRight => x,
                 Direction::RightToLeft => num_cols - x,
@@ -203,10 +203,10 @@ impl crate::TermWindow {
             let bg_color = params.palette.resolve_bg(attrs.background()).to_linear();
 
             let fg_color = resolve_fg_color_attr(
-                &attrs,
+                attrs,
                 attrs.foreground(),
-                &params.palette,
-                &params.config,
+                params.palette,
+                params.config,
                 &Default::default(),
             );
 
@@ -216,7 +216,7 @@ impl crate::TermWindow {
                 let mut bg_default = bg_is_default;
 
                 // Check the line reverse_video flag and flip.
-                if attrs.reverse() == !params.dims.reverse_video {
+                if attrs.reverse() != params.dims.reverse_video {
                     std::mem::swap(&mut fg, &mut bg);
                     bg_default = false;
                 }
@@ -284,8 +284,10 @@ impl crate::TermWindow {
         // Render the selection background color.
         // This always uses a physical x position, regardles of the line
         // direction.
-        let selection_pixel_range = if !params.selection.is_empty() {
-            let start = params.left_pixel_x + (params.selection.start as f32 * cell_width);
+        let selection_pixel_range = if params.selection.is_empty() {
+            0.0..0.0
+        } else {
+            let start = (params.selection.start as f32).mul_add(cell_width, params.left_pixel_x);
             let width = (params.selection.end - params.selection.start) as f32 * cell_width;
             let mut quad = self
                 .filled_rectangle(
@@ -299,8 +301,6 @@ impl crate::TermWindow {
             quad.set_hsv(hsv);
 
             start..start + width
-        } else {
-            0.0..0.0
         };
 
         // Consider cursor
@@ -311,10 +311,10 @@ impl crate::TermWindow {
                 let bg_color = params.palette.resolve_bg(attrs.background()).to_linear();
 
                 let fg_color = resolve_fg_color_attr(
-                    &attrs,
+                    attrs,
                     attrs.foreground(),
-                    &params.palette,
-                    &params.config,
+                    params.palette,
+                    params.config,
                     &Default::default(),
                 );
 
@@ -344,9 +344,7 @@ impl crate::TermWindow {
                 cursor_border_color: params.cursor_border_color,
                 pane: params.pane,
             });
-            let pos_x = (self.dimensions.pixel_width as f32 / -2.)
-                + params.left_pixel_x
-                + (phys(params.cursor.x, num_cols, direction) as f32 * cell_width);
+            let pos_x = (phys(params.cursor.x, num_cols, direction) as f32).mul_add(cell_width, (self.dimensions.pixel_width as f32 / -2.) + params.left_pixel_x);
 
             if let Some(shape) = cursor_shape {
                 let cursor_layer = match shape {
@@ -363,9 +361,7 @@ impl crate::TermWindow {
 
                 if params.password_input {
                     let attrs = cursor_cell
-                        .as_ref()
-                        .map(|cell| cell.attrs().clone())
-                        .unwrap_or_else(|| CellAttributes::blank());
+                        .as_ref().map_or_else(CellAttributes::blank, |cell| cell.attrs().clone());
 
                     let glyph = self
                         .resolve_lock_glyph(
@@ -382,11 +378,7 @@ impl crate::TermWindow {
                         let height =
                             sprite.coords.size.height as f32 * glyph.scale as f32 * height_scale;
 
-                        let pos_y = pos_y
-                            + cell_height
-                            + (params.render_metrics.descender.get() as f32
-                                - (glyph.y_offset + glyph.bearing_y).get() as f32)
-                                * height_scale;
+                        let pos_y = (params.render_metrics.descender.get() as f32 - (glyph.y_offset + glyph.bearing_y).get() as f32).mul_add(height_scale, pos_y + cell_height);
 
                         let pos_x = pos_x + (glyph.x_offset + glyph.bearing_x).get() as f32;
                         quad.set_position(pos_x, pos_y, pos_x + width, pos_y + height);
@@ -399,7 +391,7 @@ impl crate::TermWindow {
                     quad.set_position(
                         pos_x,
                         pos_y,
-                        pos_x + (cursor_range.end - cursor_range.start) as f32 * cell_width,
+                        ((cursor_range.end - cursor_range.start) as f32).mul_add(cell_width, pos_x),
                         pos_y + cell_height,
                     );
                     quad.set_texture(
@@ -433,7 +425,7 @@ impl crate::TermWindow {
         for item in shaped.iter() {
             let cluster = &item.cluster;
             let glyph_info = &item.glyph_info;
-            let images = cluster.attrs.images().unwrap_or_else(|| vec![]);
+            let images = cluster.attrs.images().unwrap_or_else(std::vec::Vec::new);
             let valign_adjust = match cluster.attrs.vertical_align() {
                 termwiz::cell::VerticalAlign::BaseLine => 0.,
                 termwiz::cell::VerticalAlign::SuperScript => {
@@ -446,7 +438,7 @@ impl crate::TermWindow {
 
             // TODO: remember logical/visual mapping for selection
             #[allow(unused_variables)]
-            let mut phys_cell_idx = cluster.first_cell_idx;
+            let phys_cell_idx = cluster.first_cell_idx;
 
             // Pre-decrement by the cluster width when doing RTL,
             // so that we can render it right-justified
@@ -472,7 +464,7 @@ impl crate::TermWindow {
                     for img in &images {
                         if img.z_index() < 0 {
                             self.populate_image_quad(
-                                &img,
+                                img,
                                 gl_state,
                                 layers,
                                 0,
@@ -487,15 +479,12 @@ impl crate::TermWindow {
 
                 {
                     // First, resolve this glyph to a texture
-                    let mut texture = glyph.texture.as_ref().cloned();
+                    let mut texture = glyph.texture.clone();
 
-                    let mut top = cell_height
-                        + (params.render_metrics.descender.get() as f32 + valign_adjust
-                            - (glyph.y_offset + glyph.bearing_y).get() as f32)
-                            * height_scale;
+                    let mut top = (params.render_metrics.descender.get() as f32 + valign_adjust - (glyph.y_offset + glyph.bearing_y).get() as f32).mul_add(height_scale, cell_height);
 
-                    if self.config.custom_block_glyphs {
-                        if let Some(block) = &info.block_key {
+                    if self.config.custom_block_glyphs
+                        && let Some(block) = &info.block_key {
                             texture.replace(
                                 gl_state
                                     .glyph_cache
@@ -508,7 +497,6 @@ impl crate::TermWindow {
                             // top left, rather than the baseline.
                             top = 0.;
                         }
-                    }
 
                     if let Some(texture) = texture {
                         // TODO: clipping, but we can do that based on pixels
@@ -564,7 +552,7 @@ impl crate::TermWindow {
                             }
                             let i = intersection(r, within);
                             if i.is_empty() {
-                                return (r.clone(), i.clone(), i.clone());
+                                return (r.clone(), i.clone(), i);
                             }
 
                             let left = if i.start > r.start {
@@ -584,7 +572,7 @@ impl crate::TermWindow {
 
                         let adjust = (glyph.x_offset + glyph.bearing_x).get() as f32;
                         let texture_range = pos_x + adjust
-                            ..pos_x + adjust + (texture.coords.size.width as f32 * width_scale);
+                            ..(texture.coords.size.width as f32).mul_add(width_scale, pos_x + adjust);
 
                         // First bucket the ranges according to cursor position
                         let (left, mid, right) = range3(&texture_range, &cursor_range_pixels);
@@ -644,19 +632,19 @@ impl crate::TermWindow {
                                 gl_x + range.start,
                                 pos_y + top,
                                 gl_x + range.end,
-                                pos_y + top + texture.coords.size.height as f32 * height_scale,
+                                (texture.coords.size.height as f32).mul_add(height_scale, pos_y + top),
                             );
                             quad.set_fg_color(glyph_color);
                             quad.set_alt_color_and_mix_value(fg_color_alt, fg_color_mix);
                             quad.set_texture(texture_rect);
-                            quad.set_hsv(if glyph.brightness_adjust != 1.0 {
-                                let hsv = hsv.unwrap_or_else(|| HsbTransform::default());
+                            quad.set_hsv(if glyph.brightness_adjust == 1.0 {
+                                hsv
+                            } else {
+                                let hsv = hsv.unwrap_or_else(HsbTransform::default);
                                 Some(HsbTransform {
                                     brightness: hsv.brightness * glyph.brightness_adjust,
                                     ..hsv
                                 })
-                            } else {
-                                hsv
                             });
                             quad.set_has_color(glyph.has_color);
                         }
@@ -674,12 +662,11 @@ impl crate::TermWindow {
                         }
                     }
                 }
-                phys_cell_idx += info.pos.num_cells as usize;
                 visual_cell_idx += info.pos.num_cells as usize;
                 cluster_x_pos += if params.use_pixel_positioning {
                     glyph.x_advance.get() as f32 * width_scale
                 } else {
-                    info.pos.num_cells as f32 * cell_width
+                    f32::from(info.pos.num_cells) * cell_width
                 };
             }
 
@@ -733,7 +720,7 @@ impl crate::TermWindow {
             // Create an updated line with the composition overlaid
             let mut line = params.line.clone();
             let seqno = line.current_seqno();
-            line.overlay_text_with_attribute(*cursor_x, &composing, CellAttributes::blank(), seqno);
+            line.overlay_text_with_attribute(*cursor_x, composing, CellAttributes::blank(), seqno);
             line.cluster(bidi_hint)
         } else {
             params.line.cluster(bidi_hint)
@@ -773,10 +760,10 @@ impl crate::TermWindow {
                 let bg_color = params.palette.resolve_bg(attrs.background()).to_linear();
 
                 let fg_color = resolve_fg_color_attr(
-                    &attrs,
+                    attrs,
                     attrs.foreground(),
-                    &params.palette,
-                    &params.config,
+                    params.palette,
+                    params.config,
                     style,
                 );
                 let (fg_color, bg_color, bg_is_default) = {
@@ -785,7 +772,7 @@ impl crate::TermWindow {
                     let mut bg_default = bg_is_default;
 
                     // Check the line reverse_video flag and flip.
-                    if attrs.reverse() == !params.reverse_video {
+                    if attrs.reverse() != params.reverse_video {
                         std::mem::swap(&mut fg, &mut bg);
                         bg_default = false;
                     }
@@ -804,23 +791,22 @@ impl crate::TermWindow {
                             self.rapid_blink_state.borrow_mut(),
                         )),
                     };
-                    if let Some((blink_rate, mut colorease)) = blink_rate {
-                        if blink_rate != 0 {
+                    if let Some((blink_rate, mut colorease)) = blink_rate
+                        && blink_rate != 0 {
                             let (intensity, next) = colorease.intensity_continuous();
 
                             let (r1, g1, b1, a) = bg.tuple();
                             let (r, g, b, _a) = fg.tuple();
                             fg = LinearRgba::with_components(
-                                r1 + (r - r1) * intensity,
-                                g1 + (g - g1) * intensity,
-                                b1 + (b - b1) * intensity,
+                                (r - r1).mul_add(intensity, r1),
+                                (g - g1).mul_add(intensity, g1),
+                                (b - b1).mul_add(intensity, b1),
                                 a,
                             );
 
                             update_next_frame_time(&mut expires, Some(next));
                             self.update_next_frame_time(Some(next));
                         }
-                    }
 
                     (fg, bg, bg_default)
                 };
@@ -828,7 +814,7 @@ impl crate::TermWindow {
                 let glyph_color = fg_color;
                 let underline_color = match attrs.underline_color() {
                     ColorAttribute::Default => fg_color,
-                    c => resolve_fg_color_attr(&attrs, c, &params.palette, &params.config, style),
+                    c => resolve_fg_color_attr(attrs, c, params.palette, params.config, style),
                 };
 
                 let (bg_r, bg_g, bg_b, _) = bg_color.tuple();
@@ -846,7 +832,7 @@ impl crate::TermWindow {
                 last_style.replace(ClusterStyleCache {
                     attrs,
                     style,
-                    underline_tex_rect: underline_tex_rect.clone(),
+                    underline_tex_rect,
                     bg_color,
                     fg_color: glyph_color,
                     underline_color,
@@ -857,8 +843,8 @@ impl crate::TermWindow {
 
             let glyph_info = self.cached_cluster_shape(
                 style_params.style,
-                &cluster,
-                &gl_state,
+                cluster,
+                gl_state,
                 None,
                 &self.render_metrics,
             )?;

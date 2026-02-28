@@ -10,7 +10,7 @@ use wezterm_client::client::Client;
 pub struct SplitPane {
     /// Specify the pane that should be split.
     /// The default is to use the current pane based on the
-    /// environment variable WEZTERM_PANE.
+    /// environment variable `WEZTERM_PANE`.
     #[arg(long)]
     pane_id: Option<PaneId>,
 
@@ -73,8 +73,6 @@ impl SplitPane {
 
         let direction = if self.left || self.right || self.horizontal {
             SplitDirection::Horizontal
-        } else if self.top || self.bottom {
-            SplitDirection::Vertical
         } else {
             SplitDirection::Vertical
         };
@@ -108,7 +106,7 @@ impl SplitPane {
             })
             .await?;
 
-        log::debug!("{:?}", spawned);
+        log::debug!("{spawned:?}");
         println!("{}", spawned.pane_id);
         Ok(())
     }

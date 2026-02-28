@@ -5,6 +5,8 @@
 #![allow(non_upper_case_globals)]
 #![allow(clippy::unreadable_literal)]
 #![allow(clippy::upper_case_acronyms)]
+#![allow(clippy::missing_safety_doc)]
+#![allow(clippy::non_canonical_clone_impl)]
 mod fixed_point;
 mod types;
 pub use fixed_point::*;
@@ -19,10 +21,12 @@ pub type FT_UInt64 = u64;
 pub struct __BindgenUnionField<T>(::std::marker::PhantomData<T>);
 impl<T> __BindgenUnionField<T> {
     #[inline]
+    #[must_use] 
     pub const fn new() -> Self {
-        __BindgenUnionField(::std::marker::PhantomData)
+        Self(::std::marker::PhantomData)
     }
     #[inline]
+    #[must_use] 
     pub unsafe fn as_ref(&self) -> &T {
         ::std::mem::transmute(self)
     }
@@ -53,7 +57,7 @@ impl<T> ::std::hash::Hash for __BindgenUnionField<T> {
     fn hash<H: ::std::hash::Hasher>(&self, _state: &mut H) {}
 }
 impl<T> ::std::cmp::PartialEq for __BindgenUnionField<T> {
-    fn eq(&self, _other: &__BindgenUnionField<T>) -> bool {
+    fn eq(&self, _other: &Self) -> bool {
         true
     }
 }
@@ -1427,22 +1431,22 @@ pub type FT_Size = *mut FT_SizeRec_;
 pub type FT_GlyphSlot = *mut FT_GlyphSlotRec_;
 pub type FT_CharMap = *mut FT_CharMapRec_;
 impl FT_Encoding_ {
-    pub const FT_ENCODING_GB2312: FT_Encoding_ = FT_Encoding_::FT_ENCODING_PRC;
+    pub const FT_ENCODING_GB2312: Self = Self::FT_ENCODING_PRC;
 }
 impl FT_Encoding_ {
-    pub const FT_ENCODING_MS_SJIS: FT_Encoding_ = FT_Encoding_::FT_ENCODING_SJIS;
+    pub const FT_ENCODING_MS_SJIS: Self = Self::FT_ENCODING_SJIS;
 }
 impl FT_Encoding_ {
-    pub const FT_ENCODING_MS_GB2312: FT_Encoding_ = FT_Encoding_::FT_ENCODING_PRC;
+    pub const FT_ENCODING_MS_GB2312: Self = Self::FT_ENCODING_PRC;
 }
 impl FT_Encoding_ {
-    pub const FT_ENCODING_MS_BIG5: FT_Encoding_ = FT_Encoding_::FT_ENCODING_BIG5;
+    pub const FT_ENCODING_MS_BIG5: Self = Self::FT_ENCODING_BIG5;
 }
 impl FT_Encoding_ {
-    pub const FT_ENCODING_MS_WANSUNG: FT_Encoding_ = FT_Encoding_::FT_ENCODING_WANSUNG;
+    pub const FT_ENCODING_MS_WANSUNG: Self = Self::FT_ENCODING_WANSUNG;
 }
 impl FT_Encoding_ {
-    pub const FT_ENCODING_MS_JOHAB: FT_Encoding_ = FT_Encoding_::FT_ENCODING_JOHAB;
+    pub const FT_ENCODING_MS_JOHAB: Self = Self::FT_ENCODING_JOHAB;
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -2561,11 +2565,11 @@ extern "C" {
     ) -> FT_Error;
 }
 impl FT_Orientation_ {
-    pub const FT_ORIENTATION_FILL_RIGHT: FT_Orientation_ = FT_Orientation_::FT_ORIENTATION_TRUETYPE;
+    pub const FT_ORIENTATION_FILL_RIGHT: Self = Self::FT_ORIENTATION_TRUETYPE;
 }
 impl FT_Orientation_ {
-    pub const FT_ORIENTATION_FILL_LEFT: FT_Orientation_ =
-        FT_Orientation_::FT_ORIENTATION_POSTSCRIPT;
+    pub const FT_ORIENTATION_FILL_LEFT: Self =
+        Self::FT_ORIENTATION_POSTSCRIPT;
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -2632,7 +2636,7 @@ extern "C" {
     pub fn FT_Get_PS_Font_Private(face: FT_Face, afont_private: PS_Private) -> FT_Error;
 }
 impl PS_Dict_Keys_ {
-    pub const PS_DICT_MAX: PS_Dict_Keys_ = PS_Dict_Keys_::PS_DICT_ITALIC_ANGLE;
+    pub const PS_DICT_MAX: Self = Self::PS_DICT_ITALIC_ANGLE;
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -2907,8 +2911,8 @@ extern "C" {
     ) -> FT_Error;
 }
 impl FT_Glyph_BBox_Mode_ {
-    pub const FT_GLYPH_BBOX_SUBPIXELS: FT_Glyph_BBox_Mode_ =
-        FT_Glyph_BBox_Mode_::FT_GLYPH_BBOX_UNSCALED;
+    pub const FT_GLYPH_BBOX_SUBPIXELS: Self =
+        Self::FT_GLYPH_BBOX_UNSCALED;
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]

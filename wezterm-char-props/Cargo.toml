@@ -22,6 +22,8 @@ use_serde = ["serde"]
 
 [dev-dependencies]
 k9.workspace = true
+criterion.workspace = true
+termwiz.workspace = true
 
 [[bench]]
 name = "wcwidth"

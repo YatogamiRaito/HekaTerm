@@ -2,8 +2,8 @@ use anyhow::Context;
 use std::collections::HashMap;
 
 /// Parses:
-/// $ xprop -root | grep RESOURCE_MANAGER
-/// RESOURCE_MANAGER(STRING) = "Xft.dpi:\t96\nXft.hinting:\t1\nXft.hintstyle:\thintslight\nXft.antialias:\t1\nXft.rgba:\tnone\nXcursor.size:\t24\nXcursor.theme:\tAdwaita\n"
+/// $ xprop -root | grep `RESOURCE_MANAGER`
+/// `RESOURCE_MANAGER(STRING)` = "Xft.dpi:\t96\nXft.hinting:\t1\nXft.hintstyle:\thintslight\nXft.antialias:\t1\nXft.rgba:\tnone\nXcursor.size:\t24\nXcursor.theme:\tAdwaita\n"
 pub fn parse_root_resource_manager(
     conn: &xcb::Connection,
     root: xcb::x::Window,

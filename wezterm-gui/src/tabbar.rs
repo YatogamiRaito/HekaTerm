@@ -56,7 +56,7 @@ fn call_format_tab_title(
             let panes = lua.create_sequence_from(pane_info.iter().cloned())?;
 
             let v = config::lua::emit_sync_callback(
-                &*lua,
+                &lua,
                 (
                     "format-tab-title".to_string(),
                     (
@@ -72,7 +72,7 @@ fn call_format_tab_title(
             match &v {
                 mlua::Value::Nil => Ok(None),
                 mlua::Value::Table(_) => {
-                    let items = <Vec<FormatItem>>::from_lua(v, &*lua)?;
+                    let items = <Vec<FormatItem>>::from_lua(v, &lua)?;
 
                     let esc = format_as_escapes(items.clone())?;
                     let line = parse_status_text(&esc, CellAttributes::default());
@@ -83,7 +83,7 @@ fn call_format_tab_title(
                     }))
                 }
                 _ => {
-                    let s = String::from_lua(v, &*lua)?;
+                    let s = String::from_lua(v, &lua)?;
                     let line = parse_status_text(&s, CellAttributes::default());
                     Ok(Some(TitleText {
                         len: line.len(),
@@ -97,7 +97,7 @@ fn call_format_tab_title(
     }) {
         Ok(s) => s,
         Err(err) => {
-            log::warn!("format-tab-title: {}", err);
+            log::warn!("format-tab-title: {err}");
             None
         }
     }
@@ -114,7 +114,7 @@ fn call_format_tab_title(
 /// We use an empty circle for values close to 0%, a filled circle for values
 /// close to 100%, and a partly filled circle for the rest (roughly evenly
 /// distributed).
-fn pct_to_glyph(pct: u8) -> char {
+const fn pct_to_glyph(pct: u8) -> char {
     match pct {
         0..=5 => '\u{f0130}',    // empty circle
         6..=18 => '\u{f0a9e}',   // centered at 12 (slightly smaller than 12.5)
@@ -140,82 +140,74 @@ fn compute_tab_title(
 ) -> TitleText {
     let title = call_format_tab_title(tab, tab_info, pane_info, config, hover, tab_max_width);
 
-    match title {
-        Some(title) => title,
-        None => {
-            let mut items = vec![];
-            let mut len = 0;
+    if let Some(title) = title { title } else {
+        let mut items = vec![];
+        let mut len = 0;
 
-            if let Some(pane) = &tab.active_pane {
-                let mut title = if tab.tab_title.is_empty() {
-                    pane.title.clone()
-                } else {
-                    tab.tab_title.clone()
-                };
-
-                let classic_spacing = if config.use_fancy_tab_bar { "" } else { " " };
-                if config.show_tab_index_in_tab_bar {
-                    let index = format!(
-                        "{classic_spacing}{}: ",
-                        tab.tab_index
-                            + if config.tab_and_split_indices_are_zero_based {
-                                0
-                            } else {
-                                1
-                            }
-                    );
-                    len += unicode_column_width(&index, None);
-                    items.push(FormatItem::Text(index));
-
-                    title = format!("{}{classic_spacing}", title);
-                }
-
-                match pane.progress {
-                    Progress::None => {}
-                    Progress::Percentage(pct) | Progress::Error(pct) => {
-                        let graphic = format!("{} ", pct_to_glyph(pct));
-                        len += unicode_column_width(&graphic, None);
-                        let color = if matches!(pane.progress, Progress::Percentage(_)) {
-                            FormatItem::Foreground(FormatColor::AnsiColor(AnsiColor::Green))
-                        } else {
-                            FormatItem::Foreground(FormatColor::AnsiColor(AnsiColor::Red))
-                        };
-                        items.push(color);
-                        items.push(FormatItem::Text(graphic));
-                        items.push(FormatItem::Foreground(FormatColor::Default));
-                    }
-                    Progress::Indeterminate => {
-                        // TODO: Decide what to do here to indicate this
-                    }
-                }
-
-                // We have a preferred soft minimum on tab width to make it
-                // easier to click on tab titles, but we'll still go below
-                // this if there are too many tabs to fit the window at
-                // this width.
-                if !config.use_fancy_tab_bar {
-                    while len + unicode_column_width(&title, None) < 5 {
-                        title.push(' ');
-                    }
-                }
-
-                len += unicode_column_width(&title, None);
-                items.push(FormatItem::Text(title));
+        if let Some(pane) = &tab.active_pane {
+            let mut title = if tab.tab_title.is_empty() {
+                pane.title.clone()
             } else {
-                let title = " no pane ".to_string();
-                len += unicode_column_width(&title, None);
-                items.push(FormatItem::Text(title));
+                tab.tab_title.clone()
             };
 
-            TitleText { len, items }
+            let classic_spacing = if config.use_fancy_tab_bar { "" } else { " " };
+            if config.show_tab_index_in_tab_bar {
+                let index = format!(
+                    "{classic_spacing}{}: ",
+                    tab.tab_index
+                        + usize::from(!config.tab_and_split_indices_are_zero_based)
+                );
+                len += unicode_column_width(&index, None);
+                items.push(FormatItem::Text(index));
+
+                title = format!("{title}{classic_spacing}");
+            }
+
+            match pane.progress {
+                Progress::None => {}
+                Progress::Percentage(pct) | Progress::Error(pct) => {
+                    let graphic = format!("{} ", pct_to_glyph(pct));
+                    len += unicode_column_width(&graphic, None);
+                    let color = if matches!(pane.progress, Progress::Percentage(_)) {
+                        FormatItem::Foreground(FormatColor::AnsiColor(AnsiColor::Green))
+                    } else {
+                        FormatItem::Foreground(FormatColor::AnsiColor(AnsiColor::Red))
+                    };
+                    items.push(color);
+                    items.push(FormatItem::Text(graphic));
+                    items.push(FormatItem::Foreground(FormatColor::Default));
+                }
+                Progress::Indeterminate => {
+                    // TODO: Decide what to do here to indicate this
+                }
+            }
+
+            // We have a preferred soft minimum on tab width to make it
+            // easier to click on tab titles, but we'll still go below
+            // this if there are too many tabs to fit the window at
+            // this width.
+            if !config.use_fancy_tab_bar {
+                while len + unicode_column_width(&title, None) < 5 {
+                    title.push(' ');
+                }
+            }
+
+            len += unicode_column_width(&title, None);
+            items.push(FormatItem::Text(title));
+        } else {
+            let title = " no pane ".to_string();
+            len += unicode_column_width(&title, None);
+            items.push(FormatItem::Text(title));
         }
+
+        TitleText { items, len }
     }
 }
 
 fn is_tab_hover(mouse_x: Option<usize>, x: usize, tab_title_len: usize) -> bool {
-    return mouse_x
-        .map(|mouse_x| mouse_x >= x && mouse_x < x + tab_title_len)
-        .unwrap_or(false);
+    mouse_x
+        .is_some_and(|mouse_x| mouse_x >= x && mouse_x < x + tab_title_len)
 }
 
 impl TabBarState {
@@ -231,7 +223,7 @@ impl TabBarState {
         }
     }
 
-    pub fn line(&self) -> &Line {
+    pub const fn line(&self) -> &Line {
         &self.line
     }
 
@@ -274,10 +266,10 @@ impl TabBarState {
         );
 
         let window_close =
-            parse_status_text(&config.tab_bar_style.window_close, default_cell.clone());
+            parse_status_text(&config.tab_bar_style.window_close, default_cell);
         let window_close_hover = parse_status_text(
             &config.tab_bar_style.window_close_hover,
-            default_cell_hover.clone(),
+            default_cell_hover,
         );
 
         for button in &config.integrated_title_buttons {
@@ -327,8 +319,8 @@ impl TabBarState {
     }
 
     /// Build a new tab bar from the current state
-    /// mouse_x is some if the mouse is on the same row as the tab bar.
-    /// title_width is the total number of cell columns in the window.
+    /// `mouse_x` is some if the mouse is on the same row as the tab bar.
+    /// `title_width` is the total number of cell columns in the window.
     /// window allows access to the tabs associated with the window.
     pub fn new(
         title_width: usize,
@@ -353,7 +345,7 @@ impl TabBarState {
             if config.use_fancy_tab_bar {
                 CellAttributes::default()
             } else {
-                new_tab_attrs.clone()
+                new_tab_attrs
             },
         );
         let new_tab_hover = parse_status_text(
@@ -361,7 +353,7 @@ impl TabBarState {
             if config.use_fancy_tab_bar {
                 CellAttributes::default()
             } else {
-                new_tab_hover_attrs.clone()
+                new_tab_hover_attrs
             },
         );
 
@@ -404,7 +396,7 @@ impl TabBarState {
             title_width.saturating_sub(number_of_tabs.saturating_sub(1) + new_tab.len());
         let tab_width_max = if config.use_fancy_tab_bar || available_cells >= titles_len {
             // We can render each title with its full width
-            usize::max_value()
+            usize::MAX
         } else {
             // We need to clamp the length to balance them out
             available_cells / number_of_tabs
@@ -424,10 +416,10 @@ impl TabBarState {
 
         if use_integrated_title_buttons
             && config.integrated_title_button_style == IntegratedTitleButtonStyle::MacOsNative
-            && config.use_fancy_tab_bar == false
-            && config.tab_bar_at_bottom == false
+            && !config.use_fancy_tab_bar
+            && !config.tab_bar_at_bottom
         {
-            for _ in 0..10 as usize {
+            for _ in 0..10_usize {
                 line.insert_cell(0, black_cell.clone(), title_width, SEQ_ZERO);
                 x += 1;
             }
@@ -441,7 +433,7 @@ impl TabBarState {
         }
 
         let left_status_line = parse_status_text(left_status, black_cell.attrs().clone());
-        if left_status_line.len() > 0 {
+        if !left_status_line.is_empty() {
             items.push(TabEntry {
                 item: TabBarItem::LeftStatus,
                 title: left_status_line.clone(),
@@ -609,7 +601,7 @@ impl TabBarState {
     pub fn compute_ui_items(&self, y: usize, cell_height: usize, cell_width: usize) -> Vec<UIItem> {
         let mut items = vec![];
 
-        for entry in self.items.iter() {
+        for entry in &self.items {
             items.push(UIItem {
                 x: entry.x * cell_width,
                 width: entry.width * cell_width,
@@ -662,57 +654,54 @@ pub fn parse_status_text(text: &str, default_cell: CellAttributes) -> Line {
             }
             Action::CSI(csi) => {
                 flush_print(&mut print_buffer, &mut cells, &pen);
-                match csi {
-                    CSI::Sgr(sgr) => match sgr {
-                        Sgr::Reset => pen = default_cell.clone(),
-                        Sgr::Intensity(i) => {
-                            pen.set_intensity(i);
+                if let CSI::Sgr(sgr) = csi { match sgr {
+                    Sgr::Reset => pen = default_cell.clone(),
+                    Sgr::Intensity(i) => {
+                        pen.set_intensity(i);
+                    }
+                    Sgr::Underline(u) => {
+                        pen.set_underline(u);
+                    }
+                    Sgr::Overline(o) => {
+                        pen.set_overline(o);
+                    }
+                    Sgr::VerticalAlign(o) => {
+                        pen.set_vertical_align(o);
+                    }
+                    Sgr::Blink(b) => {
+                        pen.set_blink(b);
+                    }
+                    Sgr::Italic(i) => {
+                        pen.set_italic(i);
+                    }
+                    Sgr::Inverse(inverse) => {
+                        pen.set_reverse(inverse);
+                    }
+                    Sgr::Invisible(invis) => {
+                        pen.set_invisible(invis);
+                    }
+                    Sgr::StrikeThrough(strike) => {
+                        pen.set_strikethrough(strike);
+                    }
+                    Sgr::Foreground(col) => {
+                        if col == ColorSpec::Default {
+                            pen.set_foreground(default_cell.foreground());
+                        } else {
+                            pen.set_foreground(col);
                         }
-                        Sgr::Underline(u) => {
-                            pen.set_underline(u);
+                    }
+                    Sgr::Background(col) => {
+                        if col == ColorSpec::Default {
+                            pen.set_background(default_cell.background());
+                        } else {
+                            pen.set_background(col);
                         }
-                        Sgr::Overline(o) => {
-                            pen.set_overline(o);
-                        }
-                        Sgr::VerticalAlign(o) => {
-                            pen.set_vertical_align(o);
-                        }
-                        Sgr::Blink(b) => {
-                            pen.set_blink(b);
-                        }
-                        Sgr::Italic(i) => {
-                            pen.set_italic(i);
-                        }
-                        Sgr::Inverse(inverse) => {
-                            pen.set_reverse(inverse);
-                        }
-                        Sgr::Invisible(invis) => {
-                            pen.set_invisible(invis);
-                        }
-                        Sgr::StrikeThrough(strike) => {
-                            pen.set_strikethrough(strike);
-                        }
-                        Sgr::Foreground(col) => {
-                            if let ColorSpec::Default = col {
-                                pen.set_foreground(default_cell.foreground());
-                            } else {
-                                pen.set_foreground(col);
-                            }
-                        }
-                        Sgr::Background(col) => {
-                            if let ColorSpec::Default = col {
-                                pen.set_background(default_cell.background());
-                            } else {
-                                pen.set_background(col);
-                            }
-                        }
-                        Sgr::UnderlineColor(col) => {
-                            pen.set_underline_color(col);
-                        }
-                        Sgr::Font(_) => {}
-                    },
-                    _ => {}
-                }
+                    }
+                    Sgr::UnderlineColor(col) => {
+                        pen.set_underline_color(col);
+                    }
+                    Sgr::Font(_) => {}
+                } }
             }
             Action::OperatingSystemCommand(_)
             | Action::DeviceControl(_)

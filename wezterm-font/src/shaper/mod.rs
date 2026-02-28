@@ -89,7 +89,7 @@ pub struct PresentationWidth<'a> {
 }
 
 impl<'a> PresentationWidth<'a> {
-    pub fn with_cluster(cluster: &'a CellCluster) -> Self {
+    pub const fn with_cluster(cluster: &'a CellCluster) -> Self {
         Self { cluster }
     }
 
@@ -113,6 +113,14 @@ impl<'a> PresentationWidth<'a> {
     }
 }
 
+#[derive(Clone)]
+pub struct ShapeContext<'a> {
+    pub presentation: Option<termwiz::cell::Presentation>,
+    pub direction: Direction,
+    pub range: Option<Range<usize>>,
+    pub presentation_width: Option<&'a PresentationWidth<'a>>,
+}
+
 pub trait FontShaper {
     /// Shape text and return a vector of GlyphInfo
     fn shape(
@@ -121,10 +129,7 @@ pub trait FontShaper {
         size: f64,
         dpi: u32,
         no_glyphs: &mut Vec<char>,
-        presentation: Option<termwiz::cell::Presentation>,
-        direction: Direction,
-        range: Option<Range<usize>>,
-        presentation_width: Option<&PresentationWidth>,
+        ctx: crate::shaper::ShapeContext,
     ) -> anyhow::Result<Vec<GlyphInfo>>;
 
     /// Compute the font metrics for the preferred font

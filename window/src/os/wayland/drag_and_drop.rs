@@ -31,7 +31,7 @@ impl DragAndDrop {
         let SurfaceAndOffer { window_id, offer } = self.offer.take()?;
         let read = offer
             .receive(URI_MIME_TYPE.to_string())
-            .map_err(|err| log::error!("Unable to receive data: {:#}", err))
+            .map_err(|err| log::error!("Unable to receive data: {err:#}"))
             .ok()?;
         offer.finish();
         Some(SurfaceAndPipe { window_id, read })
@@ -40,7 +40,7 @@ impl DragAndDrop {
     pub(super) fn read_paths_from_pipe(read: ReadPipe) -> Option<Vec<PathBuf>> {
         read_pipe_with_timeout(read)
             .map_err(|err| {
-                log::error!("Error while reading pipe from drop result: {:#}", err);
+                log::error!("Error while reading pipe from drop result: {err:#}");
             })
             .ok()?
             .lines()
@@ -52,12 +52,12 @@ impl DragAndDrop {
                 }
                 let url = Url::parse(line)
                     .map_err(|err| {
-                        log::error!("Error parsing dropped file line {} as url: {:#}", line, err);
+                        log::error!("Error parsing dropped file line {line} as url: {err:#}");
                     })
                     .ok()?;
                 url.to_file_path()
-                    .map_err(|_| {
-                        log::error!("Error converting url {} from line {} to pathbuf", url, line);
+                    .map_err(|()| {
+                        log::error!("Error converting url {url} from line {line} to pathbuf");
                     })
                     .ok()
             })

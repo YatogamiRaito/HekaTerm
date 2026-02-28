@@ -128,7 +128,7 @@ impl Write for TtyWriteHandle {
     fn flush(&mut self) -> std::result::Result<(), IoError> {
         self.flush_local_buffer()?;
         self.drain()
-            .map_err(|e| IoError::new(ErrorKind::Other, format!("{}", e)))?;
+            .map_err(|e| IoError::other(format!("{e}")))?;
         Ok(())
     }
 }
@@ -216,7 +216,7 @@ impl UnixTerminal {
     /// Note that this will duplicate the underlying file descriptors
     /// and will no longer participate in the stdin/stdout locking
     /// provided by the rust standard library.
-    pub fn new_from_stdio(caps: Capabilities) -> Result<UnixTerminal> {
+    pub fn new_from_stdio(caps: Capabilities) -> Result<Self> {
         Self::new_with(caps, &stdin(), &stdout())
     }
 
@@ -224,7 +224,7 @@ impl UnixTerminal {
         caps: Capabilities,
         read: &A,
         write: &B,
-    ) -> Result<UnixTerminal> {
+    ) -> Result<Self> {
         let mut read = TtyReadHandle::new(FileDescriptor::dup(read)?);
         let mut write = TtyWriteHandle::new(FileDescriptor::dup(write)?);
         let saved_termios = write.get_termios()?;
@@ -242,7 +242,7 @@ impl UnixTerminal {
 
         read.set_blocking(Blocking::Wait)?;
 
-        Ok(UnixTerminal {
+        Ok(Self {
             caps,
             read,
             write,
@@ -262,7 +262,7 @@ impl UnixTerminal {
     /// (/dev/tty) and build a `UnixTerminal` from there.  This will
     /// yield a terminal even if the stdio streams have been redirected,
     /// provided that the process has an associated controlling terminal.
-    pub fn new(caps: Capabilities) -> Result<UnixTerminal> {
+    pub fn new(caps: Capabilities) -> Result<Self> {
         let file = OpenOptions::new().read(true).write(true).open("/dev/tty")?;
         Self::new_with(caps, &file, &file)
     }
@@ -299,7 +299,7 @@ pub struct UnixTerminalWaker {
 impl UnixTerminalWaker {
     pub fn wake(&self) -> std::result::Result<(), IoError> {
         let mut pipe = self.pipe.lock().unwrap();
-        match pipe.write(b"W") {
+        match pipe.write_all(b"W") {
             Err(e) => match e.kind() {
                 ErrorKind::WouldBlock => Ok(()),
                 _ => Err(e),
@@ -444,7 +444,7 @@ impl Terminal for UnixTerminal {
         if let Err(err) = poll(&mut pfd, wait) {
             return match err
                 .source()
-                .ok_or_else(|| anyhow::anyhow!("error has no source! {:#}", err))?
+                .ok_or_else(|| anyhow::anyhow!("error has no source! {err:#}"))?
                 .downcast_ref::<std::io::Error>()
             {
                 Some(err) => {
@@ -492,11 +492,10 @@ impl Terminal for UnixTerminal {
 
         if pfd[2].revents != 0 {
             let mut buf = [0u8; 64];
-            if let Ok(n) = self.wake_pipe.read(&mut buf) {
-                if n > 0 {
+            if let Ok(n) = self.wake_pipe.read(&mut buf)
+                && n > 0 {
                     return Ok(Some(InputEvent::Wake));
                 }
-            }
         }
 
         Ok(None)

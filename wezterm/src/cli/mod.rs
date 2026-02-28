@@ -33,10 +33,10 @@ enum CliOutputFormatKind {
 
 impl std::str::FromStr for CliOutputFormatKind {
     type Err = anyhow::Error;
-    fn from_str(s: &str) -> Result<CliOutputFormatKind, Self::Err> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "json" => Ok(CliOutputFormatKind::Json),
-            "table" => Ok(CliOutputFormatKind::Table),
+            "json" => Ok(Self::Json),
+            "table" => Ok(Self::Table),
             _ => Err(anyhow::anyhow!("unknown output format")),
         }
     }
@@ -205,7 +205,7 @@ async fn run_cli_async(opts: &crate::Opt, cli: CliCommand) -> anyhow::Result<()>
 pub fn run_cli(opts: &crate::Opt, cli: CliCommand) -> anyhow::Result<()> {
     let executor = promise::spawn::ScopedExecutor::new();
     match promise::spawn::block_on(executor.run(async move { run_cli_async(opts, cli).await })) {
-        Ok(_) => Ok(()),
+        Ok(()) => Ok(()),
         Err(err) => crate::terminate_with_error(err),
     }
 }

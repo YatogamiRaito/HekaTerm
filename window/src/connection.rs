@@ -8,7 +8,7 @@ use std::rc::Rc;
 use std::sync::Mutex;
 
 thread_local! {
-    static CONN: RefCell<Option<Rc<Connection>>> = RefCell::new(None);
+    static CONN: RefCell<Option<Rc<Connection>>> = const { RefCell::new(None) };
 }
 
 fn nop_event_handler(_event: ApplicationEvent) {}
@@ -27,6 +27,7 @@ pub enum ApplicationEvent {
 }
 
 pub trait ConnectionOps {
+    #[must_use] 
     fn get() -> Option<Rc<Connection>> {
         let mut res = None;
         CONN.with(|m| {
@@ -90,17 +91,14 @@ pub trait ConnectionOps {
                     GeometryOrigin::ScreenCoordinateSystem => screens.virtual_rect,
                     GeometryOrigin::MainScreen => screens.main.rect,
                     GeometryOrigin::ActiveScreen => screens.active.rect,
-                    GeometryOrigin::Named(name) => match screens.by_name.get(&name) {
-                        Some(info) => info.rect,
-                        None => {
-                            log::error!(
-                            "Requested display {} was not found; available displays are: {:?}. \
-                             Using primary display instead",
-                            name,
-                            screens.by_name,
-                        );
-                            screens.main.rect
-                        }
+                    GeometryOrigin::Named(name) => if let Some(info) = screens.by_name.get(&name) { info.rect } else {
+                        log::error!(
+                        "Requested display {} was not found; available displays are: {:?}. \
+                         Using primary display instead",
+                        name,
+                        screens.by_name,
+                    );
+                        screens.main.rect
                     },
                 }
             }

@@ -41,13 +41,13 @@ impl PointerHandler for WaylandState {
                 self.active_surface_id = RefCell::new(Some(surface_id.clone()));
                 pstate.active_surface_id = Some(surface_id);
             }
-            if let Some(serial) = event_serial(&evt) {
+            if let Some(serial) = event_serial(evt) {
                 *self.last_serial.borrow_mut() = serial;
                 pstate.serial = serial;
             }
             if let Some(pending) = self
                 .surface_to_pending
-                .get(&self.active_surface_id.borrow().as_ref().unwrap())
+                .get(self.active_surface_id.borrow().as_ref().unwrap())
             {
                 let mut pending = pending.lock().unwrap();
                 if pending.queue(evt) {
@@ -132,7 +132,7 @@ impl PendingMouse {
                 changed
             }
             PointerEventKind::Press { button, .. } | PointerEventKind::Release { button, .. } => {
-                fn linux_button(b: u32) -> Option<MousePress> {
+                const fn linux_button(b: u32) -> Option<MousePress> {
                     // See BTN_LEFT and friends in <linux/input-event-codes.h>
                     match b {
                         0x110 => Some(MousePress::Left),
@@ -190,7 +190,7 @@ impl PendingMouse {
     }
 }
 
-fn event_serial(event: &PointerEvent) -> Option<u32> {
+const fn event_serial(event: &PointerEvent) -> Option<u32> {
     Some(match event.kind {
         PointerEventKind::Enter { serial, .. } => serial,
         PointerEventKind::Leave { serial, .. } => serial,
@@ -241,11 +241,7 @@ impl WaylandState {
                     }
                     PointerEventKind::Press { button, serial, .. }
                     | PointerEventKind::Release { button, serial, .. } => {
-                        let pressed = if matches!(evt.kind, PointerEventKind::Press { .. }) {
-                            true
-                        } else {
-                            false
-                        };
+                        let pressed = matches!(evt.kind, PointerEventKind::Press { .. });
                         let click = match button {
                             0x110 => FrameClick::Normal,
                             0x111 => FrameClick::Alternate,

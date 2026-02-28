@@ -67,11 +67,10 @@ impl KeyTableState {
         let should_pop = self
             .stack
             .last()
-            .map(|entry| match entry.expiration {
+            .is_some_and(|entry| match entry.expiration {
                 Some(deadline) => Instant::now() >= deadline,
                 None => false,
-            })
-            .unwrap_or(false);
+            });
         if !should_pop {
             return false;
         }
@@ -83,8 +82,7 @@ impl KeyTableState {
         while self
             .stack
             .last()
-            .map(|entry| entry.until_unknown)
-            .unwrap_or(false)
+            .is_some_and(|entry| entry.until_unknown)
         {
             self.pop();
         }
@@ -166,8 +164,7 @@ impl KeyTableState {
         let should_pop = self
             .stack
             .last()
-            .map(|entry| entry.one_shot)
-            .unwrap_or(false);
+            .is_some_and(|entry| entry.one_shot);
         if should_pop {
             self.pop();
         }
@@ -215,21 +212,20 @@ impl super::TermWindow {
         mods: Modifiers,
         only_key_bindings: OnlyKeyBindings,
     ) -> Option<(KeyTableEntry, Option<String>)> {
-        if let Some(overlay) = self.pane_state(pane.pane_id()).overlay.as_mut() {
-            if let Some((entry, table_name)) = overlay.key_table_state.lookup_key(
+        if let Some(overlay) = self.pane_state(pane.pane_id()).overlay.as_mut()
+            && let Some((entry, table_name)) = overlay.key_table_state.lookup_key(
                 &self.input_map,
                 keycode,
                 mods,
                 only_key_bindings,
             ) {
-                return Some((entry, table_name.map(|s| s.to_string())));
+                return Some((entry, table_name));
             }
-        }
         if let Some((entry, table_name)) =
             self.key_table_state
                 .lookup_key(&self.input_map, keycode, mods, only_key_bindings)
         {
-            return Some((entry, table_name.map(|s| s.to_string())));
+            return Some((entry, table_name));
         }
         self.input_map
             .lookup_key(keycode, mods, None)
@@ -250,7 +246,7 @@ impl super::TermWindow {
     ) -> bool {
         if is_down && !leader_active {
             // Check to see if this key-press is the leader activating
-            if let Some(duration) = self.input_map.is_leader(&keycode, raw_modifiers) {
+            if let Some(duration) = self.input_map.is_leader(keycode, raw_modifiers) {
                 // Yes; record its expiration
                 let target = std::time::Instant::now() + duration;
                 self.leader_is_down.replace(target);
@@ -269,9 +265,9 @@ impl super::TermWindow {
         }
 
         if is_down {
-            if only_key_bindings == OnlyKeyBindings::No {
-                if let Some(modal) = self.get_modal() {
-                    if let Key::Code(term_key) = self.win_key_code_to_termwiz_key_code(keycode) {
+            if only_key_bindings == OnlyKeyBindings::No
+                && let Some(modal) = self.get_modal()
+                    && let Key::Code(term_key) = self.win_key_code_to_termwiz_key_code(keycode) {
                         match modal.key_down(term_key, raw_modifiers.remove_positional_mods(), self)
                         {
                             Ok(true) => return true,
@@ -282,12 +278,10 @@ impl super::TermWindow {
                             }
                         }
                     }
-                }
-            }
 
             if let Some((entry, table_name)) = self.lookup_key(
                 pane,
-                &keycode,
+                keycode,
                 raw_modifiers | leader_mod,
                 only_key_bindings,
             ) {
@@ -295,7 +289,7 @@ impl super::TermWindow {
                     log::info!(
                         "{}{:?} {:?} -> perform {:?}",
                         match table_name {
-                            Some(name) => format!("table:{} ", name),
+                            Some(name) => format!("table:{name} "),
                             None => String::new(),
                         },
                         keycode,
@@ -305,11 +299,10 @@ impl super::TermWindow {
                 }
 
                 self.key_table_state.did_process_key();
-                let handled = match self.perform_key_assignment(&pane, &entry.action) {
-                    Ok(PerformAssignmentResult::Handled) => true,
-                    Err(_) => true,
-                    Ok(_) => false,
-                };
+                let handled = matches!(
+                    self.perform_key_assignment(pane, &entry.action),
+                    Ok(PerformAssignmentResult::Handled) | Err(_)
+                );
 
                 if handled {
                     context.invalidate();
@@ -353,27 +346,27 @@ impl super::TermWindow {
                     || (!raw_modifiers.contains(Modifiers::RIGHT_ALT)
                         && !raw_modifiers.contains(Modifiers::LEFT_ALT)
                         && raw_modifiers.contains(Modifiers::ALT)
-                        && !(config.send_composed_key_when_left_alt_is_pressed
-                             || config.send_composed_key_when_right_alt_is_pressed));
+                        && !config.send_composed_key_when_left_alt_is_pressed
+                        && !config.send_composed_key_when_right_alt_is_pressed);
 
-            if bypass_compose {
-                if let Key::Code(term_key) = self.win_key_code_to_termwiz_key_code(keycode) {
+            if bypass_compose
+                && let Key::Code(term_key) = self.win_key_code_to_termwiz_key_code(keycode) {
                     let tw_raw_modifiers = raw_modifiers;
 
                     let mut did_encode = false;
                     if let Some(key_event) = key_event {
-                        if let Some(encoded) = self.encode_win32_input(&pane, &key_event) {
+                        if let Some(encoded) = self.encode_win32_input(pane, key_event) {
                             if self.config.debug_key_events {
-                                log::info!("win32: Encoded input as {:?}", encoded);
+                                log::info!("win32: Encoded input as {encoded:?}");
                             }
                             pane.writer()
                                 .write_all(encoded.as_bytes())
                                 .context("sending win32-input-mode encoded data")
                                 .ok();
                             did_encode = true;
-                        } else if let Some(encoded) = self.encode_kitty_input(&pane, &key_event) {
+                        } else if let Some(encoded) = self.encode_kitty_input(pane, key_event) {
                             if self.config.debug_key_events {
-                                log::info!("kitty: Encoded input as {:?}", encoded);
+                                log::info!("kitty: Encoded input as {encoded:?}");
                             }
                             pane.writer()
                                 .write_all(encoded.as_bytes())
@@ -381,15 +374,11 @@ impl super::TermWindow {
                                 .ok();
                             did_encode = true;
                         }
-                    };
+                    }
                     if !did_encode {
                         if self.config.debug_key_events {
                             log::info!(
-                                "{:?} {:?} -> send to pane {:?} {:?}",
-                                keycode,
-                                raw_modifiers,
-                                term_key,
-                                tw_raw_modifiers
+                                "{keycode:?} {raw_modifiers:?} -> send to pane {term_key:?} {tw_raw_modifiers:?}"
                             );
                         }
 
@@ -399,14 +388,14 @@ impl super::TermWindow {
                             pane.key_up(term_key, tw_raw_modifiers)
                         }
                         .is_ok();
-                    };
+                    }
 
                     if did_encode {
                         if is_down
                             && !keycode.is_modifier()
                             && self.pane_state(pane.pane_id()).overlay.is_none()
                         {
-                            self.maybe_scroll_to_bottom_for_input(&pane);
+                            self.maybe_scroll_to_bottom_for_input(pane);
                         }
                         if is_down
                             && self.config.hide_mouse_cursor_when_typing
@@ -421,7 +410,6 @@ impl super::TermWindow {
                         return true;
                     }
                 }
-            }
         }
 
         false
@@ -469,11 +457,11 @@ impl super::TermWindow {
             _ => key.phys_code.map(KeyCode::Physical),
         };
 
-        if let Some(phys_key) = &phys_key {
-            if self.process_key(
+        if let Some(phys_key) = &phys_key
+            && self.process_key(
                 &pane,
                 context,
-                &phys_key,
+                phys_key,
                 key.modifiers,
                 leader_active,
                 leader_mod,
@@ -484,7 +472,6 @@ impl super::TermWindow {
                 key.set_handled();
                 return;
             }
-        }
 
         // Then try the raw code
         let raw_key = match &key.key {
@@ -527,7 +514,7 @@ impl super::TermWindow {
         }
     }
 
-    pub fn current_modifier_and_led_state(&self) -> (Modifiers, KeyboardLedStatus) {
+    pub const fn current_modifier_and_led_state(&self) -> (Modifiers, KeyboardLedStatus) {
         self.current_modifier_and_leds
     }
 
@@ -559,32 +546,29 @@ impl super::TermWindow {
     pub fn current_key_table_name(&mut self) -> Option<String> {
         let mut name = None;
 
-        if let Some(pane) = self.get_active_pane_or_overlay() {
-            if let Some(overlay) = self.pane_state(pane.pane_id()).overlay.as_mut() {
+        if let Some(pane) = self.get_active_pane_or_overlay()
+            && let Some(overlay) = self.pane_state(pane.pane_id()).overlay.as_mut() {
                 name = overlay
                     .key_table_state
                     .current_table()
-                    .map(|s| s.to_string());
+                    .map(std::string::ToString::to_string);
 
-                if let Some(entry) = overlay.key_table_state.stack.last() {
-                    if let Some(expiry) = entry.expiration {
+                if let Some(entry) = overlay.key_table_state.stack.last()
+                    && let Some(expiry) = entry.expiration {
                         self.update_next_frame_time(Some(expiry));
                     }
-                }
             }
-        }
         if name.is_none() {
-            name = self.key_table_state.current_table().map(|s| s.to_string());
+            name = self.key_table_state.current_table().map(std::string::ToString::to_string);
         }
-        if let Some(entry) = self.key_table_state.stack.last() {
-            if let Some(expiry) = entry.expiration {
+        if let Some(entry) = self.key_table_state.stack.last()
+            && let Some(expiry) = entry.expiration {
                 self.update_next_frame_time(Some(expiry));
             }
-        }
         name
     }
 
-    pub fn composition_status(&self) -> &DeadKeyStatus {
+    pub const fn composition_status(&self) -> &DeadKeyStatus {
         &self.dead_key_status
     }
 
@@ -673,14 +657,14 @@ impl super::TermWindow {
 
                 let res = if let Some(encoded) = self.encode_win32_input(&pane, &window_key) {
                     if self.config.debug_key_events {
-                        log::info!("win32: Encoded input as {:?}", encoded);
+                        log::info!("win32: Encoded input as {encoded:?}");
                     }
                     pane.writer()
                         .write_all(encoded.as_bytes())
                         .context("sending win32-input-mode encoded data")
                 } else if let Some(encoded) = self.encode_kitty_input(&pane, &window_key) {
                     if self.config.debug_key_events {
-                        log::info!("kitty: Encoded input as {:?}", encoded);
+                        log::info!("kitty: Encoded input as {encoded:?}");
                     }
                     pane.writer()
                         .write_all(encoded.as_bytes())
@@ -733,7 +717,7 @@ impl super::TermWindow {
                 }
                 self.key_table_state.did_process_key();
                 if self.config.debug_key_events {
-                    log::info!("send to pane string={:?}", s);
+                    log::info!("send to pane string={s:?}");
                 }
                 pane.writer().write_all(s.as_bytes()).ok();
                 self.maybe_scroll_to_bottom_for_input(&pane);
@@ -772,14 +756,13 @@ impl super::TermWindow {
             }
 
             WK::Char(c) => KC::Char(*c),
-            WK::Composed(ref s) => {
+            WK::Composed(s) => {
                 let mut chars = s.chars();
-                if let Some(first_char) = chars.next() {
-                    if chars.next().is_none() {
+                if let Some(first_char) = chars.next()
+                    && chars.next().is_none() {
                         // Was just a single char after all
                         return self.win_key_code_to_termwiz_key_code(&WK::Char(first_char));
                     }
-                }
                 return Key::Composed(s.to_owned());
             }
             WK::Function(f) => KC::Function(*f),

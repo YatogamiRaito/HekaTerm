@@ -33,7 +33,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     mux_mod.set(
         "get_active_workspace",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             let mux = get_mux()?;
             Ok(mux.active_workspace())
         })?,
@@ -41,7 +41,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     mux_mod.set(
         "get_workspace_names",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             let mux = get_mux()?;
             Ok(mux.iter_workspaces())
         })?,
@@ -53,11 +53,11 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let mux = get_mux()?;
             let workspaces = mux.iter_workspaces();
             if workspaces.contains(&workspace) {
-                Ok(mux.set_active_workspace(&workspace))
+                let _: () = mux.set_active_workspace(&workspace);
+                Ok(())
             } else {
                 Err(mlua::Error::external(format!(
-                    "{:?} is not an existing workspace",
-                    workspace
+                    "{workspace:?} is not an existing workspace"
                 )))
             }
         })?,
@@ -109,7 +109,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     mux_mod.set(
         "all_windows",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             let mux = get_mux()?;
             Ok(mux
                 .iter_windows()
@@ -148,7 +148,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     mux_mod.set(
         "all_domains",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             let mux = get_mux()?;
             Ok(mux
                 .iter_domains()
@@ -183,7 +183,7 @@ impl CommandBuilderFrag {
     fn to_command_builder(&self) -> (Option<CommandBuilder>, Option<String>) {
         if let Some(args) = &self.args {
             let mut builder = CommandBuilder::from_argv(args.iter().map(Into::into).collect());
-            for (k, v) in self.set_environment_variables.iter() {
+            for (k, v) in &self.set_environment_variables {
                 builder.env(k, v);
             }
             if let Some(cwd) = self.cwd.clone() {
@@ -197,19 +197,16 @@ impl CommandBuilderFrag {
 }
 
 #[derive(Debug, FromDynamic, ToDynamic)]
+#[derive(Default)]
 enum HandySplitDirection {
     Left,
+    #[default]
     Right,
     Top,
     Bottom,
 }
 impl_lua_conversion_dynamic!(HandySplitDirection);
 
-impl Default for HandySplitDirection {
-    fn default() -> Self {
-        Self::Right
-    }
-}
 
 #[derive(Debug, FromDynamic, ToDynamic)]
 struct SpawnWindow {
@@ -224,7 +221,7 @@ struct SpawnWindow {
 }
 impl_lua_conversion_dynamic!(SpawnWindow);
 
-fn spawn_tab_default_domain() -> SpawnTabDomain {
+const fn spawn_tab_default_domain() -> SpawnTabDomain {
     SpawnTabDomain::DefaultDomain
 }
 
@@ -243,18 +240,18 @@ impl SpawnWindow {
 
         let (cmd_builder, cwd) = self.cmd_builder.to_command_builder();
         let (tab, pane, window_id) = mux
-            .spawn_tab_or_window(
-                None,
-                self.domain,
-                cmd_builder,
-                cwd,
+            .spawn_tab_or_window(mux::SpawnTabOrWindow {
+                window_id: None,
+                domain: self.domain,
+                command: cmd_builder,
+                command_dir: cwd,
                 size,
-                None,
-                self.workspace.unwrap_or_else(|| mux.active_workspace()),
-                self.position,
-            )
+                current_pane_id: None,
+                workspace_for_new_window: self.workspace.unwrap_or_else(|| mux.active_workspace()),
+                window_position: self.position,
+            })
             .await
-            .map_err(|e| mlua::Error::external(format!("{:#?}", e)))?;
+            .map_err(|e| mlua::Error::external(format!("{e:#?}")))?;
 
         Ok((
             MuxTab(tab.tab_id()),
@@ -282,9 +279,7 @@ impl SpawnTab {
         {
             let window = window.resolve(&mux)?;
             size = window
-                .get_by_idx(0)
-                .map(|tab| tab.get_size())
-                .unwrap_or_else(|| config::configuration().initial_size(0, None));
+                .get_by_idx(0).map_or_else(|| config::configuration().initial_size(0, None), |tab| tab.get_size());
 
             pane = window
                 .get_active()
@@ -294,18 +289,18 @@ impl SpawnTab {
         let (cmd_builder, cwd) = self.cmd_builder.to_command_builder();
 
         let (tab, pane, window_id) = mux
-            .spawn_tab_or_window(
-                Some(window.0),
-                self.domain,
-                cmd_builder,
-                cwd,
+            .spawn_tab_or_window(mux::SpawnTabOrWindow {
+                window_id: Some(window.0),
+                domain: self.domain,
+                command: cmd_builder,
+                command_dir: cwd,
                 size,
-                pane,
-                String::new(),
-                None, // optional gui window position
-            )
+                current_pane_id: pane,
+                workspace_for_new_window: String::new(),
+                window_position: None, // optional gui window position
+            })
             .await
-            .map_err(|e| mlua::Error::external(format!("{:#?}", e)))?;
+            .map_err(|e| mlua::Error::external(format!("{e:#?}")))?;
 
         Ok((
             MuxTab(tab.tab_id()),

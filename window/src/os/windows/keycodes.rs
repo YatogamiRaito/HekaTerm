@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use ahash::AHashMap;
 use wezterm_input_types::PhysKeyCode;
 use winapi::shared::minwindef::WPARAM;
 use winapi::um::winuser::*;
@@ -76,7 +76,7 @@ raw = match wparam as i32 {
 };
 */
 
-fn build_map() -> HashMap<WPARAM, PhysKeyCode> {
+fn build_map() -> AHashMap<WPARAM, PhysKeyCode> {
     [
         (0x41, PhysKeyCode::A),
         (0x53, PhysKeyCode::S),
@@ -201,9 +201,7 @@ fn build_map() -> HashMap<WPARAM, PhysKeyCode> {
     .collect()
 }
 
-lazy_static::lazy_static! {
-    static ref MAP: HashMap<WPARAM, PhysKeyCode> = build_map();
-}
+static MAP: std::sync::LazyLock<AHashMap<WPARAM, PhysKeyCode>> = std::sync::LazyLock::new(|| build_map());
 
 pub fn vkey_to_phys(vkey: WPARAM) -> Option<PhysKeyCode> {
     MAP.get(&vkey).copied()

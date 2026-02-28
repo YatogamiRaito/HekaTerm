@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use termwiz::cell::{unicode_column_width, AttributeChange, Intensity};
 use termwiz::input::{InputEvent, InputParser};
-use termwiz::lineedit::*;
+use termwiz::lineedit::{BasicHistory, LineEditorHost, History, OutputElement, LineEditor};
 use termwiz::render::terminfo::TerminfoRenderer;
 use termwiz::surface::{Change, LineAttribute};
 use termwiz::terminal::{ScreenSize, Terminal, TerminalWaker};
@@ -66,14 +66,14 @@ pub fn ssh_connect_with_ui(
         let remote_address = ssh_config
             .get("hostname")
             .expect("ssh config to always set hostname");
-        ui.output_str(&format!("Connecting to {} using SSH\n", remote_address));
+        ui.output_str(&format!("Connecting to {remote_address} using SSH\n"));
         let (session, events) = Session::connect(ssh_config.clone())?;
 
         while let Ok(event) = smol::block_on(events.recv()) {
             match event {
                 SessionEvent::Banner(banner) => {
                     if let Some(banner) = banner {
-                        ui.output_str(&format!("{}\n", banner));
+                        ui.output_str(&format!("{banner}\n"));
                     }
                 }
                 SessionEvent::HostVerify(verify) => {
@@ -81,7 +81,8 @@ pub fn ssh_connect_with_ui(
                     let ok = if let Ok(line) = ui.input("Enter [y/n]> ") {
                         match line.as_ref() {
                             "y" | "Y" | "yes" | "YES" => true,
-                            "n" | "N" | "no" | "NO" | _ => false,
+                            "n" | "N" | "no" | "NO" => false,
+                            _ => false,
                         }
                     } else {
                         false
@@ -100,7 +101,7 @@ pub fn ssh_connect_with_ui(
                         let mut prompt_lines = prompt.prompt.split('\n').collect::<Vec<_>>();
                         let editor_prompt = prompt_lines.pop().unwrap();
                         for line in &prompt_lines {
-                            ui.output_str(&format!("{}\n", line));
+                            ui.output_str(&format!("{line}\n"));
                         }
                         let res = if prompt.echo {
                             ui.input(editor_prompt)
@@ -121,7 +122,7 @@ pub fn ssh_connect_with_ui(
                     anyhow::bail!("Host key verification failed");
                 }
                 SessionEvent::Error(err) => {
-                    anyhow::bail!("Error: {}", err);
+                    anyhow::bail!("Error: {err}");
                 }
                 SessionEvent::Authenticated => return Ok(session),
             }
@@ -170,8 +171,9 @@ fn format_host_verification_for_terminal(failed: HostVerificationFailed) -> Vec<
 }
 
 /// Represents a connection to remote host via ssh.
+///
 /// The domain is created with the ssh config prior to making the
-/// connection.  The connection is established by the first spawn()
+/// connection.  The connection is established by the first `spawn()`
 /// call.
 /// In order to show the authentication dialog inline in that spawned
 /// pane, we play some tricks with wrapped versions of the pty, child
@@ -198,7 +200,7 @@ pub fn ssh_domain_to_ssh_config(ssh_dom: &SshDomain) -> anyhow::Result<ConfigMap
         }
     };
 
-    let mut ssh_config = ssh_config.for_host(&remote_host_name);
+    let mut ssh_config = ssh_config.for_host(remote_host_name);
     ssh_config.insert(
         "wezterm_ssh_backend".to_string(),
         match ssh_dom
@@ -211,11 +213,11 @@ pub fn ssh_domain_to_ssh_config(ssh_dom: &SshDomain) -> anyhow::Result<ConfigMap
         .to_string(),
     );
     for (k, v) in &ssh_dom.ssh_option {
-        ssh_config.insert(k.to_string(), v.to_string());
+        ssh_config.insert(k.clone(), v.clone());
     }
 
     if let Some(username) = &ssh_dom.username {
-        ssh_config.insert("user".to_string(), username.to_string());
+        ssh_config.insert("user".to_string(), username.clone());
     }
     if let Some(port) = port {
         ssh_config.insert("port".to_string(), port.to_string());
@@ -223,7 +225,7 @@ pub fn ssh_domain_to_ssh_config(ssh_dom: &SshDomain) -> anyhow::Result<ConfigMap
     if ssh_dom.no_agent_auth {
         ssh_config.insert("identitiesonly".to_string(), "yes".to_string());
     }
-    if let Some("true") = ssh_config.get("wezterm_ssh_verbose").map(|s| s.as_str()) {
+    if ssh_config.get("wezterm_ssh_verbose").map(std::string::String::as_str) == Some("true") {
         log::info!("Using ssh config: {ssh_config:#?}");
     }
     Ok(ssh_config)
@@ -279,7 +281,7 @@ impl RemoteSshDomain {
                 format!("cd {};", shell_words::quote(&dir))
             } else if let Some(dir) = cmd.get_cwd() {
                 let dir = dir.to_str().context("converting cwd to string")?;
-                format!("cd {};", shell_words::quote(&dir))
+                format!("cd {};", shell_words::quote(dir))
             } else {
                 String::new()
             };
@@ -287,7 +289,7 @@ impl RemoteSshDomain {
             let mut env_cmd = vec!["env".to_string()];
 
             for (k, v) in env {
-                env_cmd.push(format!("{}={}", k, v));
+                env_cmd.push(format!("{k}={v}"));
             }
 
             let cmd = if cmd.is_default_prog() {
@@ -392,17 +394,13 @@ impl RemoteSshDomain {
                 session,
                 events,
                 stdin_read,
-                writer_tx,
                 &mut stdout_write,
-                reader_tx,
-                child_tx,
-                pty_tx,
+                (writer_tx, reader_tx, child_tx, pty_tx),
                 size,
-                command_line,
-                env,
+                (command_line, env),
             ) {
-                let _ = write!(stdout_write, "{:#}", err);
-                log::error!("Failed to connect ssh: {:#}", err);
+                let _ = write!(stdout_write, "{err:#}");
+                log::error!("Failed to connect ssh: {err:#}");
             }
             let _ = stdout_write.flush();
         });
@@ -422,21 +420,19 @@ fn connect_ssh_session(
     session: Session,
     events: smol::channel::Receiver<SessionEvent>,
     mut stdin_read: FileDescriptor,
-    stdin_tx: Sender<BoxedWriter>,
     stdout_write: &mut BufWriter<FileDescriptor>,
-    stdout_tx: Sender<BoxedReader>,
-    child_tx: Sender<SshChildProcess>,
-    pty_tx: Sender<SshPty>,
+    channels: (Sender<BoxedWriter>, Sender<BoxedReader>, Sender<SshChildProcess>, Sender<SshPty>),
     size: Arc<Mutex<TerminalSize>>,
-    command_line: Option<String>,
-    env: HashMap<String, String>,
+    command_ctx: (Option<String>, HashMap<String, String>),
 ) -> anyhow::Result<()> {
+    let (stdin_tx, stdout_tx, child_tx, pty_tx) = channels;
+    let (command_line, env) = command_ctx;
     struct StdoutShim<'a> {
         size: Arc<Mutex<TerminalSize>>,
         stdout: &'a mut BufWriter<FileDescriptor>,
     }
 
-    impl<'a> Write for StdoutShim<'a> {
+    impl Write for StdoutShim<'_> {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
             self.stdout.write(buf)
         }
@@ -445,7 +441,7 @@ fn connect_ssh_session(
         }
     }
 
-    impl<'a> termwiz::render::RenderTty for StdoutShim<'a> {
+    impl termwiz::render::RenderTty for StdoutShim<'_> {
         fn get_size_in_cells(&mut self) -> termwiz::Result<(usize, usize)> {
             let size = *self.size.lock().unwrap();
             Ok((size.cols as _, size.rows as _))
@@ -462,7 +458,7 @@ fn connect_ssh_session(
         input_queue: VecDeque<InputEvent>,
     }
 
-    impl<'a> termwiz::terminal::Terminal for TerminalShim<'a> {
+    impl termwiz::terminal::Terminal for TerminalShim<'_> {
         fn set_raw_mode(&mut self) -> termwiz::Result<()> {
             use termwiz::escape::csi::{DecPrivateMode, DecPrivateModeCode, Mode, CSI};
 
@@ -531,18 +527,17 @@ fn connect_ssh_session(
             self.stdin.set_non_blocking(true)?;
 
             loop {
-                if let Some(deadline) = deadline.as_ref() {
-                    if Instant::now() >= *deadline {
+                if let Some(deadline) = deadline.as_ref()
+                    && Instant::now() >= *deadline {
                         return Ok(None);
                     }
-                }
                 let mut pfd = [pollfd {
                     fd: self.stdin.as_socket_descriptor(),
                     events: POLLIN,
                     revents: 0,
                 }];
 
-                if let Ok(1) = poll(&mut pfd, Some(Duration::from_millis(200))) {
+                if matches!(poll(&mut pfd, Some(Duration::from_millis(200))), Ok(1)) {
                     let mut buf = [0u8; 64];
                     let n = self.stdin.read(&mut buf)?;
                     let input_queue = &mut self.input_queue;
@@ -553,8 +548,8 @@ fn connect_ssh_session(
                     let size = *self.size.lock().unwrap();
                     if starting_size != size {
                         return Ok(Some(InputEvent::Resized {
-                            cols: size.cols as usize,
-                            rows: size.rows as usize,
+                            cols: size.cols,
+                            rows: size.rows,
                         }));
                     }
                 }
@@ -581,9 +576,9 @@ fn connect_ssh_session(
         input_queue: VecDeque::new(),
     };
 
-    impl<'a> TerminalShim<'a> {
+    impl TerminalShim<'_> {
         fn output_line(&mut self, s: &str) -> termwiz::Result<()> {
-            let mut s = s.replace("\n", "\r\n");
+            let mut s = s.replace('\n', "\r\n");
             s.push_str("\r\n");
             self.render(&[Change::Text(s)])
         }
@@ -600,13 +595,16 @@ fn connect_ssh_session(
             SessionEvent::HostVerify(verify) => {
                 shim.output_line(&verify.message)?;
                 let mut editor = LineEditor::new(&mut shim);
-                let mut host = PasswordPromptHost::default();
-                host.echo = true;
+                let mut host = PasswordPromptHost {
+                    echo: true,
+                    ..Default::default()
+                };
                 editor.set_prompt("Enter [y/n]> ");
                 let ok = if let Some(line) = editor.read_line(&mut host)? {
                     match line.as_ref() {
                         "y" | "Y" | "yes" | "YES" => true,
-                        "n" | "N" | "no" | "NO" | _ => false,
+                        "n" | "N" | "no" | "NO" => false,
+                        _ => false,
                     }
                 } else {
                     false
@@ -640,7 +638,7 @@ fn connect_ssh_session(
                 smol::block_on(auth.answer(answers))?;
             }
             SessionEvent::Error(err) => {
-                shim.output_line(&format!("Error: {}", err))?;
+                shim.output_line(&format!("Error: {err}"))?;
             }
             SessionEvent::HostVerificationFailed(failed) => {
                 let message = format_host_verification_for_terminal(failed);
@@ -652,11 +650,11 @@ fn connect_ssh_session(
                 match smol::block_on(session.request_pty(
                     &config::configuration().term,
                     crate::terminal_size_to_pty_size(*size.lock().unwrap())?,
-                    command_line.as_ref().map(|s| s.as_str()),
+                    command_line.as_deref(),
                     Some(env),
                 )) {
                     Err(err) => {
-                        shim.output_line(&format!("Failed to spawn command: {:#}", err))?;
+                        shim.output_line(&format!("Failed to spawn command: {err:#}"))?;
                         break;
                     }
                     Ok((pty, child)) => {
@@ -669,10 +667,10 @@ fn connect_ssh_session(
                         // And send them to the wrapped reader/writer
                         stdin_tx
                             .send(Box::new(writer))
-                            .map_err(|e| anyhow!("{:#}", e))?;
+                            .map_err(|e| anyhow!("{e:#}"))?;
                         stdout_tx
                             .send(Box::new(reader))
-                            .map_err(|e| anyhow!("{:#}", e))?;
+                            .map_err(|e| anyhow!("{e:#}"))?;
 
                         // Likewise, send the real pty and child to
                         // the wrappers
@@ -721,7 +719,7 @@ impl Domain for RemoteSshDomain {
                     &config::configuration().term,
                     crate::terminal_size_to_pty_size(size)
                         .context("compute pty size from terminal size")?,
-                    command_line.as_ref().map(|s| s.as_str()),
+                    command_line.as_deref(),
                     Some(env.clone()),
                 )
                 .await
@@ -841,7 +839,7 @@ impl WrappedSshChild {
                 }
                 Err(TryRecvError::Empty) => {}
                 Err(err) => {
-                    log::debug!("WrappedSshChild::check_connected err: {:#?}", err);
+                    log::debug!("WrappedSshChild::check_connected err: {err:#?}");
                     self.exited.replace(ExitStatus::with_exit_code(1));
                 }
             }
@@ -886,7 +884,7 @@ impl portable_pty::Child for WrappedSshChild {
                 }
                 Err(smol::channel::TryRecvError::Empty) => Ok(None),
                 Err(err) => {
-                    log::debug!("WrappedSshChild::try_wait err: {:#?}", err);
+                    log::debug!("WrappedSshChild::try_wait err: {err:#?}");
                     let status = ExitStatus::with_exit_code(1);
                     self.exited.replace(status.clone());
                     Ok(Some(status))
@@ -908,7 +906,7 @@ impl portable_pty::Child for WrappedSshChild {
                     self.got_child(c);
                 }
                 Err(err) => {
-                    log::debug!("WrappedSshChild err: {:#?}", err);
+                    log::debug!("WrappedSshChild err: {err:#?}");
                     let status = ExitStatus::with_exit_code(1);
                     self.exited.replace(status.clone());
                     return Ok(status);
@@ -923,7 +921,7 @@ impl portable_pty::Child for WrappedSshChild {
                 Ok(status)
             }
             Err(err) => {
-                log::error!("WrappedSshChild err: {:#?}", err);
+                log::error!("WrappedSshChild err: {err:#?}");
                 let status = ExitStatus::with_exit_code(1);
                 self.exited.replace(status.clone());
                 Ok(status)
@@ -1045,7 +1043,7 @@ impl portable_pty::MasterPty for WrappedSshPty {
     fn resize(&self, new_size: PtySize) -> anyhow::Result<()> {
         let mut inner = self.inner.borrow_mut();
         match &mut *inner {
-            WrappedSshPtyInner::Connecting { ref mut size, .. } => {
+            WrappedSshPtyInner::Connecting { size, .. } => {
                 {
                     let mut size = size.lock().unwrap();
                     size.cols = new_size.cols as usize;
@@ -1075,8 +1073,8 @@ impl portable_pty::MasterPty for WrappedSshPty {
         let mut inner = self.inner.borrow_mut();
         inner.check_connected()?;
         match &mut *inner {
-            WrappedSshPtyInner::Connected { ref mut reader, .. }
-            | WrappedSshPtyInner::Connecting { ref mut reader, .. } => match reader.take() {
+            WrappedSshPtyInner::Connected { reader, .. }
+            | WrappedSshPtyInner::Connecting { reader, .. } => match reader.take() {
                 Some(r) => Ok(Box::new(r)),
                 None => anyhow::bail!("reader already taken"),
             },
@@ -1120,7 +1118,7 @@ impl std::io::Write for PtyWriter {
 
     fn flush(&mut self) -> std::io::Result<()> {
         match self.writer.flush() {
-            Ok(_) => Ok(()),
+            Ok(()) => Ok(()),
             res => match self.rx.recv() {
                 Ok(writer) => {
                     self.writer = writer;

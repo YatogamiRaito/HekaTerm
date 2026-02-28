@@ -1,4 +1,4 @@
-use super::*;
+use super::{ColorSchemeFile, make_prefix};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Scheme {

@@ -1,6 +1,6 @@
 use crate::commands::{CommandDef, ExpandedCommand};
 use crate::overlay::selector::{matcher_pattern, matcher_score};
-use crate::termwindow::box_model::*;
+use crate::termwindow::box_model::{ComputedElement, Element, ElementContent, ElementColors, BorderColor, DisplayType, InheritableColor, Float, BoxDimension, Corners, SizedPoly, LayoutContext};
 use crate::termwindow::modal::Modal;
 use crate::termwindow::render::corners::{
     BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER, TOP_LEFT_ROUNDED_CORNER,
@@ -100,7 +100,7 @@ fn build_commands(
 
         if let Some(lua) = lua {
             let result = config::lua::emit_sync_callback(
-                &*lua,
+                &lua,
                 ("augment-command-palette".to_string(), (gui_window, pane)),
             )?;
 
@@ -160,7 +160,7 @@ fn build_commands(
             (None, None) => {}
         }
 
-        match a.menubar.cmp(&b.menubar) {
+        match a.menubar.cmp(b.menubar) {
             Ordering::Equal => a.brief.cmp(&b.brief),
             ordering => ordering,
         }
@@ -183,7 +183,7 @@ impl MatchResult {
                 // Pump up the score for an exact match, otherwise
                 // the order may be undesirable if there are a lot
                 // of candidates with the same score
-                u32::max_value()
+                u32::MAX
             } else {
                 score
             },
@@ -222,11 +222,10 @@ impl CommandPalette {
         // is the case so that we can filter them out in build_commands.
         let filter_copy_mode = term_window
             .get_active_pane_or_overlay()
-            .map(|pane| {
+            .is_none_or(|pane| {
                 pane.downcast_ref::<crate::termwindow::CopyOverlay>()
                     .is_none()
-            })
-            .unwrap_or(true);
+            });
 
         let mux_pane = term_window
             .get_active_pane_or_overlay()
@@ -348,13 +347,11 @@ impl CommandPalette {
                 let mut keys = command.keys.clone();
 
                 keys.sort_by(|(a_mods, a_key), (b_mods, b_key)| {
-                    fn score_mods(mods: &Modifiers) -> usize {
+                    const fn score_mods(mods: &Modifiers) -> usize {
                         let mut score: usize = mods.bits() as usize;
                         // Prefer keys with CMD on macOS, but not on other systems,
                         // where CMD tends to be reserved by the desktop environment
-                        if cfg!(target_os = "macos") && mods.contains(Modifiers::SUPER) {
-                            score += 1000;
-                        } else if !cfg!(target_os = "macos") && !mods.contains(Modifiers::SUPER) {
+                        if cfg!(target_os = "macos") == mods.contains(Modifiers::SUPER) {
                             score += 1000;
                         }
                         score
@@ -368,7 +365,7 @@ impl CommandPalette {
                         ordering => return ordering,
                     }
 
-                    a_key.cmp(&b_key)
+                    a_key.cmp(b_key)
                 });
 
                 let separator = if term_window.config.ui_key_cap_rendering
@@ -458,8 +455,7 @@ impl CommandPalette {
                     term_window
                         .config
                         .command_palette_bg_color
-                        .to_linear()
-                        .into(),
+                        .to_linear(),
                 ),
                 bg: term_window
                     .config
@@ -559,9 +555,7 @@ impl CommandPalette {
         let limit = self
             .matches
             .borrow()
-            .as_ref()
-            .map(|m| m.matches.len())
-            .unwrap_or_else(|| self.commands.len())
+            .as_ref().map_or_else(|| self.commands.len(), |m| m.matches.len())
             .saturating_sub(1);
         let mut row = self.selected_row.borrow_mut();
         *row = row.saturating_add(1).min(limit);
@@ -601,7 +595,7 @@ impl Modal for CommandPalette {
             (KeyCode::DownArrow, KeyModifiers::NONE) | (KeyCode::Char('n'), KeyModifiers::CTRL) => {
                 self.move_down();
             }
-            (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+            (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
                 // Type to add to the selection
                 let mut selection = self.selection.borrow_mut();
                 selection.push(c);
@@ -635,11 +629,10 @@ impl Modal for CommandPalette {
                 }
                 term_window.cancel_modal();
 
-                if let Some(pane) = term_window.get_active_pane_or_overlay() {
-                    if let Err(err) = term_window.perform_key_assignment(&pane, &item.action) {
+                if let Some(pane) = term_window.get_active_pane_or_overlay()
+                    && let Err(err) = term_window.perform_key_assignment(&pane, &item.action) {
                         log::error!("Error while performing {item:?}: {err:#}");
                     }
-                }
                 return Ok(true);
             }
             _ => return Ok(false),
@@ -673,14 +666,13 @@ impl Modal for CommandPalette {
 
         let rebuild_matches = results
             .as_ref()
-            .map(|m| m.selection != selection)
-            .unwrap_or(true);
+            .is_none_or(|m| m.selection != selection);
         if rebuild_matches {
             results.replace(MatchResults {
                 selection: selection.to_string(),
                 matches: compute_matches(selection, &self.commands),
             });
-        };
+        }
         let matches = results.as_ref().unwrap();
 
         if self.element.borrow().is_none() {

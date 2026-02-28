@@ -23,14 +23,14 @@ pub use debug::show_debug_overlay;
 pub use launcher::{launcher, LauncherArgs, LauncherFlags};
 pub use quickselect::QuickSelectOverlay;
 
+pub type OverlayFuture<T> = Pin<Box<dyn std::future::Future<Output = anyhow::Result<T>>>>;
+pub type OverlayResult<T> = (Arc<dyn Pane>, OverlayFuture<T>);
+
 pub fn start_overlay<T, F>(
     term_window: &TermWindow,
     tab: &Arc<Tab>,
     func: F,
-) -> (
-    Arc<dyn Pane>,
-    Pin<Box<dyn std::future::Future<Output = anyhow::Result<T>>>>,
-)
+) -> OverlayResult<T>
 where
     T: Send + 'static,
     F: Send + 'static + FnOnce(TabId, TermWizTerminal) -> anyhow::Result<T>,
@@ -58,10 +58,7 @@ pub fn start_overlay_pane<T, F>(
     term_window: &TermWindow,
     pane: &Arc<dyn Pane>,
     func: F,
-) -> (
-    Arc<dyn Pane>,
-    Pin<Box<dyn std::future::Future<Output = anyhow::Result<T>>>>,
-)
+) -> OverlayResult<T>
 where
     T: Send + 'static,
     F: Send + 'static + FnOnce(PaneId, TermWizTerminal) -> anyhow::Result<T>,

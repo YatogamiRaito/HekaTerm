@@ -1,4 +1,4 @@
-use super::*;
+use super::{fetch_url_as_str, HashMap, fetch_url, Scheme, apply_nightly_version, Context, CACHE, Duration};
 use serde::Deserialize;
 use std::sync::Arc;
 use tar::Archive;
@@ -55,8 +55,7 @@ async fn extract_scheme_yamls(url: &str, tar_data: &[u8]) -> anyhow::Result<Vec<
             .path()?
             .extension()
             .and_then(|s| s.to_str())
-            .map(|s| s == "yaml" || s == "yml")
-            .unwrap_or(false)
+            .is_some_and(|s| s == "yaml" || s == "yml")
         {
             let dest_file = NamedTempFile::new()?;
             entry.unpack(dest_file.path())?;
@@ -70,7 +69,7 @@ async fn extract_scheme_yamls(url: &str, tar_data: &[u8]) -> anyhow::Result<Vec<
                 apply_nightly_version(&mut scheme.metadata);
 
                 schemes.push(Scheme {
-                    name: name,
+                    name,
                     file_name: None,
                     data: scheme,
                 });

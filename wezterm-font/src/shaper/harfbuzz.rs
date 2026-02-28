@@ -209,11 +209,9 @@ impl HarfbuzzShaper {
         font_size: f64,
         dpi: u32,
         no_glyphs: &mut Vec<char>,
-        presentation: Option<Presentation>,
-        direction: Direction,
-        range: Range<usize>,
-        presentation_width: Option<&PresentationWidth>,
+        ctx: crate::shaper::ShapeContext,
     ) -> anyhow::Result<Vec<GlyphInfo>> {
+        let range = ctx.range.clone().unwrap_or_else(|| 0..s.len());
         let mut buf = harfbuzz::Buffer::new()?;
         // We deliberately omit setting the script and leave it to harfbuzz
         // to infer from the buffer contents so that it can correctly
@@ -221,7 +219,7 @@ impl HarfbuzzShaper {
         // <https://github.com/wezterm/wezterm/issues/1474> and
         // <https://github.com/wezterm/wezterm/issues/1573>
         // buf.set_script(harfbuzz::hb_script_t::HB_SCRIPT_LATIN);
-        buf.set_direction(match direction {
+        buf.set_direction(match ctx.direction {
             Direction::LeftToRight => harfbuzz::hb_direction_t::HB_DIRECTION_LTR,
             Direction::RightToLeft => harfbuzz::hb_direction_t::HB_DIRECTION_RTL,
         });
@@ -243,7 +241,7 @@ impl HarfbuzzShaper {
         loop {
             match self.load_fallback(font_idx, dpi).context("load_fallback")? {
                 Some(mut pair) => {
-                    if let Some(p) = presentation {
+                    if let Some(p) = ctx.presentation {
                         if pair.presentation != p {
                             log::trace!(
                                 "wanted presentation is {p:?} != font \
@@ -290,9 +288,10 @@ impl HarfbuzzShaper {
                     shaped_any = pair.shaped_any;
                     font.shape(&mut buf, pair.features.as_slice());
                     log::trace!(
-                        "shaped font_idx={} {:?} presentation={presentation:?} as: {}",
+                        "shaped font_idx={} {:?} presentation={:?} as: {}",
                         font_idx,
                         &s[range.start..range.end],
+                        ctx.presentation,
                         buf.serialize(Some(&*font))
                     );
                     break;
@@ -302,7 +301,7 @@ impl HarfbuzzShaper {
                         no_glyphs.push(c);
                     }
 
-                    if presentation.is_some() {
+                    if ctx.presentation.is_some() {
                         log::debug!(
                             "Ran out of fallback options, retry shape with no presentation"
                         );
@@ -318,16 +317,16 @@ impl HarfbuzzShaper {
                         // but might potentially discover the text presentation for
                         // that glyph in a fallback font and swap it out a little
                         // later after a flash of showing the emoji one.
+                        let mut non_pres_ctx = ctx.clone();
+                        non_pres_ctx.presentation = None;
+                        non_pres_ctx.range = Some(range);
                         return self.do_shape(
                             0,
                             s,
                             font_size,
                             dpi,
                             no_glyphs,
-                            None,
-                            direction,
-                            range,
-                            presentation_width,
+                            non_pres_ctx,
                         );
                     }
 
@@ -376,7 +375,7 @@ impl HarfbuzzShaper {
         // <https://github.com/wezterm/wezterm/issues/2572>
 
         let mut cluster_resolver = ClusterResolver {
-            presentation_width,
+            presentation_width: ctx.presentation_width,
             ..Default::default()
         };
 
@@ -479,31 +478,29 @@ impl HarfbuzzShaper {
 
                 let first_info = &infos[0];
 
+                let mut fallback_ctx = ctx.clone();
+                fallback_ctx.range = Some(first_info.cluster..first_info.cluster + first_info.len);
+
                 let mut shape = match self.do_shape(
                     font_idx + 1,
                     s,
                     font_size,
                     dpi,
                     no_glyphs,
-                    presentation,
-                    direction,
-                    // NOT! substr; this is a coalesced sequence of incomplete clusters!
-                    first_info.cluster..first_info.cluster + first_info.len,
-                    presentation_width,
+                    fallback_ctx,
                 ) {
                     Ok(shape) => Ok(shape),
                     Err(e) => {
                         error!("{:?} for {:?}", e, substr);
+                        let mut fallback_ctx = ctx.clone();
+                        fallback_ctx.range = Some(sub_range);
                         self.do_shape(
                             0,
                             &make_question_string(substr),
                             font_size,
                             dpi,
                             no_glyphs,
-                            presentation,
-                            direction,
-                            sub_range,
-                            presentation_width,
+                            fallback_ctx,
                         )
                     }
                 }?;
@@ -570,28 +567,25 @@ impl FontShaper for HarfbuzzShaper {
         size: f64,
         dpi: u32,
         no_glyphs: &mut Vec<char>,
-        presentation: Option<Presentation>,
-        direction: Direction,
-        range: Option<Range<usize>>,
-        presentation_width: Option<&PresentationWidth>,
+        ctx: crate::shaper::ShapeContext,
     ) -> anyhow::Result<Vec<GlyphInfo>> {
-        let range = range.unwrap_or_else(|| 0..text.len());
+        let range = ctx.range.clone().unwrap_or_else(|| 0..text.len());
 
         log::trace!(
-            "shape {range:?} `{}` with presentation={presentation:?}",
-            text.escape_debug()
+            "shape {range:?} `{}` with presentation={:?}",
+            text.escape_debug(),
+            ctx.presentation
         );
         let start = std::time::Instant::now();
+        let mut do_ctx = ctx.clone();
+        do_ctx.range = Some(range);
         let result = self.do_shape(
             0,
             text,
             size,
             dpi,
             no_glyphs,
-            presentation,
-            direction,
-            range,
-            presentation_width,
+            do_ctx,
         );
         metrics::histogram!("shape.harfbuzz").record(start.elapsed());
         /*
@@ -815,7 +809,7 @@ impl<'a> ClusterResolver<'a> {
             Some(pw) => {
                 let cell_idx = pw.byte_to_cell_idx(start);
                 let actual_start = self.start_by_cell_idx.get(&cell_idx)?;
-                self.map.get_mut(&actual_start)
+                self.map.get_mut(actual_start)
             }
             None => self.map.get_mut(&start),
         }
@@ -826,7 +820,7 @@ impl<'a> ClusterResolver<'a> {
             Some(pw) => {
                 let cell_idx = pw.byte_to_cell_idx(start);
                 let actual_start = self.start_by_cell_idx.get(&cell_idx)?;
-                self.map.get(&actual_start)
+                self.map.get(actual_start)
             }
             None => self.map.get(&start),
         }
@@ -879,10 +873,12 @@ mod test {
                     10.,
                     72,
                     &mut no_glyphs,
-                    None,
-                    Direction::LeftToRight,
-                    None,
-                    None,
+                    crate::shaper::ShapeContext {
+                        presentation: None,
+                        direction: Direction::LeftToRight,
+                        range: None,
+                        presentation_width: None,
+                    },
                 )
                 .unwrap();
             assert!(no_glyphs.is_empty(), "{:?}", no_glyphs);
@@ -947,10 +943,12 @@ mod test {
                     10.,
                     72,
                     &mut no_glyphs,
-                    None,
-                    Direction::LeftToRight,
-                    None,
-                    None,
+                    crate::shaper::ShapeContext {
+                        presentation: None,
+                        direction: Direction::LeftToRight,
+                        range: None,
+                        presentation_width: None,
+                    },
                 )
                 .unwrap();
             assert!(no_glyphs.is_empty(), "{:?}", no_glyphs);
@@ -987,10 +985,12 @@ mod test {
                     10.,
                     72,
                     &mut no_glyphs,
-                    None,
-                    Direction::LeftToRight,
-                    None,
-                    None,
+                    crate::shaper::ShapeContext {
+                        presentation: None,
+                        direction: Direction::LeftToRight,
+                        range: None,
+                        presentation_width: None,
+                    },
                 )
                 .unwrap();
             assert!(no_glyphs.is_empty(), "{:?}", no_glyphs);
@@ -1040,10 +1040,12 @@ mod test {
                     10.,
                     72,
                     &mut no_glyphs,
-                    None,
-                    Direction::LeftToRight,
-                    None,
-                    None,
+                    crate::shaper::ShapeContext {
+                        presentation: None,
+                        direction: Direction::LeftToRight,
+                        range: None,
+                        presentation_width: None,
+                    },
                 )
                 .unwrap();
             assert!(no_glyphs.is_empty(), "{:?}", no_glyphs);
@@ -1109,10 +1111,12 @@ mod test {
                     10.,
                     72,
                     &mut no_glyphs,
-                    None,
-                    Direction::LeftToRight,
-                    None,
-                    None,
+                    crate::shaper::ShapeContext {
+                        presentation: None,
+                        direction: Direction::LeftToRight,
+                        range: None,
+                        presentation_width: None,
+                    },
                 )
                 .unwrap();
             assert!(no_glyphs.is_empty(), "{:?}", no_glyphs);
@@ -1178,10 +1182,12 @@ mod test {
                     10.,
                     72,
                     &mut no_glyphs,
-                    None,
-                    Direction::LeftToRight,
-                    None,
-                    None,
+                    crate::shaper::ShapeContext {
+                        presentation: None,
+                        direction: Direction::LeftToRight,
+                        range: None,
+                        presentation_width: None,
+                    },
                 )
                 .unwrap();
             assert!(no_glyphs.is_empty(), "{:?}", no_glyphs);

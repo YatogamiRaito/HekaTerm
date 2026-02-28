@@ -1,9 +1,9 @@
-//! GuiWin represents a Gui TermWindow (as opposed to a Mux window) in lua code
+//! `GuiWin` represents a Gui `TermWindow` (as opposed to a Mux window) in lua code
 use super::luaerr;
 use crate::termwindow::TermWindowNotif;
 use crate::TermWindow;
 use config::keyassignment::{ClipboardCopyDestination, KeyAssignment};
-use luahelper::*;
+use luahelper::{mlua, impl_lua_conversion_dynamic, dynamic_to_lua_value, lua_value_to_dynamic};
 use mlua::{UserData, UserDataMethods, UserDataRef};
 use mux::pane::PaneId;
 use mux::window::WindowId as MuxWindowId;
@@ -25,15 +25,15 @@ impl GuiWin {
         let window = term_window.window.clone().unwrap();
         let mux_window_id = term_window.mux_window_id;
         Self {
-            window,
             mux_window_id,
+            window,
         }
     }
 }
 
 impl UserData for GuiWin {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, _: ()| {
+        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, (): ()| {
             Ok(format!(
                 "GuiWin(mux_window_id:{}, pid:{})",
                 this.mux_window_id,
@@ -41,11 +41,11 @@ impl UserData for GuiWin {
             ))
         });
 
-        methods.add_method("window_id", |_, this, _: ()| Ok(this.mux_window_id));
-        methods.add_method("mux_window", |_, this, _: ()| {
+        methods.add_method("window_id", |_, this, (): ()| Ok(this.mux_window_id));
+        methods.add_method("mux_window", |_, this, (): ()| {
             Ok(mux_lua::MuxWindow(this.mux_window_id))
         });
-        methods.add_method("active_tab", |_, this, _: ()| {
+        methods.add_method("active_tab", |_, this, (): ()| {
             let mux = Mux::try_get().ok_or_else(|| mlua::Error::external("cannot get Mux!?"))?;
             let window = mux.get_window(this.mux_window_id).ok_or_else(|| {
                 mlua::Error::external(format!("invalid window {}", this.mux_window_id))
@@ -65,19 +65,19 @@ impl UserData for GuiWin {
             this.window.set_window_position(euclid::point2(x, y));
             Ok(())
         });
-        methods.add_method("maximize", |_, this, _: ()| {
+        methods.add_method("maximize", |_, this, (): ()| {
             this.window.maximize();
             Ok(())
         });
-        methods.add_method("restore", |_, this, _: ()| {
+        methods.add_method("restore", |_, this, (): ()| {
             this.window.restore();
             Ok(())
         });
-        methods.add_method("toggle_fullscreen", |_, this, _: ()| {
+        methods.add_method("toggle_fullscreen", |_, this, (): ()| {
             this.window.toggle_fullscreen();
             Ok(())
         });
-        methods.add_method("focus", |_, this, _: ()| {
+        methods.add_method("focus", |_, this, (): ()| {
             this.window.focus();
             Ok(())
         });
@@ -93,7 +93,7 @@ impl UserData for GuiWin {
                 Ok(())
             },
         );
-        methods.add_method("get_appearance", |_, _, _: ()| {
+        methods.add_method("get_appearance", |_, _, (): ()| {
             Ok(Connection::get().unwrap().get_appearance().to_string())
         });
         methods.add_method("set_right_status", |_, this, status: String| {
@@ -104,13 +104,13 @@ impl UserData for GuiWin {
             this.window.notify(TermWindowNotif::SetLeftStatus(status));
             Ok(())
         });
-        methods.add_async_method("get_dimensions", |_, this, _: ()| async move {
+        methods.add_async_method("get_dimensions", |_, this, (): ()| async move {
             let (tx, rx) = smol::channel::bounded(1);
             this.window.notify(TermWindowNotif::GetDimensions(tx));
             let (dims, window_state) = rx
                 .recv()
                 .await
-                .map_err(|e| anyhow::anyhow!("{:#}", e))
+                .map_err(|e| anyhow::anyhow!("{e:#}"))
                 .map_err(luaerr)?;
 
             #[derive(FromDynamic, ToDynamic)]
@@ -142,13 +142,13 @@ impl UserData for GuiWin {
                 let text = rx
                     .recv()
                     .await
-                    .map_err(|e| anyhow::anyhow!("{:#}", e))
+                    .map_err(|e| anyhow::anyhow!("{e:#}"))
                     .map_err(luaerr)?;
 
                 Ok(text)
             },
         );
-        methods.add_async_method("current_event", |lua, this, _: ()| async move {
+        methods.add_async_method("current_event", |lua, this, (): ()| async move {
             let (tx, rx) = smol::channel::bounded(1);
             this.window
                 .notify(TermWindowNotif::Apply(Box::new(move |term_window| {
@@ -170,24 +170,24 @@ impl UserData for GuiWin {
                 result.map_err(mlua::Error::external)
             },
         );
-        methods.add_async_method("effective_config", |_, this, _: ()| async move {
+        methods.add_async_method("effective_config", |_, this, (): ()| async move {
             let (tx, rx) = smol::channel::bounded(1);
             this.window.notify(TermWindowNotif::GetEffectiveConfig(tx));
             let config = rx
                 .recv()
                 .await
-                .map_err(|e| anyhow::anyhow!("{:#}", e))
+                .map_err(|e| anyhow::anyhow!("{e:#}"))
                 .map_err(luaerr)?;
 
             Ok((*config).clone())
         });
-        methods.add_async_method("get_config_overrides", |lua, this, _: ()| async move {
+        methods.add_async_method("get_config_overrides", |lua, this, (): ()| async move {
             let (tx, rx) = smol::channel::bounded(1);
             this.window.notify(TermWindowNotif::GetConfigOverrides(tx));
             let overrides = rx
                 .recv()
                 .await
-                .map_err(|e| anyhow::anyhow!("{:#}", e))
+                .map_err(|e| anyhow::anyhow!("{e:#}"))
                 .map_err(luaerr)?;
 
             dynamic_to_lua_value(lua, overrides)
@@ -198,7 +198,7 @@ impl UserData for GuiWin {
                 .notify(TermWindowNotif::SetConfigOverrides(value));
             Ok(())
         });
-        methods.add_async_method("is_focused", |_, this, _: ()| async move {
+        methods.add_async_method("is_focused", |_, this, (): ()| async move {
             let (tx, rx) = smol::channel::bounded(1);
             this.window
                 .notify(TermWindowNotif::Apply(Box::new(move |term_window| {
@@ -207,12 +207,12 @@ impl UserData for GuiWin {
             let result = rx
                 .recv()
                 .await
-                .map_err(|e| anyhow::anyhow!("{:#}", e))
+                .map_err(|e| anyhow::anyhow!("{e:#}"))
                 .map_err(luaerr)?;
 
             Ok(result)
         });
-        methods.add_async_method("leader_is_active", |_, this, _: ()| async move {
+        methods.add_async_method("leader_is_active", |_, this, (): ()| async move {
             let (tx, rx) = smol::channel::bounded(1);
             this.window
                 .notify(TermWindowNotif::Apply(Box::new(move |term_window| {
@@ -221,12 +221,12 @@ impl UserData for GuiWin {
             let result = rx
                 .recv()
                 .await
-                .map_err(|e| anyhow::anyhow!("{:#}", e))
+                .map_err(|e| anyhow::anyhow!("{e:#}"))
                 .map_err(luaerr)?;
 
             Ok(result)
         });
-        methods.add_async_method("composition_status", |_, this, _: ()| async move {
+        methods.add_async_method("composition_status", |_, this, (): ()| async move {
             let (tx, rx) = smol::channel::bounded(1);
             this.window
                 .notify(TermWindowNotif::Apply(Box::new(move |term_window| {
@@ -239,12 +239,12 @@ impl UserData for GuiWin {
             let result = rx
                 .recv()
                 .await
-                .map_err(|e| anyhow::anyhow!("{:#}", e))
+                .map_err(|e| anyhow::anyhow!("{e:#}"))
                 .map_err(luaerr)?;
 
             Ok(result)
         });
-        methods.add_async_method("active_key_table", |_, this, _: ()| async move {
+        methods.add_async_method("active_key_table", |_, this, (): ()| async move {
             let (tx, rx) = smol::channel::bounded(1);
             this.window
                 .notify(TermWindowNotif::Apply(Box::new(move |term_window| {
@@ -253,12 +253,12 @@ impl UserData for GuiWin {
             let result = rx
                 .recv()
                 .await
-                .map_err(|e| anyhow::anyhow!("{:#}", e))
+                .map_err(|e| anyhow::anyhow!("{e:#}"))
                 .map_err(luaerr)?;
 
             Ok(result)
         });
-        methods.add_async_method("keyboard_modifiers", |_, this, _: ()| async move {
+        methods.add_async_method("keyboard_modifiers", |_, this, (): ()| async move {
             let (tx, rx) = smol::channel::bounded(1);
             this.window
                 .notify(TermWindowNotif::Apply(Box::new(move |term_window| {
@@ -268,12 +268,12 @@ impl UserData for GuiWin {
             let (mods, leds) = rx
                 .recv()
                 .await
-                .map_err(|e| anyhow::anyhow!("{:#}", e))
+                .map_err(|e| anyhow::anyhow!("{e:#}"))
                 .map_err(luaerr)?;
 
             Ok((mods.to_string(), leds.to_string()))
         });
-        methods.add_async_method("active_pane", |_, this, _: ()| async move {
+        methods.add_async_method("active_pane", |_, this, (): ()| async move {
             let (tx, rx) = smol::channel::bounded(1);
             this.window
                 .notify(TermWindowNotif::Apply(Box::new(move |term_window| {
@@ -287,16 +287,16 @@ impl UserData for GuiWin {
             let result = rx
                 .recv()
                 .await
-                .map_err(|e| anyhow::anyhow!("{:#}", e))
+                .map_err(|e| anyhow::anyhow!("{e:#}"))
                 .map_err(luaerr)?;
 
             Ok(result)
         });
-        methods.add_method("active_workspace", |_, _, _: ()| {
+        methods.add_method("active_workspace", |_, _, (): ()| {
             let mux = Mux::try_get()
                 .ok_or_else(|| anyhow::anyhow!("no mux?"))
                 .map_err(luaerr)?;
-            Ok(mux.active_workspace().to_string())
+            Ok(mux.active_workspace())
         });
         methods.add_method(
             "copy_to_clipboard",

@@ -11,6 +11,12 @@ pub struct FontDatabase {
     by_full_name: HashMap<String, Vec<ParsedFont>>,
 }
 
+impl Default for FontDatabase {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FontDatabase {
     pub fn new() -> Self {
         Self {
@@ -23,12 +29,12 @@ impl FontDatabase {
             if let Some(path) = parsed.handle.path_str() {
                 self.by_full_name
                     .entry(path.to_string())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(parsed.clone());
             }
             self.by_full_name
                 .entry(parsed.names().full_name.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(parsed);
         }
     }
@@ -47,7 +53,7 @@ impl FontDatabase {
                 let source = FontDataSource::OnDisk(entry.path().to_path_buf());
                 parse_and_collect_font_info(&source, &mut font_info, FontOrigin::FontDirs)
                     .map_err(|err| {
-                        log::trace!("failed to read {:?}: {:#}", source, err);
+                        log::trace!("failed to read {source:?}: {err:#}");
                         err
                     })
                     .ok();
@@ -111,7 +117,7 @@ impl FontDatabase {
                 }
                 let covered = parsed
                     .coverage_intersection(&wanted_range)
-                    .with_context(|| format!("coverage_interaction for {:?}", parsed))?;
+                    .with_context(|| format!("coverage_interaction for {parsed:?}"))?;
                 if !covered.is_empty() {
                     matches.push(parsed.clone());
                 }

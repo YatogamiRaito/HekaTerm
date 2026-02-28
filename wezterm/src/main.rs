@@ -14,7 +14,7 @@ use termwiz::surface::change::Change;
 use termwiz::surface::Position;
 use termwiz::terminal::{ScreenSize, Terminal};
 use umask::UmaskSaver;
-use wezterm_gui_subcommands::*;
+use wezterm_gui_subcommands::{name_equals_value, StartCommand, SshCommand, SerialCommand, ConnectCommand, LsFontsCommand, ShowKeysCommand};
 
 mod asciicast;
 mod cli;
@@ -58,7 +58,7 @@ enum Shell {
     Bash,
     Elvish,
     Fish,
-    PowerShell,
+    Power,
     Zsh,
     Fig,
 }
@@ -66,23 +66,23 @@ enum Shell {
 impl CompletionGenerator for Shell {
     fn file_name(&self, name: &str) -> String {
         match self {
-            Shell::Bash => shells::Bash.file_name(name),
-            Shell::Elvish => shells::Elvish.file_name(name),
-            Shell::Fish => shells::Fish.file_name(name),
-            Shell::PowerShell => shells::PowerShell.file_name(name),
-            Shell::Zsh => shells::Zsh.file_name(name),
-            Shell::Fig => clap_complete_fig::Fig.file_name(name),
+            Self::Bash => shells::Bash.file_name(name),
+            Self::Elvish => shells::Elvish.file_name(name),
+            Self::Fish => shells::Fish.file_name(name),
+            Self::Power => shells::PowerShell.file_name(name),
+            Self::Zsh => shells::Zsh.file_name(name),
+            Self::Fig => clap_complete_fig::Fig.file_name(name),
         }
     }
 
     fn generate(&self, cmd: &clap::Command, buf: &mut dyn std::io::Write) {
         match self {
-            Shell::Bash => shells::Bash.generate(cmd, buf),
-            Shell::Elvish => shells::Elvish.generate(cmd, buf),
-            Shell::Fish => shells::Fish.generate(cmd, buf),
-            Shell::PowerShell => shells::PowerShell.generate(cmd, buf),
-            Shell::Zsh => shells::Zsh.generate(cmd, buf),
-            Shell::Fig => clap_complete_fig::Fig.generate(cmd, buf),
+            Self::Bash => shells::Bash.generate(cmd, buf),
+            Self::Elvish => shells::Elvish.generate(cmd, buf),
+            Self::Fish => shells::Fish.generate(cmd, buf),
+            Self::Power => shells::PowerShell.generate(cmd, buf),
+            Self::Zsh => shells::Zsh.generate(cmd, buf),
+            Self::Fig => clap_complete_fig::Fig.generate(cmd, buf),
         }
     }
 }
@@ -262,7 +262,7 @@ fn x_comma_y(arg: &str) -> Result<ImagePosition, String> {
         })?;
         Ok(ImagePosition { x, y })
     } else {
-        Err(format!("Expected x,y, but got {}", arg))
+        Err(format!("Expected x,y, but got {arg}"))
     }
 }
 
@@ -283,7 +283,7 @@ fn width_x_height(arg: &str) -> Result<ImageDimension, String> {
         })?;
         Ok(ImageDimension { width, height })
     } else {
-        Err(format!("Expected WxH, but got {}", arg))
+        Err(format!("Expected WxH, but got {arg}"))
     }
 }
 
@@ -343,7 +343,7 @@ impl ImgCatCommand {
                 let width = info.width as usize;
                 let height = info.height as usize;
                 // but ensure that it fits
-                if width as usize > pixel_width || height as usize > pixel_height {
+                if width > pixel_width || height > pixel_height {
                     let width = width as f32;
                     let height = height as f32;
                     let mut candidates = vec![];
@@ -406,7 +406,7 @@ impl ImgCatCommand {
         let start = std::time::Instant::now();
         let im = image::load_from_memory(data).with_context(|| match self.file_name.as_ref() {
             Some(file_name) => format!("loading image from file {file_name:?}"),
-            None => format!("loading image from stdin"),
+            None => "loading image from stdin".to_string(),
         })?;
         if self.show_resample_timing {
             eprintln!(
@@ -462,7 +462,7 @@ impl ImgCatCommand {
         let mut data = Vec::new();
         if let Some(file_name) = self.file_name.as_ref() {
             let mut f = std::fs::File::open(file_name)
-                .with_context(|| anyhow!("reading image file: {:?}", file_name))?;
+                .with_context(|| anyhow!("reading image file: {file_name:?}"))?;
             f.read_to_end(&mut data)?;
         } else {
             let mut stdin = std::io::stdin();
@@ -521,7 +521,7 @@ impl ImgCatCommand {
         // explicitly after we've drawn things.
         // We can only do this reasonably sanely if we aren't setting
         // the absolute position.
-        let needs_force_cursor_move = !self.no_move_cursor && !self.position.is_some() && (is_tmux || is_conpty)
+        let needs_force_cursor_move = !self.no_move_cursor && self.position.is_none() && (is_tmux || is_conpty)
             // We can only use forced movement if we know the pixel geometry
             && (term_size.xpixel != 0 && term_size.ypixel != 0);
 
@@ -553,7 +553,7 @@ impl ImgCatCommand {
             // column as a result of doing this.
             term.render(&[Change::CursorPosition {
                 x: Position::Absolute(0),
-                y: Position::Relative(-1 * (cursor_y as isize)),
+                y: Position::Relative(-(cursor_y as isize)),
             }])?;
         }
 
@@ -589,20 +589,9 @@ impl ImgCatCommand {
         if self.hold {
             term.set_raw_mode()?;
             while let Ok(Some(event)) = term.poll_input(None) {
-                match event {
-                    InputEvent::Key(
-                        KeyEvent {
-                            key: KeyCode::Enter | KeyCode::Escape,
-                            modifiers: _,
-                        }
-                        | KeyEvent {
-                            key: KeyCode::Char('c') | KeyCode::Char('d'),
-                            modifiers: Modifiers::CTRL,
-                        },
-                    ) => {
-                        break;
-                    }
-                    _ => {}
+                if let InputEvent::Key(KeyEvent { key: KeyCode::Enter | KeyCode::Escape, modifiers: _
+} | KeyEvent { key: KeyCode::Char('c' | 'd'), modifiers: Modifiers::CTRL }) = event {
+                    break;
                 }
             }
         }
@@ -636,7 +625,7 @@ impl SetCwdCommand {
         }
 
         let mut url = url::Url::from_directory_path(&cwd)
-            .map_err(|_| anyhow::anyhow!("cwd {} is not an absolute path", cwd.display()))?;
+            .map_err(|()| anyhow::anyhow!("cwd {} is not an absolute path", cwd.display()))?;
         let host = match self.host.as_ref() {
             Some(h) => h.clone(),
             None => hostname::get()?,
@@ -698,12 +687,12 @@ impl TmuxPassthru {
 }
 
 fn terminate_with_error_message(err: &str) -> ! {
-    log::error!("{}; terminating", err);
+    log::error!("{err}; terminating");
     std::process::exit(1);
 }
 
 fn terminate_with_error(err: anyhow::Error) -> ! {
-    terminate_with_error_message(&format!("{:#}", err));
+    terminate_with_error_message(&format!("{err:#}"));
 }
 
 fn main() {
@@ -725,7 +714,7 @@ fn init_config(opts: &Opt) -> anyhow::Result<ConfigHandle> {
     let config = config::configuration();
     config.update_ulimit()?;
     if let Some(value) = &config.default_ssh_auth_sock {
-        std::env::set_var("SSH_AUTH_SOCK", value);
+        unsafe { std::env::set_var("SSH_AUTH_SOCK", value); }
     }
     Ok(config)
 }
@@ -739,8 +728,7 @@ fn run() -> anyhow::Result<()> {
 
     match opts
         .cmd
-        .as_ref()
-        .cloned()
+        .clone()
         .unwrap_or_else(|| SubCommand::Start(StartCommand::default()))
     {
         SubCommand::Start(_)
@@ -800,7 +788,7 @@ fn delegate_to_gui(saver: UmaskSaver) -> anyhow::Result<()> {
             portable_pty::unix::close_random_fds();
         }
         let res = cmd.exec();
-        return Err(anyhow::anyhow!("failed to exec {cmd:?}: {res:?}"));
+        Err(anyhow::anyhow!("failed to exec {cmd:?}: {res:?}"))
     }
 
     #[cfg(windows)]

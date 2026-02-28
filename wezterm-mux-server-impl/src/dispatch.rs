@@ -53,7 +53,7 @@ where
         move |pdu| {
             item_tx
                 .try_send(Item::WritePdu(pdu))
-                .map_err(|e| anyhow::anyhow!("{:?}", e))
+                .map_err(|e| anyhow::anyhow!("{e:?}"))
         }
     });
     let mut handler = SessionHandler::new(pdu_sender);
@@ -73,12 +73,11 @@ where
                 let decoded = match Pdu::decode_async(&mut stream, None).await {
                     Ok(data) => data,
                     Err(err) => {
-                        if let Some(err) = err.root_cause().downcast_ref::<std::io::Error>() {
-                            if err.kind() == std::io::ErrorKind::UnexpectedEof {
+                        if let Some(err) = err.root_cause().downcast_ref::<std::io::Error>()
+                            && err.kind() == std::io::ErrorKind::UnexpectedEof {
                                 // Client disconnected: no need to make a noise
                                 return Ok(());
                             }
-                        }
                         return Err(err).context("reading Pdu from client");
                     }
                 };
@@ -88,15 +87,14 @@ where
                 match decoded.pdu.encode_async(&mut stream, decoded.serial).await {
                     Ok(()) => {}
                     Err(err) => {
-                        if let Some(err) = err.root_cause().downcast_ref::<std::io::Error>() {
-                            if err.kind() == std::io::ErrorKind::BrokenPipe {
+                        if let Some(err) = err.root_cause().downcast_ref::<std::io::Error>()
+                            && err.kind() == std::io::ErrorKind::BrokenPipe {
                                 // Client disconnected: no need to make a noise
                                 return Ok(());
                             }
-                        }
                         return Err(err).context("encoding PDU to client");
                     }
-                };
+                }
                 match stream.flush().await {
                     Ok(()) => {}
                     Err(err) => {
@@ -113,7 +111,7 @@ where
             }
             Ok(Item::Notif(MuxNotification::PaneAdded(_pane_id))) => {}
             Ok(Item::Notif(MuxNotification::PaneRemoved(pane_id))) => {
-                Pdu::PaneRemoved(codec::PaneRemoved { pane_id })
+                Pdu::PaneRemoved(Box::new(codec::PaneRemoved { pane_id }))
                     .encode_async(&mut stream, 0)
                     .await?;
                 stream.flush().await.context("flushing PDU to client")?;
@@ -132,17 +130,17 @@ where
                 selection,
                 clipboard,
             })) => {
-                Pdu::SetClipboard(codec::SetClipboard {
+                Pdu::SetClipboard(Box::new(codec::SetClipboard {
                     pane_id,
                     clipboard,
                     selection,
-                })
+                }))
                 .encode_async(&mut stream, 0)
                 .await?;
                 stream.flush().await.context("flushing PDU to client")?;
             }
             Ok(Item::Notif(MuxNotification::TabAddedToWindow { tab_id, window_id })) => {
-                Pdu::TabAddedToWindow(codec::TabAddedToWindow { tab_id, window_id })
+                Pdu::TabAddedToWindow(Box::new(codec::TabAddedToWindow { tab_id, window_id }))
                     .encode_async(&mut stream, 0)
                     .await?;
                 stream.flush().await.context("flushing PDU to client")?;
@@ -157,35 +155,35 @@ where
                         .map(|w| w.get_workspace().to_string())
                 };
                 if let Some(workspace) = workspace {
-                    Pdu::WindowWorkspaceChanged(codec::WindowWorkspaceChanged {
+                    Pdu::WindowWorkspaceChanged(Box::new(codec::WindowWorkspaceChanged {
                         window_id,
                         workspace,
-                    })
+                    }))
                     .encode_async(&mut stream, 0)
                     .await?;
                     stream.flush().await.context("flushing PDU to client")?;
                 }
             }
             Ok(Item::Notif(MuxNotification::PaneFocused(pane_id))) => {
-                Pdu::PaneFocused(codec::PaneFocused { pane_id })
+                Pdu::PaneFocused(Box::new(codec::PaneFocused { pane_id }))
                     .encode_async(&mut stream, 0)
                     .await?;
                 stream.flush().await.context("flushing PDU to client")?;
             }
             Ok(Item::Notif(MuxNotification::TabResized(tab_id))) => {
-                Pdu::TabResized(codec::TabResized { tab_id })
+                Pdu::TabResized(Box::new(codec::TabResized { tab_id }))
                     .encode_async(&mut stream, 0)
                     .await?;
                 stream.flush().await.context("flushing PDU to client")?;
             }
             Ok(Item::Notif(MuxNotification::TabTitleChanged { tab_id, title })) => {
-                Pdu::TabTitleChanged(codec::TabTitleChanged { tab_id, title })
+                Pdu::TabTitleChanged(Box::new(codec::TabTitleChanged { tab_id, title }))
                     .encode_async(&mut stream, 0)
                     .await?;
                 stream.flush().await.context("flushing PDU to client")?;
             }
             Ok(Item::Notif(MuxNotification::WindowTitleChanged { window_id, title })) => {
-                Pdu::WindowTitleChanged(codec::WindowTitleChanged { window_id, title })
+                Pdu::WindowTitleChanged(Box::new(codec::WindowTitleChanged { window_id, title }))
                     .encode_async(&mut stream, 0)
                     .await?;
                 stream.flush().await.context("flushing PDU to client")?;
@@ -194,10 +192,10 @@ where
                 old_workspace,
                 new_workspace,
             })) => {
-                Pdu::RenameWorkspace(codec::RenameWorkspace {
+                Pdu::RenameWorkspace(Box::new(codec::RenameWorkspace {
                     old_workspace,
                     new_workspace,
-                })
+                }))
                 .encode_async(&mut stream, 0)
                 .await?;
                 stream.flush().await.context("flushing PDU to client")?;
@@ -205,7 +203,7 @@ where
             Ok(Item::Notif(MuxNotification::ActiveWorkspaceChanged(_))) => {}
             Ok(Item::Notif(MuxNotification::Empty)) => {}
             Err(err) => {
-                log::error!("process_async Err {}", err);
+                log::error!("process_async Err {err}");
                 return Ok(());
             }
         }

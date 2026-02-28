@@ -85,14 +85,15 @@ pub fn range_union<T: Integer>(r1: Range<T>, r2: Range<T>) -> Range<T> {
 }
 
 impl<T: Integer + Copy + Debug + ToPrimitive> From<RangeSet<T>> for Vec<Range<T>> {
-    fn from(r: RangeSet<T>) -> Vec<Range<T>> {
+    fn from(r: RangeSet<T>) -> Self {
         r.ranges
     }
 }
 
 impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
     /// Create a new set
-    pub fn new() -> Self {
+    #[must_use] 
+    pub const fn new() -> Self {
         Self {
             ranges: vec![],
             needs_sort: false,
@@ -100,12 +101,14 @@ impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
     }
 
     /// Returns true if this set is empty
-    pub fn is_empty(&self) -> bool {
+    #[must_use] 
+    pub const fn is_empty(&self) -> bool {
         self.ranges.is_empty()
     }
 
     /// Returns the total size of the range (the sum of the start..end
     /// distance of all contained ranges)
+    #[must_use] 
     pub fn len(&self) -> T {
         let mut total = num::zero();
         for r in &self.ranges {
@@ -131,6 +134,7 @@ impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
     /// range for the scrollback, and a smaller contiguous range for changes
     /// in the viewport.
     /// If that doesn't hold up, we can improve this.
+    #[must_use] 
     pub fn difference(&self, other: &Self) -> Self {
         let mut result = self.clone();
 
@@ -141,6 +145,7 @@ impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
         result
     }
 
+    #[must_use] 
     pub fn intersection(&self, other: &Self) -> Self {
         let mut result = Self::new();
         for range in &other.ranges {
@@ -235,7 +240,7 @@ impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
                 let merged = range_union(range, second);
 
                 self.ranges.remove(b);
-                self.add_range(merged)
+                self.add_range(merged);
             }
             (Some(a), _) => self.merge_into_range(a, range),
             (None, Some(_)) => unreachable!(),
@@ -265,9 +270,7 @@ impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
     }
 
     fn intersection_helper(&self, range: &Range<T>) -> (Option<usize>, Option<usize>) {
-        if self.needs_sort {
-            panic!("rangeset needs sorting");
-        }
+        assert!(!self.needs_sort, "rangeset needs sorting");
 
         let idx = match self.binary_search_ranges(range) {
             Ok(idx) => idx,
@@ -275,18 +278,15 @@ impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
         };
 
         let mut first = None;
-        if let Some(r) = self.ranges.get(idx) {
-            if intersects_range(r, range) || r.end == range.start {
+        if let Some(r) = self.ranges.get(idx)
+            && (intersects_range(r, range) || r.end == range.start) {
                 first = Some(idx);
             }
-        }
-        if let Some(r) = self.ranges.get(idx + 1) {
-            if intersects_range(r, range) || r.end == range.start {
-                if first.is_some() {
+        if let Some(r) = self.ranges.get(idx + 1)
+            && (intersects_range(r, range) || r.end == range.start)
+                && first.is_some() {
                     return (first, Some(idx + 1));
                 }
-            }
-        }
         (first, None)
     }
 
@@ -312,9 +312,7 @@ impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
     }
 
     fn insertion_point(&self, range: &Range<T>) -> usize {
-        if self.needs_sort {
-            panic!("rangeset needs sorting");
-        }
+        assert!(!self.needs_sort, "rangeset needs sorting");
 
         match self.binary_search_ranges(range) {
             Ok(idx) => idx,
@@ -329,7 +327,7 @@ impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
 
     /// Returns an iterator over all of the contained values.
     /// Take care when the range is very large!
-    pub fn iter_values<'a>(&'a self) -> impl Iterator<Item = T> + 'a {
+    pub fn iter_values(&self) -> impl Iterator<Item = T> + '_ {
         self.ranges.iter().flat_map(|r| num::range(r.start, r.end))
     }
 }

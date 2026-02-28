@@ -1,5 +1,5 @@
 use crate::overlay::selector::{matcher_pattern, matcher_score};
-use crate::termwindow::box_model::*;
+use crate::termwindow::box_model::{ComputedElement, Element, ElementContent, ElementColors, BorderColor, DisplayType, BoxDimension, Corners, SizedPoly, LayoutContext};
 use crate::termwindow::modal::Modal;
 use crate::termwindow::render::corners::{
     BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER, TOP_LEFT_ROUNDED_CORNER,
@@ -254,7 +254,7 @@ impl MatchResult {
                 // Pump up the score for an exact match, otherwise
                 // the order may be undesirable if there are a lot
                 // of candidates with the same score
-                u32::max_value()
+                u32::MAX
             } else {
                 score
             },
@@ -302,7 +302,7 @@ fn compute_matches(selection: &str, aliases: &[Alias], group: CharSelectGroup) -
                                 glyph,
                                 MatchResult {
                                     row_idx,
-                                    score: u32::max_value(),
+                                    score: u32::MAX,
                                 },
                             ))
                         } else {
@@ -475,7 +475,7 @@ impl CharSelector {
         let element = Element::new(&font, ElementContent::Children(elements))
             .colors(ElementColors {
                 border: BorderColor::new(
-                    term_window.config.char_select_bg_color.to_linear().into(),
+                    term_window.config.char_select_bg_color.to_linear(),
                 ),
                 bg: term_window.config.char_select_bg_color.to_linear().into(),
                 text: term_window.config.char_select_fg_color.to_linear().into(),
@@ -571,9 +571,7 @@ impl CharSelector {
         let limit = self
             .matches
             .borrow()
-            .as_ref()
-            .map(|m| m.matches.len())
-            .unwrap_or_else(|| self.aliases.len());
+            .as_ref().map_or_else(|| self.aliases.len(), |m| m.matches.len());
         {
             let mut row = self.selected_row.borrow_mut();
             let mut top_row = self.top_row.borrow_mut();
@@ -639,7 +637,7 @@ impl Modal for CharSelector {
             (KeyCode::DownArrow, KeyModifiers::NONE) => {
                 self.do_move(Move::Down(1));
             }
-            (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+            (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
                 // Type to add to the selection
                 let mut selection = self.selection.borrow_mut();
                 selection.push(c);
@@ -717,15 +715,14 @@ impl Modal for CharSelector {
 
         let rebuild_matches = results
             .as_ref()
-            .map(|m| m.selection != selection || m.group != group)
-            .unwrap_or(true);
+            .is_none_or(|m| m.selection != selection || m.group != group);
         if rebuild_matches {
             results.replace(MatchResults {
                 selection: selection.to_string(),
                 matches: compute_matches(selection, &self.aliases, group),
                 group,
             });
-        };
+        }
         let matches = results.as_ref().unwrap();
 
         if self.element.borrow().is_none() {

@@ -336,19 +336,22 @@ impl OscState {
             }
         } else if !self.full {
             let mut buf = [0u8; 8];
-            let extend_result = self
-                .buffer
-                .extend_from_slice(param.encode_utf8(&mut buf).as_bytes());
-
             #[cfg(all(not(feature = "std"), not(feature = "alloc")))]
             {
-                if extend_result.is_err() {
+                if self
+                    .buffer
+                    .extend_from_slice(param.encode_utf8(&mut buf).as_bytes())
+                    .is_err()
+                {
                     self.full = true;
                     return;
                 }
             }
-
-            let _ = extend_result;
+            #[cfg(any(feature = "std", feature = "alloc"))]
+            {
+                self.buffer
+                    .extend_from_slice(param.encode_utf8(&mut buf).as_bytes());
+            }
 
             if self.num_params == 0 {
                 self.num_params = 1;
@@ -492,11 +495,10 @@ impl VTParser {
     }
 
     fn finish_param(&mut self) {
-        if let Some(val) = self.current_param.take() {
-            if self.num_params < MAX_PARAMS {
+        if let Some(val) = self.current_param.take()
+            && self.num_params < MAX_PARAMS {
                 self.params[self.num_params] = val;
                 self.num_params += 1;
-            }
         }
     }
 
@@ -841,7 +843,6 @@ mod test {
     #[test]
     fn test_osc_too_many_params() {
         let fields = (0..MAX_OSC + 2)
-            .into_iter()
             .map(|i| i.to_string())
             .collect::<Vec<_>>();
         let input = format!("\x1b]{}\x07", fields.join(";"));
@@ -966,7 +967,7 @@ mod test {
         assert_eq!(
             parse_as_vec(input.as_bytes()),
             vec![VTAction::CsiDispatch {
-                params: params,
+                params,
                 parameters_truncated: false,
                 byte: b'p'
             }]

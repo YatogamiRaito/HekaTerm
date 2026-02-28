@@ -36,7 +36,7 @@ fn read_xsettings_grabbed(
             property: atom_xsettings_settings,
             r#type: atom_xsettings_settings,
             long_offset: 0,
-            long_length: u32::max_value(),
+            long_length: u32::MAX,
         }))
         .context("get_property")?;
 
@@ -102,7 +102,7 @@ pub fn parse_xsettings(data: &[u8]) -> anyhow::Result<XSettingsMap> {
     let _serial = get_u32(&mut buf, is_big_endian)?;
     let num_settings = get_u32(&mut buf, is_big_endian)? as usize;
 
-    fn pad(len: usize) -> usize {
+    const fn pad(len: usize) -> usize {
         (len + 3) & !3
     }
 
@@ -150,7 +150,7 @@ pub fn parse_xsettings(data: &[u8]) -> anyhow::Result<XSettingsMap> {
                 let alpha = get_u16(&mut buf, is_big_endian)?;
                 XSetting::Color(red, green, blue, alpha)
             }
-            n => anyhow::bail!("invalid setting type {}, expected, 0, 1 or 2", n),
+            n => anyhow::bail!("invalid setting type {n}, expected, 0, 1 or 2"),
         };
         settings.insert(name, value);
     }

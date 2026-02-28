@@ -1,5 +1,5 @@
 use super::utilsprites::RenderMetrics;
-use crate::customglyph::*;
+use crate::customglyph::BlockKey;
 use crate::renderstate::RenderContext;
 use crate::termwindow::render::paint::AllowImage;
 use ::window::bitmaps::atlas::{Atlas, OutOfTextureSpace, Sprite};
@@ -26,7 +26,7 @@ use termwiz::color::RgbColor;
 use termwiz::image::{ImageData, ImageDataType};
 use termwiz::surface::CursorShape;
 use wezterm_blob_leases::{BlobLease, BlobManager, BoxedReader};
-use wezterm_font::units::*;
+use wezterm_font::units::PixelLength;
 use wezterm_font::{FontConfiguration, GlyphInfo, LoadedFont, LoadedFontId};
 use wezterm_term::Underline;
 
@@ -57,8 +57,8 @@ pub struct CellMetricKey {
 }
 
 impl From<&RenderMetrics> for CellMetricKey {
-    fn from(metrics: &RenderMetrics) -> CellMetricKey {
-        CellMetricKey {
+    fn from(metrics: &RenderMetrics) -> Self {
+        Self {
             pixel_width: metrics.cell_size.width as u16,
             pixel_height: metrics.cell_size.height as u16,
         }
@@ -83,7 +83,7 @@ pub struct GlyphKey {
 }
 
 /// We'd like to avoid allocating when resolving from the cache
-/// so this is the borrowed version of GlyphKey.
+/// so this is the borrowed version of `GlyphKey`.
 /// It's a bit involved to make this work; more details can be
 /// found in the excellent guide here:
 /// <https://github.com/sunshowers/borrow-complex-key-example/blob/master/src/lib.rs>
@@ -98,8 +98,8 @@ pub struct BorrowedGlyphKey<'a> {
     pub id: LoadedFontId,
 }
 
-impl<'a> BorrowedGlyphKey<'a> {
-    fn to_owned(&self) -> GlyphKey {
+impl BorrowedGlyphKey<'_> {
+    fn into_owned(self) -> GlyphKey {
         GlyphKey {
             font_idx: self.font_idx,
             glyph_pos: self.glyph_pos,
@@ -113,11 +113,11 @@ impl<'a> BorrowedGlyphKey<'a> {
 }
 
 trait GlyphKeyTrait {
-    fn key<'k>(&'k self) -> BorrowedGlyphKey<'k>;
+    fn key(&self) -> BorrowedGlyphKey<'_>;
 }
 
 impl GlyphKeyTrait for GlyphKey {
-    fn key<'k>(&'k self) -> BorrowedGlyphKey<'k> {
+    fn key(&self) -> BorrowedGlyphKey<'_> {
         BorrowedGlyphKey {
             font_idx: self.font_idx,
             glyph_pos: self.glyph_pos,
@@ -130,8 +130,8 @@ impl GlyphKeyTrait for GlyphKey {
     }
 }
 
-impl<'a> GlyphKeyTrait for BorrowedGlyphKey<'a> {
-    fn key<'k>(&'k self) -> BorrowedGlyphKey<'k> {
+impl GlyphKeyTrait for BorrowedGlyphKey<'_> {
+    fn key(&self) -> BorrowedGlyphKey<'_> {
         *self
     }
 }
@@ -142,17 +142,17 @@ impl<'a> std::borrow::Borrow<dyn GlyphKeyTrait + 'a> for GlyphKey {
     }
 }
 
-impl<'a> PartialEq for dyn GlyphKeyTrait + 'a {
+impl PartialEq for dyn GlyphKeyTrait + '_ {
     fn eq(&self, other: &Self) -> bool {
         self.key().eq(&other.key())
     }
 }
 
-impl<'a> Eq for dyn GlyphKeyTrait + 'a {}
+impl Eq for dyn GlyphKeyTrait + '_ {}
 
-impl<'a> std::hash::Hash for dyn GlyphKeyTrait + 'a {
+impl std::hash::Hash for dyn GlyphKeyTrait + '_ {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.key().hash(state)
+        self.key().hash(state);
     }
 }
 
@@ -193,14 +193,14 @@ struct LineKey {
     size: CellMetricKey,
 }
 
-/// A helper struct to implement BitmapImage for ImageDataType while
+/// A helper struct to implement `BitmapImage` for `ImageDataType` while
 /// holding the mutex for the sake of safety.
 struct DecodedImageHandle<'a> {
     current_frame: usize,
     h: MutexGuard<'a, ImageDataType>,
 }
 
-impl<'a> BitmapImage for DecodedImageHandle<'a> {
+impl BitmapImage for DecodedImageHandle<'_> {
     unsafe fn pixel_data(&self) -> *const u8 {
         match &*self.h {
             ImageDataType::Rgba8 { data, .. } => data.as_ptr(),
@@ -245,14 +245,13 @@ impl FrameDecoder {
             .ok_or_else(|| anyhow::anyhow!("cannot determine image format"))?;
 
         std::thread::spawn(move || {
-            if let Err(err) = Self::run_decoder_thread(reader, format, tx) {
-                if err
+            if let Err(err) = Self::run_decoder_thread(reader, format, tx)
+                && err
                     .downcast_ref::<std::sync::mpsc::SendError<DecodedFrame>>()
                     .is_none()
                 {
                     log::error!("Error decoding image: {err:#}");
                 }
-            }
         });
 
         Ok(rx)
@@ -279,7 +278,7 @@ impl FrameDecoder {
             ImageFormat::Png => {
                 let mut reader = reader.into_inner();
                 reader.rewind().context("rewinding reader for png")?;
-                let decoder = image::codecs::png::PngDecoder::with_limits(reader, limits.clone())
+                let decoder = image::codecs::png::PngDecoder::with_limits(reader, limits)
                     .context("PngDecoder::with_limits")?;
                 if decoder.is_apng().unwrap_or(false) {
                     decoder.apng()?.into_frames()
@@ -338,7 +337,7 @@ impl FrameDecoder {
             .context("sending first frame")?;
         decoded_frames.push(decoded_frame);
 
-        while let Some(frame) = frames.next() {
+        for frame in frames.by_ref() {
             let frame = frame?;
 
             let duration: Duration = frame.delay().into();
@@ -459,7 +458,7 @@ impl FrameState {
                 }
             },
             FrameSource::FrameIndex(idx) => {
-                *idx = *idx + 1;
+                *idx += 1;
                 if *idx >= self.frames.len() {
                     *idx = 0;
                 }
@@ -469,7 +468,7 @@ impl FrameState {
         }
     }
 
-    fn frame_duration(&self) -> Duration {
+    const fn frame_duration(&self) -> Duration {
         self.current_frame.duration
     }
 
@@ -504,7 +503,7 @@ impl DecodedImage {
     }
 
     fn start_frame_decoder(lease: BlobLease, image_data: &Arc<ImageData>) -> Self {
-        match FrameDecoder::start(lease.clone()) {
+        match FrameDecoder::start(lease) {
             Ok(rx) => Self {
                 frame_start: RefCell::new(Instant::now()),
                 current_frame: RefCell::new(0),
@@ -523,7 +522,7 @@ impl DecodedImage {
             ImageDataType::EncodedLease(lease) => {
                 Self::start_frame_decoder(lease.clone(), image_data)
             }
-            ImageDataType::EncodedFile(data) => match BlobManager::store(&data) {
+            ImageDataType::EncodedFile(data) => match BlobManager::store(data) {
                 Ok(lease) => Self::start_frame_decoder(lease, image_data),
                 Err(err) => {
                     log::error!("Unable to move file data to blob manager: {err:#}");
@@ -555,7 +554,7 @@ impl DecodedImage {
     }
 }
 
-/// A number of items here are HashMaps rather than LfuCaches;
+/// A number of items here are `HashMaps` rather than `LfuCaches`;
 /// eviction is managed by recreating Self when the Atlas is filled
 pub struct GlyphCache {
     glyph_cache: HashMap<GlyphKey, Rc<CachedGlyph>>,
@@ -590,7 +589,7 @@ impl GlyphCache {
             block_glyphs: HashMap::new(),
             cursor_glyphs: HashMap::new(),
             color: HashMap::new(),
-            min_frame_duration: Duration::from_millis(1000 / fonts.config().max_fps as u64),
+            min_frame_duration: Duration::from_millis(1000 / fonts.config().max_fps),
         })
     }
 }
@@ -619,7 +618,7 @@ impl GlyphCache {
             block_glyphs: HashMap::new(),
             cursor_glyphs: HashMap::new(),
             color: HashMap::new(),
-            min_frame_duration: Duration::from_millis(1000 / fonts.config().max_fps as u64),
+            min_frame_duration: Duration::from_millis(1000 / fonts.config().max_fps),
         })
     }
 }
@@ -639,7 +638,7 @@ impl GlyphCache {
         let key = BorrowedGlyphKey {
             font_idx: info.font_idx,
             glyph_pos: info.glyph_pos,
-            num_cells: num_cells,
+            num_cells,
             style,
             followed_by_space,
             metric: metrics.into(),
@@ -669,10 +668,7 @@ impl GlyphCache {
                 // as that will result in incomplete window painting.
                 // Log the error and substitute instead.
                 log::error!(
-                    "load_glyph failed; using blank instead. Error: {:#}. {:?} {:?}",
-                    err,
-                    info,
-                    style
+                    "load_glyph failed; using blank instead. Error: {err:#}. {info:?} {style:?}"
                 );
                 Rc::new(CachedGlyph {
                     brightness_adjust: 1.0,
@@ -687,7 +683,7 @@ impl GlyphCache {
                 })
             }
         };
-        self.glyph_cache.insert(key.to_owned(), Rc::clone(&glyph));
+        self.glyph_cache.insert(key.into_owned(), Rc::clone(&glyph));
         Ok(glyph)
     }
 
@@ -740,7 +736,7 @@ impl GlyphCache {
         // can happen somehow; see <https://github.com/wezterm/wezterm/issues/1042>
         // so let's treat 0 cells as 1 cell so that we don't try to divide by
         // zero below.
-        let num_cells = num_cells.max(1) as f64;
+        let num_cells = f64::from(num_cells.max(1));
 
         // Maximum width allowed for this glyph based on its unicode width and
         // the dimensions of a cell
@@ -809,7 +805,7 @@ impl GlyphCache {
                     glyph_width = glyph.width,
                 );
             }
-        };
+        }
 
         let descender_adjust = if info.font_idx == 0 {
             PixelLength::new(0.0)
@@ -834,9 +830,9 @@ impl GlyphCache {
             }
         } else {
             let raw_im = Image::with_rgba32(
-                glyph.width as usize,
-                glyph.height as usize,
-                4 * glyph.width as usize,
+                glyph.width,
+                glyph.height,
+                4 * glyph.width,
                 &glyph.data,
             );
 
@@ -854,7 +850,9 @@ impl GlyphCache {
                  x_offset={x_offset:?} y_offset={y_offset:?} x_advance={x_advance:?}"
             );
 
-            let (scale, raw_im) = if scale != 1.0 {
+            let (scale, raw_im) = if scale == 1.0 {
+                (scale, raw_im)
+            } else {
                 log::trace!(
                     "physically scaling {:?} by {} bcos {}x{} > {:?}x{:?}. aspect={}",
                     info,
@@ -866,8 +864,6 @@ impl GlyphCache {
                     aspect,
                 );
                 (1.0, raw_im.scale_by(scale))
-            } else {
-                (scale, raw_im)
             };
 
             let tex = self.atlas.allocate(&raw_im)?;
@@ -887,7 +883,7 @@ impl GlyphCache {
             if info.font_idx != 0 {
                 // It's generally interesting to examine eg: emoji or ligatures
                 // that we might have fallen back to
-                log::trace!("{:?} {:?}", info, g);
+                log::trace!("{info:?} {g:?}");
             }
 
             g
@@ -924,7 +920,7 @@ impl GlyphCache {
                     .context("atlas.allocate_with_padding")?;
                 frame_cache.insert(*hash, sprite.clone());
 
-                return Ok((sprite, None, LoadState::Loaded));
+                Ok((sprite, None, LoadState::Loaded))
             }
             ImageDataType::AnimRgba8 {
                 hashes,
@@ -952,12 +948,12 @@ impl GlyphCache {
                         + durations[*decoded_current_frame].max(min_frame_duration);
                     if now >= next_due {
                         // Advance to next frame
-                        *decoded_current_frame = *decoded_current_frame + 1;
+                        *decoded_current_frame += 1;
                         if *decoded_current_frame >= frames.len() {
                             *decoded_current_frame = 0;
                             // Skip potential 0-duration root frame
                             if durations[0].as_millis() == 0 && frames.len() > 1 {
-                                *decoded_current_frame = *decoded_current_frame + 1;
+                                *decoded_current_frame += 1;
                             }
                         }
                         *decoded_frame_start = now;
@@ -981,14 +977,14 @@ impl GlyphCache {
 
                 frame_cache.insert(hash, sprite.clone());
 
-                return Ok((
+                Ok((
                     sprite,
                     Some(
                         *decoded_frame_start
                             + durations[*decoded_current_frame].max(min_frame_duration),
                     ),
                     LoadState::Loaded,
-                ));
+                ))
             }
             ImageDataType::EncodedLease(_) | ImageDataType::EncodedFile(_) => {
                 let mut frames = decoded.frames.borrow_mut();
@@ -1022,7 +1018,7 @@ impl GlyphCache {
                 if now >= next_due {
                     // Advance to next frame
                     if frames.load_next_frame() {
-                        *decoded_current_frame = *decoded_current_frame + 1;
+                        *decoded_current_frame += 1;
                         *decoded_frame_start = now;
                         next_due =
                             *decoded_frame_start + frames.frame_duration().max(min_frame_duration);
@@ -1050,11 +1046,11 @@ impl GlyphCache {
                         // We need to check for this because the consequence of
                         // a mismatched size is a panic in a layer where we
                         // cannot handle the error case.
-                        if data.len() != expected_byte_size {
+                        if data.len() == expected_byte_size {
+                            data
+                        } else {
                             report_frame_error(format!("frame data is corrupted: expected size {expected_byte_size} but have {}", data.len()));
                             vec![0u8; expected_byte_size]
-                        } else {
-                            data
                         }
                     }
                     Err(err) => {
@@ -1241,7 +1237,7 @@ impl GlyphCache {
             }
 
             for x in 0..metrics.cell_size.width as usize {
-                let vertical = -half_height * (x as f32 * x_factor).sin() + half_height;
+                let vertical = (-half_height).mul_add((x as f32 * x_factor).sin(), half_height);
                 let v1 = vertical.floor();
                 let v2 = vertical.ceil();
 

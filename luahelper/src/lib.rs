@@ -9,15 +9,15 @@ use wezterm_dynamic::{FromDynamic, ToDynamic, Value as DynValue};
 
 pub mod enumctor;
 
-pub fn to_lua<'lua, T: ToDynamic>(
-    lua: &'lua mlua::Lua,
+pub fn to_lua<T: ToDynamic>(
+    lua: &mlua::Lua,
     value: T,
-) -> Result<mlua::Value<'lua>, mlua::Error> {
+) -> Result<mlua::Value<'_>, mlua::Error> {
     let value = value.to_dynamic();
     dynamic_to_lua_value(lua, value)
 }
 
-pub fn from_lua<'lua, T: FromDynamic>(value: mlua::Value<'lua>) -> Result<T, mlua::Error> {
+pub fn from_lua<T: FromDynamic>(value: mlua::Value<'_>) -> Result<T, mlua::Error> {
     let lua_type = value.type_name();
     let value = lua_value_to_dynamic(value).map_err(|e| mlua::Error::FromLuaConversionError {
         from: lua_type,
@@ -32,8 +32,9 @@ pub fn from_lua<'lua, T: FromDynamic>(value: mlua::Value<'lua>) -> Result<T, mlu
 }
 
 /// Implement lua conversion traits for a type.
+///
 /// This implementation requires that the type implement
-/// FromDynamic and ToDynamic.
+/// `FromDynamic` and `ToDynamic`.
 /// Why do we need these traits?  They allow `create_function` to
 /// operate in terms of our internal types rather than forcing
 /// the implementer to use generic Value parameter or return values.
@@ -60,10 +61,10 @@ macro_rules! impl_lua_conversion_dynamic {
     };
 }
 
-pub fn dynamic_to_lua_value<'lua>(
-    lua: &'lua mlua::Lua,
+pub fn dynamic_to_lua_value(
+    lua: &mlua::Lua,
     value: DynValue,
-) -> mlua::Result<mlua::Value<'lua>> {
+) -> mlua::Result<mlua::Value<'_>> {
     Ok(match value {
         DynValue::Null => LuaValue::Nil,
         DynValue::Bool(b) => LuaValue::Boolean(b),
@@ -80,7 +81,7 @@ pub fn dynamic_to_lua_value<'lua>(
         }
         DynValue::Object(object) => {
             let table = lua.create_table()?;
-            for (key, value) in object.into_iter() {
+            for (key, value) in object {
                 table.set(
                     dynamic_to_lua_value(lua, key)?,
                     dynamic_to_lua_value(lua, value)?,
@@ -189,7 +190,7 @@ fn lua_value_to_dynamic_impl(
         }
         LuaValue::Error(e) => return Err(e),
         LuaValue::Table(table) => {
-            if let Ok(true) = table.contains_key(1) {
+            if matches!(table.contains_key(1), Ok(true)) {
                 let mut array = vec![];
                 let pairs = table.clone();
                 for value in table.sequence_values() {
@@ -256,7 +257,7 @@ impl_lua_conversion_dynamic!(ValueLua);
 
 pub struct ValuePrinter<'lua>(pub LuaValue<'lua>);
 
-impl<'lua> std::fmt::Debug for ValuePrinter<'lua> {
+impl std::fmt::Debug for ValuePrinter<'_> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::result::Result<(), std::fmt::Error> {
         let visited = Rc::new(RefCell::new(HashSet::new()));
         ValuePrinterHelper {
@@ -268,29 +269,28 @@ impl<'lua> std::fmt::Debug for ValuePrinter<'lua> {
     }
 }
 
+#[allow(clippy::mutable_key_type)]
 struct ValuePrinterHelper<'lua> {
     visited: Rc<RefCell<HashSet<usize>>>,
     value: LuaValue<'lua>,
     is_cycle: bool,
 }
 
-impl<'lua> PartialEq for ValuePrinterHelper<'lua> {
+impl PartialEq for ValuePrinterHelper<'_> {
     fn eq(&self, rhs: &Self) -> bool {
         self.value.eq(&rhs.value)
     }
 }
 
-impl<'lua> Eq for ValuePrinterHelper<'lua> {}
+impl Eq for ValuePrinterHelper<'_> {}
 
-impl<'lua> PartialOrd for ValuePrinterHelper<'lua> {
+impl PartialOrd for ValuePrinterHelper<'_> {
     fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
-        let lhs = lua_value_to_dynamic(self.value.clone()).unwrap_or(DynValue::Null);
-        let rhs = lua_value_to_dynamic(rhs.value.clone()).unwrap_or(DynValue::Null);
-        lhs.partial_cmp(&rhs)
+        Some(self.cmp(rhs))
     }
 }
 
-impl<'lua> Ord for ValuePrinterHelper<'lua> {
+impl Ord for ValuePrinterHelper<'_> {
     fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
         let lhs = lua_value_to_dynamic(self.value.clone()).unwrap_or(DynValue::Null);
         let rhs = lua_value_to_dynamic(rhs.value.clone()).unwrap_or(DynValue::Null);
@@ -298,7 +298,7 @@ impl<'lua> Ord for ValuePrinterHelper<'lua> {
     }
 }
 
-impl<'lua> ValuePrinterHelper<'lua> {
+impl ValuePrinterHelper<'_> {
     fn has_cycle(&self, value: &mlua::Value) -> bool {
         self.visited
             .borrow()
@@ -333,7 +333,7 @@ fn is_array_style_table(t: &mlua::Table) -> bool {
     true
 }
 
-impl<'lua> std::fmt::Debug for ValuePrinterHelper<'lua> {
+impl std::fmt::Debug for ValuePrinterHelper<'_> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::result::Result<(), std::fmt::Error> {
         match &self.value {
             LuaValue::Table(_) if self.is_cycle => {
@@ -343,7 +343,7 @@ impl<'lua> std::fmt::Debug for ValuePrinterHelper<'lua> {
                 self.visited
                     .borrow_mut()
                     .insert(self.value.to_pointer() as usize);
-                if is_array_style_table(&t) {
+                if is_array_style_table(t) {
                     // Treat as list
                     let mut list = fmt.debug_list();
                     for value in t.clone().sequence_values() {
@@ -367,6 +367,7 @@ impl<'lua> std::fmt::Debug for ValuePrinterHelper<'lua> {
                 } else {
                     // Treat as map; put it into a BTreeMap so that we have a stable
                     // order for our tests.
+                    #[allow(clippy::mutable_key_type)]
                     let mut map = BTreeMap::new();
                     for pair in t.clone().pairs::<LuaValue, LuaValue>() {
                         match pair {
@@ -386,7 +387,7 @@ impl<'lua> std::fmt::Debug for ValuePrinterHelper<'lua> {
                                 );
                             }
                             Err(err) => {
-                                log::error!("error while retrieving map entry: {}", err);
+                                log::error!("error while retrieving map entry: {err}");
                                 break;
                             }
                         }
@@ -398,8 +399,8 @@ impl<'lua> std::fmt::Debug for ValuePrinterHelper<'lua> {
                 fmt.write_fmt(format_args!("userdata: {:?}", self.value.to_pointer()))
             }
             LuaValue::UserData(ud) => {
-                if let Ok(mt) = ud.get_metatable() {
-                    if let Ok(to_dynamic) = mt.get::<mlua::Function>("__wezterm_to_dynamic") {
+                if let Ok(mt) = ud.get_metatable()
+                    && let Ok(to_dynamic) = mt.get::<mlua::Function>("__wezterm_to_dynamic") {
                         return match to_dynamic.call(LuaValue::UserData(ud.clone())) {
                             Ok(value) => Self {
                                 visited: Rc::clone(&self.visited),
@@ -410,29 +411,24 @@ impl<'lua> std::fmt::Debug for ValuePrinterHelper<'lua> {
                             Err(err) => write!(fmt, "Error calling __wezterm_to_dynamic: {err}"),
                         };
                     }
-                }
                 match self.value.to_string() {
                     Ok(s) => fmt.write_str(&s),
                     Err(err) => write!(fmt, "userdata ({err:#})"),
                 }
             }
-            LuaValue::Error(e) => fmt.write_fmt(format_args!("error {}", e)),
-            LuaValue::String(s) => match s.to_str() {
-                Ok(s) => fmt.write_fmt(format_args!("\"{}\"", s.escape_default())),
-                Err(_) => {
-                    let mut binary_string = "b\"".to_string();
-                    for &b in s.as_bytes() {
-                        if let Some(c) = char::from_u32(b as u32) {
-                            if c.is_ascii_alphanumeric() || c.is_ascii_punctuation() || c == ' ' {
-                                binary_string.push(c);
-                                continue;
-                            }
+            LuaValue::Error(e) => fmt.write_fmt(format_args!("error {e}")),
+            LuaValue::String(s) => if let Ok(s) = s.to_str() { fmt.write_fmt(format_args!("\"{}\"", s.escape_default())) } else {
+                let mut binary_string = "b\"".to_string();
+                for &b in s.as_bytes() {
+                    if let Some(c) = char::from_u32(u32::from(b))
+                        && (c.is_ascii_alphanumeric() || c.is_ascii_punctuation() || c == ' ') {
+                            binary_string.push(c);
+                            continue;
                         }
-                        binary_string.push_str(&format!("\\x{b:02x}"));
-                    }
-                    binary_string.push('"');
-                    fmt.write_str(&binary_string)
+                    binary_string.push_str(&format!("\\x{b:02x}"));
                 }
+                binary_string.push('"');
+                fmt.write_str(&binary_string)
             },
             _ => match self.value.to_string() {
                 Ok(s) => fmt.write_str(&s),

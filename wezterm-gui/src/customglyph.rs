@@ -24,6 +24,7 @@ bitflags::bitflags! {
     //  │ ╲  ╱ │
     //  │LL╲╱LR│
     //  ╰──────╯
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct CellDiagonal: u8{
         const UPPER_LEFT = 1<<1;
         const UPPER_RIGHT = 1<<2;
@@ -39,6 +40,7 @@ bitflags::bitflags! {
     // │L╱╲ │
     // │╱ D╲│
     // ╰────╯
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct Triangle: u8{
         const UPPER = 1<<1;
         const RIGHT = 1<<2;
@@ -48,6 +50,7 @@ bitflags::bitflags! {
 }
 
 bitflags::bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct ProgressChunk: u8{
         const LEFT = 1<<1;
         const RIGHT = 1<<2;
@@ -58,6 +61,7 @@ bitflags::bitflags! {
 
 bitflags::bitflags! {
     /// Components to make up graph branch diagrams (eg. for git history)
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct Branch: u16{
         const VERTICAL = 1<<1;
         const HORIZONTAL = 1<<2;
@@ -180,6 +184,7 @@ impl BlockCoord {
     }
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Block {
     /// Number of 1/8ths: x0, x1, y0, y1 with custom alpha
@@ -590,7 +595,7 @@ pub enum PolyCommand {
 }
 
 impl PolyCommand {
-    fn to_skia(&self, width: usize, height: usize, underline_height: f32, pb: &mut PathBuilder) {
+    fn to_skia(self, width: usize, height: usize, underline_height: f32, pb: &mut PathBuilder) {
         match self {
             Self::MoveTo(x, y) => pb.move_to(
                 x.to_pixel(width, underline_height, width.min(height)),
@@ -661,8 +666,7 @@ impl PolyStyle {
             | PolyStyle::Outline
             | PolyStyle::OutlineHeavy
             | PolyStyle::OutlineAlpha => {
-                let mut stroke = Stroke::default();
-                stroke.width = width;
+                let mut stroke = Stroke { width, ..Default::default() };
                 if self == PolyStyle::OutlineHeavy {
                     stroke.width *= 3.01; // NOTE: Changing this makes block cursor disproportionate at different font sizes and resolutions
                 } else if self == PolyStyle::OutlineThin {
@@ -5028,8 +5032,7 @@ impl GlyphCache {
             style,
         } in polys
         {
-            let mut paint = Paint::default();
-            paint.blend_mode = blend_mode;
+            let mut paint = Paint { blend_mode, ..Default::default() };
             let intensity = intensity.to_scale();
             paint.set_color(
                 tiny_skia::Color::from_rgba(intensity, intensity, intensity, intensity).unwrap(),
@@ -5154,9 +5157,9 @@ impl GlyphCache {
                 descender_plus_two: 0,
                 underline_height: *underline_height,
                 strike_row: 0,
-                cell_size: cell_size.clone(),
+                cell_size: *cell_size,
             },
-            _ => render_metrics.clone(),
+            _ => *render_metrics,
         };
 
         let mut buffer = Image::new(
@@ -5233,7 +5236,7 @@ impl GlyphCache {
                         &[Poly {
                             path: cmd,
                             intensity: alpha,
-                            style: style,
+                            style,
                         }],
                         &mut buffer,
                         if config::configuration().anti_alias_custom_block_glyphs {
@@ -5465,7 +5468,7 @@ impl GlyphCache {
                         &[Poly {
                             path: cmd,
                             intensity: BlockAlpha::Full,
-                            style: style,
+                            style,
                         }],
                         &mut buffer,
                         if config::configuration().anti_alias_custom_block_glyphs {
@@ -5597,7 +5600,7 @@ impl GlyphCache {
                             &[Poly {
                                 path: cmd,
                                 intensity: BlockAlpha::Full,
-                                style: style,
+                                style,
                             }],
                             &mut buffer,
                             if config::configuration().anti_alias_custom_block_glyphs {
@@ -5766,7 +5769,7 @@ impl GlyphCache {
                             &[Poly {
                                 path: cmd,
                                 intensity: BlockAlpha::Full,
-                                style: style,
+                                style,
                             }],
                             &mut buffer,
                             if config::configuration().anti_alias_custom_block_glyphs {

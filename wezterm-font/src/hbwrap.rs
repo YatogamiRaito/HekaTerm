@@ -1,5 +1,4 @@
 //! Higher level harfbuzz bindings
-use freetype;
 
 pub use harfbuzz::*;
 
@@ -28,7 +27,7 @@ pub const IS_BGRA: hb_tag_t = hb_tag(b'B', b'G', b'R', b'A');
 pub fn language_from_string(s: &str) -> Result<hb_language_t, Error> {
     unsafe {
         let lang = hb_language_from_string(s.as_ptr() as *const c_char, s.len() as i32);
-        ensure!(!lang.is_null(), "failed to convert {} to language", s);
+        ensure!(!lang.is_null(), "failed to convert {s} to language");
         Ok(lang)
     }
 }
@@ -42,8 +41,7 @@ pub fn feature_from_string(s: &str) -> Result<hb_feature_t, Error> {
                 s.len() as i32,
                 &mut feature as *mut _,
             ) != 0,
-            "failed to create feature from {}",
-            s
+            "failed to create feature from {s}"
         );
         Ok(feature)
     }
@@ -269,12 +267,12 @@ impl Drop for Font {
 
 impl Font {
     /// Create a harfbuzz face from a freetype font
-    pub fn new(face: freetype::FT_Face) -> Font {
+    pub fn new(face: freetype::FT_Face) -> Self {
         // hb_ft_font_create_referenced always returns a
         // pointer to something, or derefs a nullptr internally
         // if everything fails, so there's nothing for us to
         // test here.
-        Font {
+        Self {
             font: unsafe { hb_ft_font_create_referenced(face as _) },
         }
     }
@@ -565,8 +563,8 @@ pub enum PaintOp {
 }
 
 impl PaintOp {
-    unsafe fn paint_data(data: *mut ::std::os::raw::c_void) -> &'static mut Vec<PaintOp> {
-        &mut *(data as *mut Vec<PaintOp>)
+    unsafe fn paint_data(data: *mut ::std::os::raw::c_void) -> &'static mut Vec<Self> {
+        &mut *(data as *mut Vec<Self>)
     }
 
     unsafe extern "C" fn push_transform(
@@ -806,8 +804,8 @@ impl PaintOp {
 }
 
 impl DrawOp {
-    unsafe fn draw_data(data: *mut ::std::os::raw::c_void) -> &'static mut Vec<DrawOp> {
-        &mut *(data as *mut Vec<DrawOp>)
+    unsafe fn draw_data(data: *mut ::std::os::raw::c_void) -> &'static mut Vec<Self> {
+        &mut *(data as *mut Vec<Self>)
     }
 
     unsafe extern "C" fn move_to(
@@ -888,7 +886,9 @@ impl DrawOp {
 }
 
 impl ColorLine {
-    pub fn new_from_hb(line: *mut hb_color_line_t) -> Self {
+    /// # Safety
+    /// The caller must ensure that `line` is a valid, non-null pointer to an `hb_color_line_t`.
+    pub unsafe fn new_from_hb(line: *mut hb_color_line_t) -> Self {
         let num_stops = unsafe {
             hb_color_line_get_color_stops(line, 0, std::ptr::null_mut(), std::ptr::null_mut())
         };
@@ -934,7 +934,7 @@ fn hb_color_to_srgba_pixel(color: hb_color_t) -> SrgbaPixel {
     SrgbaPixel::rgba(red, green, blue, alpha)
 }
 
-fn hb_extend_to_cairo(extend: hb_paint_extend_t) -> Extend {
+const fn hb_extend_to_cairo(extend: hb_paint_extend_t) -> Extend {
     match extend {
         hb_paint_extend_t::HB_PAINT_EXTEND_PAD => Extend::Pad,
         hb_paint_extend_t::HB_PAINT_EXTEND_REPEAT => Extend::Repeat,
@@ -973,7 +973,7 @@ extern "C" fn log_buffer_message(
 
 impl Buffer {
     /// Create a new buffer
-    pub fn new() -> Result<Buffer, Error> {
+    pub fn new() -> Result<Self, Error> {
         let buf = unsafe { hb_buffer_create() };
         ensure!(
             unsafe { hb_buffer_allocation_successful(buf) } != 0,
@@ -987,7 +987,7 @@ impl Buffer {
 
             // hb_buffer_set_message_func(buf, Some(log_buffer_message), std::ptr::null_mut(), None);
         };
-        Ok(Buffer { buf })
+        Ok(Self { buf })
     }
 
     /// Reset the buffer back to its initial post-creation state
@@ -1167,7 +1167,7 @@ pub const fn hb_tag(c1: u8, c2: u8, c3: u8, c4: u8) -> hb_tag_t {
     ((c1 as u32) << 24) | ((c2 as u32) << 16) | ((c3 as u32) << 8) | (c4 as u32)
 }
 
-pub fn hb_color(b: u8, g: u8, r: u8, a: u8) -> hb_tag_t {
+pub const fn hb_color(b: u8, g: u8, r: u8, a: u8) -> hb_tag_t {
     hb_tag(b, g, r, a)
 }
 
@@ -1186,7 +1186,7 @@ pub fn hb_tag_to_string(tag: hb_tag_t) -> TagString {
 /// This is necessary because harfbuzz may sometimes encode
 /// empty arrays in that way, and rust 1.78 will panic if a null
 /// ptr is passed in.
-pub(crate) unsafe fn from_raw_parts<'a, T>(ptr: *const T, size: usize) -> &'a [T] {
+pub(crate) const unsafe fn from_raw_parts<'a, T>(ptr: *const T, size: usize) -> &'a [T] {
     if ptr.is_null() {
         &[]
     } else {

@@ -2,7 +2,7 @@ use crate::scripting::guiwin::GuiWin;
 use crate::spawn::SpawnWhere;
 use crate::termwindow::TermWindowNotif;
 use crate::TermWindow;
-use ::window::*;
+use ::window::{Connection, Window, ConnectionOps, WindowOps, Clipboard, ApplicationEvent};
 use anyhow::{Context, Error};
 use config::keyassignment::{KeyAssignment, SpawnCommand};
 use config::{ConfigSubscription, NotificationHandling};
@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 use wezterm_term::{Alert, ClipboardSelection};
-use wezterm_toast_notification::*;
+use wezterm_toast_notification::persistent_toast_notification;
 
 pub struct GuiFrontEnd {
     connection: Rc<Connection>,
@@ -33,14 +33,14 @@ impl Drop for GuiFrontEnd {
 }
 
 impl GuiFrontEnd {
-    pub fn try_new() -> anyhow::Result<Rc<GuiFrontEnd>> {
+    pub fn try_new() -> anyhow::Result<Rc<Self>> {
         let connection = Connection::init()?;
         connection.set_event_handler(Self::app_event_handler);
 
         let mux = Mux::get();
         let client_id = mux.active_identity().expect("to have set my own id");
 
-        let front_end = Rc::new(GuiFrontEnd {
+        let front_end = Rc::new(Self {
             connection,
             switching_workspaces: RefCell::new(false),
             spawned_mux_window: RefCell::new(HashSet::new()),
@@ -163,12 +163,11 @@ impl GuiFrontEnd {
                 MuxNotification::SaveToDownloads { name, data } => {
                     if !config::configuration().allow_download_protocols {
                         log::error!(
-                            "Ignoring download request for {:?}, \
-                                 as allow_download_protocols=false",
-                            name
+                            "Ignoring download request for {name:?}, \
+                                 as allow_download_protocols=false"
                         );
-                    } else if let Err(err) = crate::download::save_to_downloads(name, &*data) {
-                        log::error!("save_to_downloads: {:#}", err);
+                    } else if let Err(err) = crate::download::save_to_downloads(name, &data) {
+                        log::error!("save_to_downloads: {err:#}");
                     }
                 }
                 MuxNotification::AssignClipboard {
@@ -179,10 +178,7 @@ impl GuiFrontEnd {
                     promise::spawn::spawn_into_main_thread(async move {
                         let fe = crate::frontend::front_end();
                         log::trace!(
-                            "set clipboard in pane {} {:?} {:?}",
-                            pane_id,
-                            selection,
-                            clipboard
+                            "set clipboard in pane {pane_id} {selection:?} {clipboard:?}"
                         );
                         if let Some(window) = fe.known_windows.borrow().keys().next() {
                             window.set_clipboard(
@@ -196,7 +192,7 @@ impl GuiFrontEnd {
                             );
                         } else {
                             log::error!("Cannot assign clipboard as there are no windows");
-                        };
+                        }
                     })
                     .detach();
                 }
@@ -219,15 +215,12 @@ impl GuiFrontEnd {
         log::trace!("Got app event {event:?}");
         match event {
             ApplicationEvent::OpenCommandScript(file_name) => {
-                let quoted_file_name = match shlex::try_quote(&file_name) {
-                    Ok(name) => name.to_owned().to_string(),
-                    Err(_) => {
-                        log::error!(
-                            "OpenCommandScript: {file_name} has embedded NUL bytes and
-                             cannot be launched via the shell"
-                        );
-                        return;
-                    }
+                let quoted_file_name = if let Ok(name) = shlex::try_quote(&file_name) { name.into_owned() } else {
+                    log::error!(
+                        "OpenCommandScript: {file_name} has embedded NUL bytes and
+                         cannot be launched via the shell"
+                    );
+                    return;
                 };
                 promise::spawn::spawn(async move {
                     use config::keyassignment::SpawnTabDomain;
@@ -247,27 +240,27 @@ impl GuiFrontEnd {
                     let workspace = mux.active_workspace();
 
                     match mux
-                        .spawn_tab_or_window(
+                        .spawn_tab_or_window(mux::SpawnTabOrWindow {
                             window_id,
-                            SpawnTabDomain::DomainName("local".to_string()),
-                            cmd,
-                            cwd,
-                            TerminalSize::default(),
-                            pane_id,
-                            workspace,
-                            None, // optional position
-                        )
+                            domain: SpawnTabDomain::DomainName("local".to_string()),
+                            command: cmd,
+                            command_dir: cwd,
+                            size: TerminalSize::default(),
+                            current_pane_id: pane_id,
+                            workspace_for_new_window: workspace,
+                            window_position: None, // optional position
+                        })
                         .await
                     {
                         Ok((_tab, pane, _window_id)) => {
                             log::trace!("Spawned {file_name} as pane_id {}", pane.pane_id());
                             let mut writer = pane.writer();
-                            write!(writer, "{quoted_file_name} ; exit\n").ok();
+                            writeln!(writer, "{quoted_file_name} ; exit").ok();
                         }
                         Err(err) => {
                             log::error!("Failed to spawn {file_name}: {err:#?}");
                         }
-                    };
+                    }
                 })
                 .detach();
             }
@@ -279,12 +272,12 @@ impl GuiFrontEnd {
 
                 fn spawn_command(spawn: &SpawnCommand, spawn_where: SpawnWhere) {
                     let config = config::configuration();
-                    let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi());
+                    let dpi = config.dpi.unwrap_or_else(::window::default_dpi);
                     let size =
                         config.initial_size(dpi as u32, crate::cell_pixel_dims(&config, dpi).ok());
                     let term_config = Arc::new(config::TermConfig::with_config(config));
 
-                    crate::spawn::spawn_command_impl(spawn, spawn_where, size, None, term_config)
+                    crate::spawn::spawn_command_impl(spawn, spawn_where, size, None, term_config);
                 }
 
                 match action {
@@ -355,14 +348,14 @@ impl GuiFrontEnd {
             for workspace in mux.iter_workspaces() {
                 if !mux.is_workspace_empty(&workspace) {
                     mux.set_active_workspace_for_client(&self.client_id, &workspace);
-                    log::debug!("using {} instead, as it is not empty", workspace);
+                    log::debug!("using {workspace} instead, as it is not empty");
                     break;
                 }
             }
         }
 
         let workspace = mux.active_workspace_for_client(&self.client_id);
-        log::debug!("workspace is {}, fixup windows", workspace);
+        log::debug!("workspace is {workspace}, fixup windows");
 
         let mut mux_windows = mux.iter_windows_in_workspace(&workspace);
 
@@ -374,7 +367,7 @@ impl GuiFrontEnd {
         let mut windows = BTreeMap::new();
         let mut unused = BTreeMap::new();
 
-        for (window, window_id) in known_windows.into_iter() {
+        for (window, window_id) in known_windows {
             if let Some(idx) = mux_windows.iter().position(|&id| id == window_id) {
                 // it already points to the desired mux window
                 windows.insert(window, window_id);
@@ -386,7 +379,7 @@ impl GuiFrontEnd {
 
         let mut mux_windows = mux_windows.into_iter();
 
-        for (window, old_id) in unused.into_iter() {
+        for (window, old_id) in unused {
             if let Some(mux_window_id) = mux_windows.next() {
                 window.notify(TermWindowNotif::SwitchToMuxWindow(mux_window_id));
                 windows.insert(window, mux_window_id);
@@ -398,14 +391,14 @@ impl GuiFrontEnd {
             }
         }
 
-        log::trace!("reconcile: windows -> {:?}", windows);
+        log::trace!("reconcile: windows -> {windows:?}");
         *self.known_windows.borrow_mut() = windows;
 
         let future = promise.get_future().unwrap();
 
         // then spawn any new windows that are needed
         promise::spawn::spawn(async move {
-            while let Some(mux_window_id) = mux_windows.next() {
+            for mux_window_id in mux_windows.by_ref() {
                 if front_end().has_mux_window(mux_window_id)
                     || front_end()
                         .spawned_mux_window
@@ -418,9 +411,9 @@ impl GuiFrontEnd {
                     .spawned_mux_window
                     .borrow_mut()
                     .insert(mux_window_id);
-                log::trace!("Creating TermWindow for mux_window_id={}", mux_window_id);
+                log::trace!("Creating TermWindow for mux_window_id={mux_window_id}");
                 if let Err(err) = TermWindow::new_window(mux_window_id).await {
-                    log::error!("Failed to create window: {:#}", err);
+                    log::error!("Failed to create window: {err:#}");
                     let mux = Mux::get();
                     mux.kill_window(mux_window_id);
                     front_end()
@@ -487,7 +480,7 @@ impl GuiFrontEnd {
 }
 
 thread_local! {
-    static FRONT_END: RefCell<Option<Rc<GuiFrontEnd>>> = RefCell::new(None);
+    static FRONT_END: RefCell<Option<Rc<GuiFrontEnd>>> = const { RefCell::new(None) };
 }
 
 pub fn try_front_end() -> Option<Rc<GuiFrontEnd>> {

@@ -74,7 +74,7 @@ impl FontRasterizer for HarfbuzzRasterizer {
         }
 
         let mut bounds_adjust = Matrix::identity();
-        bounds_adjust.translate(left * -1., top * -1.);
+        bounds_adjust.translate(-left, -top);
         log::trace!("dims: {width}x{height} {bounds_adjust:?}");
 
         let target = ImageSurface::create(Format::ARgb32, width as i32, height as i32)?;
@@ -94,7 +94,7 @@ impl FontRasterizer for HarfbuzzRasterizer {
             height: height as usize,
             width: width as usize,
             bearing_x: PixelLength::new(left.min(0.)),
-            bearing_y: PixelLength::new(top * -1.),
+            bearing_y: PixelLength::new(-top),
             has_color,
             is_scaled: true,
         })
@@ -187,12 +187,9 @@ fn record_to_cairo_surface(paint_ops: Vec<PaintOp>) -> anyhow::Result<(Recording
                 has_color = true;
                 paint_linear_gradient(
                     &context,
-                    x0.into(),
-                    y0.into(),
-                    x1.into(),
-                    y1.into(),
-                    x2.into(),
-                    y2.into(),
+                    (x0.into(), y0.into()),
+                    (x1.into(), y1.into()),
+                    (x2.into(), y2.into()),
                     color_line,
                 )?;
             }
@@ -208,12 +205,8 @@ fn record_to_cairo_surface(paint_ops: Vec<PaintOp>) -> anyhow::Result<(Recording
                 has_color = true;
                 paint_radial_gradient(
                     &context,
-                    x0.into(),
-                    y0.into(),
-                    r0.into(),
-                    x1.into(),
-                    y1.into(),
-                    r1.into(),
+                    (x0.into(), y0.into(), r0.into()),
+                    (x1.into(), y1.into(), r1.into()),
                     color_line,
                 )?;
             }
@@ -294,8 +287,8 @@ fn record_to_cairo_surface(paint_ops: Vec<PaintOp>) -> anyhow::Result<(Recording
                 let slanted_x_bearing =
                     extents.x_bearing as f64 - extents.y_bearing as f64 * slant as f64;
                 context.transform(Matrix::new(1., 0., slant.into(), 1., 0., 0.));
-                context.translate(slanted_x_bearing.into(), extents.y_bearing.into());
-                context.scale(slanted_width.into(), extents.height.into());
+                context.translate(slanted_x_bearing, extents.y_bearing.into());
+                context.scale(slanted_width, extents.height.into());
                 context.set_source(pattern)?;
                 context.paint()?;
                 context.restore()?;
@@ -306,14 +299,14 @@ fn record_to_cairo_surface(paint_ops: Vec<PaintOp>) -> anyhow::Result<(Recording
     Ok((surface, has_color))
 }
 
-fn multiply_alpha(alpha: u8, color: u8) -> u8 {
+const fn multiply_alpha(alpha: u8, color: u8) -> u8 {
     let temp: u32 = alpha as u32 * (color as u32 + 0x80);
 
     ((temp + (temp >> 8)) >> 8) as u8
 }
 
 #[allow(dead_code)]
-fn demultiply_alpha(alpha: u8, color: u8) -> u8 {
+const fn demultiply_alpha(alpha: u8, color: u8) -> u8 {
     if alpha == 0 {
         return 0;
     }
@@ -373,7 +366,7 @@ pub fn argb_to_rgba(data: &mut [u8]) {
     }
 }
 
-fn hb_paint_mode_to_operator(mode: hb_paint_composite_mode_t) -> Operator {
+const fn hb_paint_mode_to_operator(mode: hb_paint_composite_mode_t) -> Operator {
     use hb_paint_composite_mode_t::*;
     match mode {
         HB_PAINT_COMPOSITE_MODE_CLEAR => Operator::Clear,

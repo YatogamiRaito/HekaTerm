@@ -7,7 +7,7 @@ use mux::pane::{
     CachePolicy, ForEachPaneLogicalLine, LogicalLine, Pane, PaneId, Pattern, SearchResult,
     WithPaneLines,
 };
-use mux::renderable::*;
+use mux::renderable::{StableCursorPosition, RenderableDimensions};
 use parking_lot::{MappedMutexGuard, Mutex};
 use rangeset::RangeSet;
 use std::collections::HashMap;
@@ -55,7 +55,7 @@ const PATTERNS: [&str; 14] = [
 ];
 
 /// This function computes a set of labels for a given alphabet.
-/// It is derived from https://github.com/fcsonline/tmux-thumbs/blob/master/src/alphabets.rs
+/// It is derived from <https://github.com/fcsonline/tmux-thumbs/blob/master/src/alphabets.rs>
 /// which is Copyright (c) 2019 Ferran Basora and provided under the MIT license
 pub fn compute_labels_for_alphabet(alphabet: &str, num_matches: usize) -> Vec<String> {
     compute_labels_for_alphabet_impl(alphabet, num_matches, true)
@@ -110,7 +110,7 @@ fn compute_labels_for_alphabet_impl(
         let prefixed: Vec<String> = alphabet
             .iter()
             .take(num_matches - primary.len() - secondary.len())
-            .map(|s| format!("{}{}", prefix, s))
+            .map(|s| format!("{prefix}{s}"))
             .collect();
 
         secondary.splice(0..0, prefixed);
@@ -242,15 +242,7 @@ impl QuickSelectOverlay {
 
         let mut pattern = "(?m)(".to_string();
         let mut have_patterns = false;
-        if !args.patterns.is_empty() {
-            for p in &args.patterns {
-                if have_patterns {
-                    pattern.push('|');
-                }
-                pattern.push_str(p);
-                have_patterns = true;
-            }
-        } else {
+        if args.patterns.is_empty() {
             // User-provided patterns take precedence over built-ins
             for p in &config.quick_select_patterns {
                 if have_patterns {
@@ -268,6 +260,14 @@ impl QuickSelectOverlay {
                     have_patterns = true;
                 }
             }
+        } else {
+            for p in &args.patterns {
+                if have_patterns {
+                    pattern.push('|');
+                }
+                pattern.push_str(p);
+                have_patterns = true;
+            }
         }
         pattern.push(')');
 
@@ -277,7 +277,7 @@ impl QuickSelectOverlay {
         let mut renderer = QuickSelectRenderable {
             delegate: Arc::clone(pane),
             pattern,
-            selection: "".to_string(),
+            selection: String::new(),
             results: vec![],
             by_line: HashMap::new(),
             by_label: HashMap::new(),
@@ -296,7 +296,7 @@ impl QuickSelectOverlay {
         renderer.dirty_results.add(search_row);
         renderer.update_search(true);
 
-        Arc::new(QuickSelectOverlay {
+        Arc::new(Self {
             renderer: Mutex::new(renderer),
             delegate: Arc::clone(pane),
         })
@@ -350,9 +350,8 @@ impl Pane for QuickSelectOverlay {
         let mods = mods.remove_positional_mods();
         match (key, mods) {
             (KeyCode::Escape, KeyModifiers::NONE) => self.renderer.lock().close(),
-            (KeyCode::UpArrow, KeyModifiers::NONE)
-            | (KeyCode::Enter, KeyModifiers::NONE)
-            | (KeyCode::Char('p'), KeyModifiers::CTRL) => {
+            (KeyCode::UpArrow | KeyCode::Enter, KeyModifiers::NONE) |
+(KeyCode::Char('p'), KeyModifiers::CTRL) => {
                 // Move to prior match
                 let mut r = self.renderer.lock();
                 if let Some(cur) = r.result_pos.as_ref() {
@@ -411,13 +410,13 @@ impl Pane for QuickSelectOverlay {
                     r.activate_match_number(next);
                 }
             }
-            (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+            (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
                 // Type to add to the selection
                 let mut r = self.renderer.lock();
                 r.selection.push(c);
                 let lowered = r.selection.to_lowercase();
                 let paste = lowered != r.selection;
-                if let Some(result_index) = r.by_label.get(&lowered).cloned() {
+                if let Some(result_index) = r.by_label.get(&lowered).copied() {
                     r.select_and_copy_match_number(result_index, paste);
                     r.close();
                 }
@@ -442,7 +441,7 @@ impl Pane for QuickSelectOverlay {
     }
 
     fn perform_actions(&self, actions: Vec<termwiz::escape::Action>) {
-        self.delegate.perform_actions(actions)
+        self.delegate.perform_actions(actions);
     }
 
     fn is_dead(&self) -> bool {
@@ -457,7 +456,7 @@ impl Pane for QuickSelectOverlay {
     }
 
     fn erase_scrollback(&self, erase_mode: ScrollbackEraseMode) {
-        self.delegate.erase_scrollback(erase_mode)
+        self.delegate.erase_scrollback(erase_mode);
     }
 
     fn is_mouse_grabbed(&self) -> bool {
@@ -470,7 +469,7 @@ impl Pane for QuickSelectOverlay {
     }
 
     fn set_clipboard(&self, clipboard: &Arc<dyn Clipboard>) {
-        self.delegate.set_clipboard(clipboard)
+        self.delegate.set_clipboard(clipboard);
     }
 
     fn get_current_working_dir(&self, policy: CachePolicy) -> Option<Url> {
@@ -537,11 +536,11 @@ impl Pane for QuickSelectOverlay {
                 with_lines,
                 dims,
                 search_row,
-                renderer: &mut *renderer,
+                renderer: &mut renderer,
             },
         );
 
-        impl<'a> WithPaneLines for OverlayLines<'a> {
+        impl WithPaneLines for OverlayLines<'_> {
             fn with_lines_mut(&mut self, first_row: StableRowIndex, lines: &mut [&mut Line]) {
                 let mut overlay_lines = vec![];
 
@@ -609,7 +608,7 @@ impl Pane for QuickSelectOverlay {
                                 let mut attr = line
                                     .get_cell(idx)
                                     .map(|cell| cell.attrs().clone())
-                                    .unwrap_or_else(|| CellAttributes::default());
+                                    .unwrap_or_default();
                                 attr.set_background(
                                     colors
                                         .quick_select_label_bg
@@ -699,9 +698,7 @@ impl Pane for QuickSelectOverlay {
                     }
                     for (idx, c) in m.label.chars().enumerate() {
                         let mut attr = line
-                            .get_cell(idx)
-                            .map(|cell| cell.attrs().clone())
-                            .unwrap_or_else(|| CellAttributes::default());
+                            .get_cell(idx).map_or_else(CellAttributes::default, |cell| cell.attrs().clone());
                         attr.set_background(
                             colors
                                 .quick_select_label_bg
@@ -731,9 +728,9 @@ impl Pane for QuickSelectOverlay {
 impl QuickSelectRenderable {
     fn compute_search_row(&self) -> StableRowIndex {
         let dims = self.delegate.get_dimensions();
-        let top = self.viewport.unwrap_or_else(|| dims.physical_top);
-        let bottom = (top + dims.viewport_rows as StableRowIndex).saturating_sub(1);
-        bottom
+        let top = self.viewport.unwrap_or(dims.physical_top);
+        
+        (top + dims.viewport_rows as StableRowIndex).saturating_sub(1)
     }
 
     fn close(&self) {
@@ -764,10 +761,10 @@ impl QuickSelectRenderable {
     }
 
     fn recompute_results(&mut self) {
-        /// Produce the sorted seq of unique match_ids from the results
+        /// Produce the sorted seq of unique `match_ids` from the results
         fn compute_uniq_results(results: &[SearchResult]) -> Vec<usize> {
             let mut ids: Vec<usize> = results.iter().map(|sr| sr.match_id).collect();
-            ids.sort();
+            ids.sort_unstable();
             ids.dedup();
             ids
         }
@@ -776,10 +773,10 @@ impl QuickSelectRenderable {
 
         // Label each unique result
         let labels = compute_labels_for_alphabet(
-            if !self.args.alphabet.is_empty() {
-                &self.args.alphabet
-            } else {
+            if self.args.alphabet.is_empty() {
                 &self.config.quick_select_alphabet
+            } else {
+                &self.args.alphabet
             },
             uniq_results.len(),
         );
@@ -792,13 +789,10 @@ impl QuickSelectRenderable {
         // bottom-right-most result first and so on
         for (result_index, res) in self.results.iter().enumerate().rev() {
             // Figure out which label to use based on the match_id
-            let label_index = match assigned_labels.get(&res.match_id).copied() {
-                Some(idx) => idx,
-                None => {
-                    let idx = assigned_labels.len();
-                    assigned_labels.insert(res.match_id, idx);
-                    idx
-                }
+            let label_index = if let Some(idx) = assigned_labels.get(&res.match_id).copied() { idx } else {
+                let idx = assigned_labels.len();
+                assigned_labels.insert(res.match_id, idx);
+                idx
             };
             let label = match labels.get(label_index) {
                 Some(l) => l,
@@ -833,7 +827,7 @@ impl QuickSelectRenderable {
                     label: label.clone(),
                 };
 
-                let matches = self.by_line.entry(idx).or_insert_with(|| vec![]);
+                let matches = self.by_line.entry(idx).or_default();
                 matches.push(result);
 
                 self.dirty_results.add(idx);
@@ -856,7 +850,12 @@ impl QuickSelectRenderable {
         let bar_pos = self.compute_search_row();
         self.dirty_results.add(bar_pos);
 
-        if !self.pattern.is_empty() {
+        if self.pattern.is_empty() {
+            if !is_initial_run {
+                self.set_viewport(None);
+            }
+            self.clear_selection();
+        } else {
             let pane: Arc<dyn Pane> = self.delegate.clone();
             let window = self.window.clone();
             let pattern = self.pattern.clone();
@@ -876,8 +875,8 @@ impl QuickSelectRenderable {
                 let mut results = Some(results);
                 window.notify(TermWindowNotif::Apply(Box::new(move |term_window| {
                     let state = term_window.pane_state(pane_id);
-                    if let Some(overlay) = state.overlay.as_ref() {
-                        if let Some(search_overlay) =
+                    if let Some(overlay) = state.overlay.as_ref()
+                        && let Some(search_overlay) =
                             overlay.pane.downcast_ref::<QuickSelectOverlay>()
                         {
                             let mut r = search_overlay.renderer.lock();
@@ -885,7 +884,12 @@ impl QuickSelectRenderable {
                             r.recompute_results();
                             let num_results = r.results.len();
 
-                            if !r.results.is_empty() {
+                            if r.results.is_empty() {
+                                if !is_initial_run {
+                                    r.set_viewport(None);
+                                }
+                                r.clear_selection();
+                            } else {
                                 match &r.viewport {
                                     Some(y) if is_initial_run => {
                                         r.result_pos = r
@@ -897,23 +901,12 @@ impl QuickSelectRenderable {
                                         r.activate_match_number(num_results - 1);
                                     }
                                 }
-                            } else {
-                                if !is_initial_run {
-                                    r.set_viewport(None);
-                                }
-                                r.clear_selection();
                             }
                         }
-                    }
                 })));
                 anyhow::Result::<()>::Ok(())
             })
             .detach();
-        } else {
-            if !is_initial_run {
-                self.set_viewport(None);
-            }
-            self.clear_selection();
         }
     }
 
@@ -928,7 +921,7 @@ impl QuickSelectRenderable {
     }
 
     fn select_and_copy_match_number(&mut self, n: usize, paste: bool) {
-        let result = self.results[n].clone();
+        let result = self.results[n];
 
         let pane_id = self.delegate.pane_id();
         let action = self.args.action.clone();
@@ -977,7 +970,7 @@ impl QuickSelectRenderable {
 
     fn activate_match_number(&mut self, n: usize) {
         self.result_pos.replace(n);
-        let result = self.results[n].clone();
+        let result = self.results[n];
         self.set_viewport(Some(result.start_y));
     }
 }

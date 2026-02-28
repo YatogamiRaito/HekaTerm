@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types)]
 use libc::c_void;
-use xcb::ffi::*;
+use xcb::ffi::xcb_connection_t;
 
 pub type xcb_image_format_t = u32;
 pub type xcb_drawable_t = u32;
@@ -19,7 +19,10 @@ impl Drop for XcbImage {
 }
 
 impl XcbImage {
-    pub fn create_native(
+    /// # Safety
+    /// `base` and `data` must be valid pointers to memory of appropriate size.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn create_native(
         c: &xcb::Connection,
         width: u16,
         height: u16,
@@ -43,11 +46,11 @@ impl XcbImage {
         };
         if image.is_null() {
             anyhow::bail!("failed to create native image");
-        } else {
-            Ok(Self(image))
         }
+        Ok(Self(image))
     }
 
+    #[must_use] 
     pub fn put(
         &self,
         conn: &xcb::Connection,
@@ -62,7 +65,7 @@ impl XcbImage {
 }
 
 #[link(name = "xcb-image")]
-extern "C" {
+unsafe extern "C" {
     pub fn xcb_image_create_native(
         c: *mut xcb_connection_t,
         width: u16,

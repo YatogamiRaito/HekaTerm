@@ -2,7 +2,7 @@ use crate::sftp::types::Metadata;
 use crate::sftp::{SftpChannelError, SftpChannelResult};
 use camino::Utf8PathBuf;
 
-pub(crate) enum DirWrap {
+pub enum DirWrap {
     #[cfg(feature = "ssh2")]
     Ssh2(ssh2::File),
 

@@ -23,7 +23,7 @@ where
     T: std::fmt::Debug,
     T: 'static,
 {
-    fn new(variant: String) -> Self {
+    const fn new(variant: String) -> Self {
         Self {
             phantom: PhantomData,
             variant,
@@ -65,10 +65,10 @@ where
 
 /// This type is used as an enum constructor for type `T`.
 /// The primary usage is to enable `wezterm.action` to have the following
-/// behaviors for KeyAssignment:
+/// behaviors for `KeyAssignment`:
 ///
 /// `wezterm.action{QuickSelectArgs={}}` -> compatibility with prior versions;
-/// the table is passed through and from_dynamic -> lua conversion is attempted.
+/// the table is passed through and `from_dynamic` -> lua conversion is attempted.
 ///
 /// `wezterm.action.QuickSelectArgs` -> since the `QuickSelectArgs` variant
 /// has a payload that impl Default, this is equivalent to the call above.
@@ -84,13 +84,13 @@ where
 /// to handle the remaining cases.
 ///
 /// The __index implementation will return a simple string value for unit variants,
-/// which is how they are encoded by to_dynamic.
+/// which is how they are encoded by `to_dynamic`.
 ///
 /// Otherwise, a table will be built with the equivalent value representation.
 /// That table will also have a metatable assigned to it, which allows for
 /// either using the value as-is or passing additional parameters to it.
 ///
-/// If parameters are required, an EnumVariant<T> is returned instead of the
+/// If parameters are required, an `EnumVariant`<T> is returned instead of the
 /// table, and it has a __call method that will perform that final stage
 /// of construction.
 pub struct Enum<T> {
@@ -101,8 +101,15 @@ pub struct Enum<T> {
 // need to be Send.
 unsafe impl<T> Send for Enum<T> {}
 
+impl<T> Default for Enum<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> Enum<T> {
-    pub fn new() -> Self {
+    #[must_use] 
+    pub const fn new() -> Self {
         Self {
             phantom: PhantomData,
         }
@@ -133,21 +140,21 @@ where
         methods.add_meta_method(MetaMethod::Index, |lua, _myself, field: String| {
             // Step 1: see if this is a unit variant.
             // A unit variant will be convertible from string
-            if let Ok(_) = T::from_dynamic(
-                &DynValue::String(field.to_string()),
+            if T::from_dynamic(
+                &DynValue::String(field.clone()),
                 FromDynamicOptions {
                     unknown_fields: UnknownFieldAction::Deny,
                     deprecated_fields: UnknownFieldAction::Ignore,
                 },
-            ) {
-                return Ok(field.into_lua(lua)?);
+            ).is_ok() {
+                return field.into_lua(lua);
             }
 
             // Step 2: see if this is a valid variant, and whether we can
             // default-construct it with an empty table.
             let mut obj = BTreeMap::new();
             obj.insert(
-                DynValue::String(field.to_string()),
+                DynValue::String(field.clone()),
                 DynValue::Object(BTreeMap::<DynValue, DynValue>::new().into()),
             );
             match T::from_dynamic(
@@ -170,7 +177,7 @@ where
                             )?;
 
                             t.set_metatable(Some(mt));
-                            return Ok(Value::Table(t));
+                            Ok(Value::Table(t))
                         }
                         wat => Err(mlua::Error::external(format!(
                             "unexpected type {}",

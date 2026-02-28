@@ -21,12 +21,12 @@ pub enum OutputElement {
     Text(String),
 }
 
-impl Into<Change> for OutputElement {
-    fn into(self) -> Change {
-        match self {
-            OutputElement::Attribute(a) => Change::Attribute(a),
-            OutputElement::AllAttributes(a) => Change::AllAttributes(a),
-            OutputElement::Text(t) => Change::Text(t),
+impl From<OutputElement> for Change {
+    fn from(val: OutputElement) -> Self {
+        match val {
+            OutputElement::Attribute(a) => Self::Attribute(a),
+            OutputElement::AllAttributes(a) => Self::AllAttributes(a),
+            OutputElement::Text(t) => Self::Text(t),
         }
     }
 }

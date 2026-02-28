@@ -8,7 +8,7 @@ use crate::pane::{
     alloc_pane_id, CachePolicy, CloseReason, ForEachPaneLogicalLine, LogicalLine, Pane, PaneId,
     WithPaneLines,
 };
-use crate::renderable::*;
+use crate::renderable::{StableCursorPosition, terminal_get_cursor_position, terminal_get_dirty_lines, terminal_for_each_logical_line_in_stable_range_mut, terminal_with_lines_mut, terminal_get_lines, RenderableDimensions, terminal_get_dimensions};
 use crate::tab::Tab;
 use crate::window::WindowId;
 use crate::Mux;
@@ -18,7 +18,7 @@ use config::keyassignment::ScrollbackEraseMode;
 use crossbeam::channel::{unbounded as channel, Receiver, Sender};
 use filedescriptor::{FileDescriptor, Pipe};
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
-use portable_pty::*;
+use portable_pty::CommandBuilder;
 use rangeset::RangeSet;
 use std::io::{BufWriter, Write};
 use std::ops::Range;
@@ -65,7 +65,7 @@ impl Domain for TermWizTerminalDomain {
         self.domain_id
     }
 
-    fn domain_name(&self) -> &str {
+    fn domain_name(&self) -> &'static str {
         "TermWizTerminalDomain"
     }
     async fn attach(&self, _window_id: Option<WindowId>) -> anyhow::Result<()> {
@@ -163,7 +163,7 @@ impl Pane for TermWizTerminalPane {
     }
 
     fn with_lines_mut(&self, lines: Range<StableRowIndex>, with_lines: &mut dyn WithPaneLines) {
-        terminal_with_lines_mut(&mut self.terminal.lock(), lines, with_lines)
+        terminal_with_lines_mut(&mut self.terminal.lock(), lines, with_lines);
     }
 
     fn get_lines(&self, lines: Range<StableRowIndex>) -> (StableRowIndex, Vec<Line>) {
@@ -201,8 +201,8 @@ impl Pane for TermWizTerminalPane {
 
     fn resize(&self, size: TerminalSize) -> anyhow::Result<()> {
         self.input_tx.send(InputEvent::Resized {
-            rows: size.rows as usize,
-            cols: size.cols as usize,
+            rows: size.rows,
+            cols: size.cols,
         })?;
 
         self.terminal.lock().resize(size);
@@ -263,7 +263,7 @@ impl Pane for TermWizTerminalPane {
     }
 
     fn perform_actions(&self, actions: Vec<termwiz::escape::Action>) {
-        self.terminal.lock().perform_actions(actions)
+        self.terminal.lock().perform_actions(actions);
     }
 
     fn kill(&self) {
@@ -314,7 +314,7 @@ pub struct TermWizTerminal {
 }
 
 impl TermWizTerminal {
-    pub fn no_grab_mouse_in_raw_mode(&mut self) {
+    pub const fn no_grab_mouse_in_raw_mode(&mut self) {
         self.grab_mouse = false;
     }
 }
@@ -432,7 +432,7 @@ impl termwiz::terminal::Terminal for TermWizTerminal {
                     key: KeyCode::Char(c.to_ascii_uppercase()),
                     modifiers: Modifiers::CTRL,
                 })),
-                i @ _ => i,
+                i => i,
             }
         })
     }
@@ -458,10 +458,10 @@ pub fn allocate(
         render_tx: TermWizTerminalRenderTty {
             render_tx: BufWriter::new(render_pipe.write),
             screen_size: ScreenSize {
-                cols: size.cols as usize,
-                rows: size.rows as usize,
-                xpixel: (size.pixel_width / size.cols) as usize,
-                ypixel: (size.pixel_height / size.rows) as usize,
+                cols: size.cols,
+                rows: size.rows,
+                xpixel: (size.pixel_width / size.cols),
+                ypixel: (size.pixel_height / size.rows),
             },
         },
         input_rx,
@@ -507,10 +507,10 @@ pub async fn run<
         render_tx: TermWizTerminalRenderTty {
             render_tx: BufWriter::new(render_pipe.write),
             screen_size: ScreenSize {
-                cols: size.cols as usize,
-                rows: size.rows as usize,
-                xpixel: (size.pixel_width / size.cols) as usize,
-                ypixel: (size.pixel_height / size.rows) as usize,
+                cols: size.cols,
+                rows: size.rows,
+                xpixel: (size.pixel_width / size.cols),
+                ypixel: (size.pixel_height / size.rows),
             },
         },
         input_rx,
@@ -532,12 +532,9 @@ pub async fn run<
         mux.add_domain(&domain);
 
         let window_builder;
-        let window_id = match window_id {
-            Some(id) => id,
-            None => {
-                window_builder = mux.new_empty_window(None, None);
-                *window_builder
-            }
+        let window_id = if let Some(id) = window_id { id } else {
+            window_builder = mux.new_empty_window(None, None);
+            *window_builder
         };
 
         let pane =
@@ -552,7 +549,7 @@ pub async fn run<
 
         let mut window = mux
             .get_window_mut(window_id)
-            .ok_or_else(|| anyhow::anyhow!("invalid window id {}", window_id))?;
+            .ok_or_else(|| anyhow::anyhow!("invalid window id {window_id}"))?;
         let tab_idx = window.len().saturating_sub(1);
         window.save_and_then_set_active(tab_idx);
 

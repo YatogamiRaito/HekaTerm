@@ -9,7 +9,7 @@
 //! of this code; in this way the client and server can more gracefully
 //! manage unknown enum variants.
 #![allow(dead_code)]
-#![allow(clippy::range_plus_one)]
+
 
 use anyhow::{bail, Context as _, Error};
 use config::keyassignment::{PaneDirection, ScrollbackEraseMode};
@@ -19,7 +19,7 @@ use mux::renderable::{RenderableDimensions, StableCursorPosition};
 use mux::tab::{PaneNode, SerdeUrl, SplitRequest, TabId};
 use mux::window::WindowId;
 use portable_pty::CommandBuilder;
-use rangeset::*;
+use rangeset::range_union;
 use serde::{Deserialize, Serialize};
 use smol::io::AsyncWriteExt;
 use smol::prelude::*;
@@ -91,7 +91,7 @@ fn encode_raw_as_vec(
 
 /// Encode a frame.  If the data is compressed, the high bit of the length
 /// is set to indicate that.  The data written out has the format:
-/// tagged_len: leb128  (u64 msb is set if data is compressed)
+/// `tagged_len`: leb128  (u64 msb is set if data is compressed)
 /// serial: leb128
 /// ident: leb128
 /// data bytes
@@ -168,7 +168,7 @@ struct Decoded {
 }
 
 /// Decode a frame.
-/// See encode_raw() for the frame format.
+/// See `encode_raw()` for the frame format.
 async fn decode_raw_async<R: Unpin + AsyncRead + std::fmt::Debug>(
     r: &mut R,
     max_serial: Option<u64>,
@@ -184,15 +184,14 @@ async fn decode_raw_async<R: Unpin + AsyncRead + std::fmt::Debug>(
     let serial = read_u64_async(r)
         .await
         .context("decode_raw_async failed to read PDU serial")?;
-    if let Some(max_serial) = max_serial {
-        if serial > max_serial && max_serial > 0 {
+    if let Some(max_serial) = max_serial
+        && serial > max_serial && max_serial > 0 {
             return Err(CorruptResponse(format!(
                 "decode_raw_async: serial {serial} is implausibly large \
                 (bigger than {max_serial})"
             ))
             .into());
         }
-    }
     let ident = read_u64_async(r)
         .await
         .context("decode_raw_async failed to read PDU ident")?;
@@ -219,9 +218,8 @@ async fn decode_raw_async<R: Unpin + AsyncRead + std::fmt::Debug>(
     let mut data = vec![0u8; data_len];
     r.read_exact(&mut data).await.with_context(|| {
         format!(
-            "decode_raw_async failed to read {} bytes of data \
-            for PDU of length {} with serial={} ident={}",
-            data_len, len, serial, ident
+            "decode_raw_async failed to read {data_len} bytes of data \
+            for PDU of length {len} with serial={serial} ident={ident}"
         )
     })?;
     Ok(Decoded {
@@ -233,7 +231,7 @@ async fn decode_raw_async<R: Unpin + AsyncRead + std::fmt::Debug>(
 }
 
 /// Decode a frame.
-/// See encode_raw() for the frame format.
+/// See `encode_raw()` for the frame format.
 fn decode_raw<R: std::io::Read>(mut r: R) -> anyhow::Result<Decoded> {
     let len = read_u64(r.by_ref()).context("reading PDU length")?;
     let (len, is_compressed) = if (len & COMPRESSED_MASK) != 0 {
@@ -267,8 +265,7 @@ fn decode_raw<R: std::io::Read>(mut r: R) -> anyhow::Result<Decoded> {
     let mut data = vec![0u8; data_len];
     r.read_exact(&mut data).with_context(|| {
         format!(
-            "reading {} bytes of data for PDU of length {} with serial={} ident={}",
-            data_len, len, serial, ident
+            "reading {data_len} bytes of data for PDU of length {len} with serial={serial} ident={ident}"
         )
     })?;
     Ok(Decoded {
@@ -299,9 +296,10 @@ fn serialize<T: serde::Serialize>(t: &T) -> Result<(Vec<u8>, bool), Error> {
     // It's a little heavy; let's try compressing it
     let mut compressed = Vec::new();
     let mut compress = zstd::Encoder::new(&mut compressed, zstd::DEFAULT_COMPRESSION_LEVEL)?;
-    let mut encode = varbincode::Serializer::new(&mut compress);
-    t.serialize(&mut encode)?;
-    drop(encode);
+    {
+        let mut encode = varbincode::Serializer::new(&mut compress);
+        t.serialize(&mut encode)?;
+    }
     compress.finish()?;
 
     log::debug!(
@@ -337,7 +335,7 @@ macro_rules! pdu {
         pub enum Pdu {
             Invalid{ident: u64},
             $(
-                $name($name)
+                $name(Box<$name>)
             ,)*
         }
 
@@ -374,7 +372,7 @@ macro_rules! pdu {
                 }
             }
 
-            pub fn pdu_name(&self) -> &'static str {
+            pub const fn pdu_name(&self) -> &'static str {
                 match self {
                     Pdu::Invalid{..} => "Invalid",
                     $(
@@ -394,7 +392,7 @@ macro_rules! pdu {
                             metrics::histogram!("pdu.size.rate", "pdu" => stringify!($name)).record(decoded.data.len() as f64);
                             Ok(DecodedPdu {
                                 serial: decoded.serial,
-                                pdu: Pdu::$name(deserialize(decoded.data.as_slice(), decoded.is_compressed)?)
+                                pdu: Pdu::$name(Box::new(deserialize(decoded.data.as_slice(), decoded.is_compressed)?))
                             })
                         }
                     ,)*
@@ -421,7 +419,7 @@ macro_rules! pdu {
                             metrics::histogram!("pdu.size", "pdu" => stringify!($name)).record(decoded.data.len() as f64);
                             Ok(DecodedPdu {
                                 serial: decoded.serial,
-                                pdu: Pdu::$name(deserialize(decoded.data.as_slice(), decoded.is_compressed)?)
+                                pdu: Pdu::$name(Box::new(deserialize(decoded.data.as_slice(), decoded.is_compressed)?))
                             })
                         }
                     ,)*
@@ -508,18 +506,19 @@ impl Pdu {
     /// Returns true if this type of Pdu represents action taken
     /// directly by a user, rather than background traffic on
     /// a live connection
-    pub fn is_user_input(&self) -> bool {
-        match self {
+    #[must_use] 
+    pub const fn is_user_input(&self) -> bool {
+        matches!(
+            self,
             Self::WriteToPane(_)
-            | Self::SendKeyDown(_)
-            | Self::SendMouseEvent(_)
-            | Self::SendPaste(_)
-            | Self::Resize(_)
-            | Self::SetClipboard(_)
-            | Self::SetPaneZoomed(_)
-            | Self::SpawnV2(_) => true,
-            _ => false,
-        }
+                | Self::SendKeyDown(_)
+                | Self::SendMouseEvent(_)
+                | Self::SendPaste(_)
+                | Self::Resize(_)
+                | Self::SetClipboard(_)
+                | Self::SetPaneZoomed(_)
+                | Self::SpawnV2(_)
+        )
     }
 
     pub fn stream_decode(buffer: &mut Vec<u8>) -> anyhow::Result<Option<DecodedPdu>> {
@@ -550,7 +549,7 @@ impl Pdu {
                         _ => {}
                     }
                 } else {
-                    log::error!("not an ioerror in stream_decode: {:?}", err);
+                    log::error!("not an ioerror in stream_decode: {err:?}");
                 }
                 Err(err)
             }
@@ -588,31 +587,32 @@ impl Pdu {
         }
     }
 
-    pub fn pane_id(&self) -> Option<PaneId> {
+    #[must_use] 
+    pub const fn pane_id(&self) -> Option<PaneId> {
         match self {
-            Pdu::GetPaneRenderChangesResponse(GetPaneRenderChangesResponse { pane_id, .. })
-            | Pdu::SetPalette(SetPalette { pane_id, .. })
-            | Pdu::NotifyAlert(NotifyAlert { pane_id, .. })
-            | Pdu::SetClipboard(SetClipboard { pane_id, .. })
-            | Pdu::PaneFocused(PaneFocused { pane_id })
-            | Pdu::PaneRemoved(PaneRemoved { pane_id }) => Some(*pane_id),
+            Self::GetPaneRenderChangesResponse(p) => Some(p.pane_id),
+            Self::SetPalette(p) => Some(p.pane_id),
+            Self::NotifyAlert(p) => Some(p.pane_id),
+            Self::SetClipboard(p) => Some(p.pane_id),
+            Self::PaneFocused(p) => Some(p.pane_id),
+            Self::PaneRemoved(p) => Some(p.pane_id),
             _ => None,
         }
     }
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct UnitResponse {}
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct ErrorResponse {
     pub reason: String,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetCodecVersion {}
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetCodecVersionResponse {
     pub codec_vers: usize,
     pub version_string: String,
@@ -620,17 +620,17 @@ pub struct GetCodecVersionResponse {
     pub config_file_path: Option<PathBuf>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct Ping {}
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct Pong {}
 
 /// Requests a client certificate to authenticate against
 /// the TLS based server
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetTlsCreds {}
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetTlsCredsResponse {
     /// The signing certificate
     pub ca_cert_pem: String,
@@ -639,7 +639,7 @@ pub struct GetTlsCredsResponse {
     pub client_cert_pem: String,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct ListPanes {}
 
 #[derive(Deserialize, Serialize, PartialEq, Debug)]
@@ -661,14 +661,14 @@ pub struct SplitPane {
     pub move_pane_id: Option<PaneId>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct MovePaneToNewTab {
     pub pane_id: PaneId,
     pub window_id: Option<WindowId>,
     pub workspace_for_new_window: Option<String>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct MovePaneToNewTabResponse {
     pub tab_id: TabId,
     pub window_id: WindowId,
@@ -685,17 +685,17 @@ pub struct SpawnV2 {
     pub workspace: String,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct PaneRemoved {
     pub pane_id: PaneId,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct KillPane {
     pub pane_id: PaneId,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SpawnResponse {
     pub tab_id: TabId,
     pub pane_id: PaneId,
@@ -703,42 +703,45 @@ pub struct SpawnResponse {
     pub size: TerminalSize,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct WriteToPane {
     pub pane_id: PaneId,
     pub data: Vec<u8>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SendPaste {
     pub pane_id: PaneId,
     pub data: String,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SendKeyDown {
     pub pane_id: TabId,
     pub event: termwiz::input::KeyEvent,
     pub input_serial: InputSerial,
 }
 
-/// InputSerial is used to sequence input requests with output events.
+/// `InputSerial` is used to sequence input requests with output events.
 /// It started life as a monotonic sequence number but evolved into
 /// the number of milliseconds since the unix epoch.
 #[derive(Deserialize, Serialize, PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord)]
 pub struct InputSerial(u64);
 
 impl InputSerial {
+    #[must_use] 
     pub const fn empty() -> Self {
         Self(0)
     }
 
+    #[must_use] 
     pub fn now() -> Self {
         std::time::SystemTime::now().into()
     }
 
+    #[must_use] 
     pub fn elapsed_millis(&self) -> u64 {
-        let now = InputSerial::now();
+        let now = Self::now();
         now.0 - self.0
     }
 }
@@ -752,30 +755,30 @@ impl From<std::time::SystemTime> for InputSerial {
             .as_millis()
             .try_into()
             .expect("millisecond count to fit in u64");
-        InputSerial(millis)
+        Self(millis)
     }
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SendMouseEvent {
     pub pane_id: PaneId,
     pub event: wezterm_term::input::MouseEvent,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SetClipboard {
     pub pane_id: PaneId,
     pub clipboard: Option<String>,
     pub selection: ClipboardSelection,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SetWindowWorkspace {
     pub window_id: WindowId,
     pub workspace: String,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct RenameWorkspace {
     pub old_workspace: String,
     pub new_workspace: String,
@@ -790,121 +793,121 @@ pub struct SetPalette {
     pub palette: ColorPalette,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct NotifyAlert {
     pub pane_id: PaneId,
     pub alert: Alert,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct TabAddedToWindow {
     pub tab_id: TabId,
     pub window_id: WindowId,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct TabResized {
     pub tab_id: TabId,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct TabTitleChanged {
     pub tab_id: TabId,
     pub title: String,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct WindowTitleChanged {
     pub window_id: WindowId,
     pub title: String,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct PaneFocused {
     pub pane_id: PaneId,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct WindowWorkspaceChanged {
     pub window_id: WindowId,
     pub workspace: String,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SetClientId {
     pub client_id: ClientId,
     pub is_proxy: bool,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SetFocusedPane {
     pub pane_id: PaneId,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetClientList;
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetClientListResponse {
     pub clients: Vec<ClientInfo>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct Resize {
     pub containing_tab_id: TabId,
     pub pane_id: PaneId,
     pub size: TerminalSize,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SetPaneZoomed {
     pub containing_tab_id: TabId,
     pub pane_id: PaneId,
     pub zoomed: bool,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetPaneDirection {
     pub pane_id: PaneId,
     pub direction: PaneDirection,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct AdjustPaneSize {
     pub pane_id: PaneId,
     pub direction: PaneDirection,
     pub amount: usize,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetPaneDirectionResponse {
     pub pane_id: Option<PaneId>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct ActivatePaneDirection {
     pub pane_id: PaneId,
     pub direction: PaneDirection,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetPaneRenderChanges {
     pub pane_id: PaneId,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetPaneRenderableDimensions {
     pub pane_id: PaneId,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetPaneRenderableDimensionsResponse {
     pub pane_id: PaneId,
     pub cursor_position: StableCursorPosition,
     pub dimensions: RenderableDimensions,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct LivenessResponse {
     pub pane_id: PaneId,
     pub is_alive: bool,
@@ -927,7 +930,7 @@ pub struct GetPaneRenderChangesResponse {
     pub seqno: SequenceNo,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetLines {
     pub pane_id: PaneId,
     pub lines: Vec<Range<StableRowIndex>>,
@@ -952,7 +955,7 @@ pub struct SerializedImageCell {
     // The following fields are taken from termwiz::image::ImageCell
     pub top_left: TextureCoordinate,
     pub bottom_right: TextureCoordinate,
-    /// Image::data::hash() for the ImageCell::data field
+    /// `Image::data::hash()` for the `ImageCell::data` field
     pub data_hash: [u8; 32],
     pub z_index: i32,
     pub padding_left: u16,
@@ -964,6 +967,7 @@ pub struct SerializedImageCell {
 }
 
 /// What's all this?
+///
 /// Cells hold references to Arc<Hyperlink> and it is important to us to
 /// maintain identity of the hyperlinks in the individual cells, while also
 /// only sending a single copy of the associated URL.
@@ -980,6 +984,7 @@ pub struct SerializedLines {
 impl SerializedLines {
     /// Reconsitute hyperlinks or other attributes that were decomposed for
     /// serialization, and return the line data.
+    #[must_use] 
     pub fn extract_data(self) -> (Vec<(StableRowIndex, Line)>, Vec<SerializedImageCell>) {
         let lines = if self.hyperlinks.is_empty() {
             self.lines
@@ -990,15 +995,14 @@ impl SerializedLines {
                 let url = Arc::new(link.link);
 
                 for coord in link.coords {
-                    if let Some((_, line)) = lines.get_mut(coord.line_idx) {
-                        if let Some(cells) =
+                    if let Some((_, line)) = lines.get_mut(coord.line_idx)
+                        && let Some(cells) =
                             line.cells_mut_for_attr_changes_only().get_mut(coord.cols)
                         {
                             for cell in cells {
                                 cell.attrs_mut().set_hyperlink(Some(Arc::clone(&url)));
                             }
                         }
-                    }
                 }
             }
 
@@ -1027,9 +1031,15 @@ impl From<Vec<(StableRowIndex, Line)>> for SerializedLines {
                 if let Some(link) = cell.attrs_mut().hyperlink().map(Arc::clone) {
                     cell.attrs_mut().set_hyperlink(None);
                     match current_link.as_ref() {
-                        Some(current) if Arc::ptr_eq(&current, &link) => {
+                        Some(current) if Arc::ptr_eq(current, &link) => {
                             // Continue the current streak
-                            current_range = range_union(current_range, x..x + 1);
+                            current_range = range_union(
+                                current_range,
+                                std::ops::Range {
+                                    start: x,
+                                    end: x + 1,
+                                },
+                            );
                         }
                         Some(prior) => {
                             // It's a different URL, push the current data and start a new one
@@ -1040,12 +1050,18 @@ impl From<Vec<(StableRowIndex, Line)>> for SerializedLines {
                                     cols: current_range,
                                 }],
                             });
-                            current_range = x..x + 1;
+                            current_range = std::ops::Range {
+                                start: x,
+                                end: x + 1,
+                            };
                             current_link = Some(link);
                         }
                         None => {
                             // Starting a new streak
-                            current_range = x..x + 1;
+                            current_range = std::ops::Range {
+                                start: x,
+                                end: x + 1,
+                            };
                             current_link = Some(link);
                         }
                     }
@@ -1109,13 +1125,13 @@ pub struct GetLinesResponse {
     pub lines: SerializedLines,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct EraseScrollbackRequest {
     pub pane_id: PaneId,
     pub erase_mode: ScrollbackEraseMode,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SearchScrollbackRequest {
     pub pane_id: PaneId,
     pub pattern: mux::pane::Pattern,
@@ -1123,12 +1139,12 @@ pub struct SearchScrollbackRequest {
     pub limit: Option<u32>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SearchScrollbackResponse {
     pub results: Vec<mux::pane::SearchResult>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetImageCell {
     pub pane_id: PaneId,
     pub line_idx: StableRowIndex,
@@ -1136,7 +1152,7 @@ pub struct GetImageCell {
     pub data_hash: [u8; 32],
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct GetImageCellResponse {
     pub pane_id: PaneId,
     pub data: Option<Arc<ImageData>>,
@@ -1176,12 +1192,12 @@ mod test {
     #[test]
     fn test_pdu_ping() {
         let mut encoded = Vec::new();
-        Pdu::Ping(Ping {}).encode(&mut encoded, 0x40).unwrap();
+        Pdu::Ping(Box::new(Ping {})).encode(&mut encoded, 0x40).unwrap();
         assert_eq!(&encoded, &[2, 0x40, 1]);
         assert_eq!(
             DecodedPdu {
                 serial: 0x40,
-                pdu: Pdu::Ping(Ping {})
+                pdu: Pdu::Ping(Box::new(Ping {}))
             },
             Pdu::decode(encoded.as_slice()).unwrap()
         );
@@ -1190,8 +1206,8 @@ mod test {
     #[test]
     fn stream_decode() {
         let mut encoded = Vec::new();
-        Pdu::Ping(Ping {}).encode(&mut encoded, 0x1).unwrap();
-        Pdu::Pong(Pong {}).encode(&mut encoded, 0x2).unwrap();
+        Pdu::Ping(Box::new(Ping {})).encode(&mut encoded, 0x1).unwrap();
+        Pdu::Pong(Box::new(Pong {})).encode(&mut encoded, 0x2).unwrap();
         assert_eq!(encoded.len(), 6);
 
         let mut cursor = Cursor::new(encoded.as_slice());
@@ -1201,14 +1217,14 @@ mod test {
             Pdu::try_read_and_decode(&mut cursor, &mut read_buffer).unwrap(),
             Some(DecodedPdu {
                 serial: 1,
-                pdu: Pdu::Ping(Ping {})
+                pdu: Pdu::Ping(Box::new(Ping {}))
             })
         );
         assert_eq!(
             Pdu::try_read_and_decode(&mut cursor, &mut read_buffer).unwrap(),
             Some(DecodedPdu {
                 serial: 2,
-                pdu: Pdu::Pong(Pong {})
+                pdu: Pdu::Pong(Box::new(Pong {}))
             })
         );
         let err = Pdu::try_read_and_decode(&mut cursor, &mut read_buffer).unwrap_err();
@@ -1223,14 +1239,14 @@ mod test {
         let mut encoded = Vec::new();
         {
             let mut encoder = base91::Base91Encoder::new(&mut encoded);
-            Pdu::Ping(Ping {}).encode(&mut encoder, 0x41).unwrap();
+            Pdu::Ping(Box::new(Ping {})).encode(&mut encoder, 0x41).unwrap();
         }
         assert_eq!(&encoded, &[60, 67, 75, 65]);
         let decoded = base91::decode(&encoded);
         assert_eq!(
             DecodedPdu {
                 serial: 0x41,
-                pdu: Pdu::Ping(Ping {})
+                pdu: Pdu::Ping(Box::new(Ping {}))
             },
             Pdu::decode(decoded.as_slice()).unwrap()
         );
@@ -1239,12 +1255,12 @@ mod test {
     #[test]
     fn test_pdu_pong() {
         let mut encoded = Vec::new();
-        Pdu::Pong(Pong {}).encode(&mut encoded, 0x42).unwrap();
+        Pdu::Pong(Box::new(Pong {})).encode(&mut encoded, 0x42).unwrap();
         assert_eq!(&encoded, &[2, 0x42, 2]);
         assert_eq!(
             DecodedPdu {
                 serial: 0x42,
-                pdu: Pdu::Pong(Pong {})
+                pdu: Pdu::Pong(Box::new(Pong {}))
             },
             Pdu::decode(encoded.as_slice()).unwrap()
         );

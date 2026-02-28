@@ -1,10 +1,15 @@
 // Don't create a new standard console window when launched from the windows GUI.
 #![cfg_attr(not(test), windows_subsystem = "windows")]
+#![allow(clippy::too_many_arguments)]
+
+
+
+#![allow(unused_must_use)]
 
 use crate::customglyph::BlockKey;
 use crate::glyphcache::GlyphCache;
 use crate::utilsprites::RenderMetrics;
-use ::window::*;
+use ::window::{color, glium, BitmapImage, Dimensions};
 use anyhow::{anyhow, Context};
 use clap::builder::ValueParser;
 use clap::{Parser, ValueHint};
@@ -30,9 +35,9 @@ use wezterm_bidi::Direction;
 use wezterm_client::domain::ClientDomain;
 use wezterm_font::shaper::PresentationWidth;
 use wezterm_font::FontConfiguration;
-use wezterm_gui_subcommands::*;
+use wezterm_gui_subcommands::{name_equals_value, StartCommand, SshCommand, SerialCommand, ConnectCommand, LsFontsCommand, ShowKeysCommand};
 use wezterm_mux_server_impl::update_mux_domains;
-use wezterm_toast_notification::*;
+use wezterm_toast_notification::persistent_toast_notification;
 
 mod colorease;
 mod commands;
@@ -139,7 +144,7 @@ async fn async_run_ssh(opts: SshCommand) -> anyhow::Result<()> {
         ssh_option.insert("wezterm_ssh_verbose".to_string(), "true".to_string());
     }
     for (k, v) in opts.config_override {
-        ssh_option.insert(k.to_lowercase().to_string(), v);
+        ssh_option.insert(k.to_lowercase().clone(), v);
     }
 
     let dom = SshDomain {
@@ -162,11 +167,11 @@ async fn async_run_ssh(opts: SshCommand) -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    let cmd = if !opts.prog.is_empty() {
+    let cmd = if opts.prog.is_empty() {
+        None
+    } else {
         let builder = CommandBuilder::from_argv(opts.prog);
         Some(builder)
-    } else {
-        None
     };
 
     let domain: Arc<dyn Domain> = Arc::new(mux::ssh::RemoteSshDomain::with_ssh_domain(&dom)?);
@@ -291,11 +296,10 @@ async fn spawn_tab_in_domain_if_mux_is_empty(
 
     let domain = domain.unwrap_or_else(|| mux.default_domain());
 
-    if !is_connecting {
-        if have_panes_in_domain_and_ws(&domain, &workspace) {
+    if !is_connecting
+        && have_panes_in_domain_and_ws(&domain, &workspace) {
             return Ok(());
         }
-    }
 
     let window_id = {
         // Force the builder to notify the frontend early,
@@ -323,14 +327,14 @@ async fn spawn_tab_in_domain_if_mux_is_empty(
     let _config_subscription = config::subscribe_to_config_reload(move || {
         promise::spawn::spawn_into_main_thread(async move {
             if let Err(err) = update_mux_domains(&config::configuration()) {
-                log::error!("Error updating mux domains: {:#}", err);
+                log::error!("Error updating mux domains: {err:#}");
             }
         })
         .detach();
         true
     });
 
-    let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi());
+    let dpi = config.dpi.unwrap_or_else(::window::default_dpi);
     let _tab = domain
         .spawn(
             config.initial_size(dpi as u32, Some(cell_pixel_dims(&config, dpi)?)),
@@ -347,11 +351,10 @@ async fn connect_to_auto_connect_domains() -> anyhow::Result<()> {
     let mux = Mux::get();
     let domains = mux.iter_domains();
     for dom in domains {
-        if let Some(dom) = dom.downcast_ref::<ClientDomain>() {
-            if dom.connect_automatically() {
+        if let Some(dom) = dom.downcast_ref::<ClientDomain>()
+            && dom.connect_automatically() {
                 dom.attach(None).await?;
             }
-        }
     }
     Ok(())
 }
@@ -372,8 +375,8 @@ async fn trigger_and_log_gui_startup(spawn_command: Option<SpawnCommand>) {
         config::with_lua_config_on_main_thread(move |lua| trigger_gui_startup(lua, spawn_command))
             .await
     {
-        let message = format!("while processing gui-startup event: {:#}", err);
-        log::error!("{}", message);
+        let message = format!("while processing gui-startup event: {err:#}");
+        log::error!("{message}");
         persistent_toast_notification("Error", &message);
     }
 }
@@ -390,8 +393,8 @@ async fn trigger_and_log_gui_attached(domain: MuxDomain) {
     if let Err(err) =
         config::with_lua_config_on_main_thread(move |lua| trigger_gui_attached(lua, domain)).await
     {
-        let message = format!("while processing gui-attached event: {:#}", err);
-        log::error!("{}", message);
+        let message = format!("while processing gui-attached event: {err:#}");
+        log::error!("{message}");
         persistent_toast_notification("Error", &message);
     }
 }
@@ -412,12 +415,12 @@ async fn async_run_terminal_gui(
 ) -> anyhow::Result<()> {
     let unix_socket_path =
         config::RUNTIME_DIR.join(format!("gui-sock-{}", unsafe { libc::getpid() }));
-    std::env::set_var("WEZTERM_UNIX_SOCKET", unix_socket_path.clone());
+    unsafe { std::env::set_var("WEZTERM_UNIX_SOCKET", unix_socket_path.clone()); }
     wezterm_blob_leases::register_storage(Arc::new(
         wezterm_blob_leases::simple_tempdir::SimpleTempDir::new_in(&*config::CACHE_DIR)?,
     ))?;
     if let Err(err) = spawn_mux_server(unix_socket_path, should_publish) {
-        log::warn!("{:#}", err);
+        log::warn!("{err:#}");
     }
 
     if !opts.no_auto_connect {
@@ -432,11 +435,11 @@ async fn async_run_terminal_gui(
     // Apply the domain to the command
     let spawn_command = match (spawn_command, &opts.domain) {
         (Some(spawn), Some(name)) => Some(SpawnCommand {
-            domain: SpawnTabDomain::DomainName(name.to_string()),
+            domain: SpawnTabDomain::DomainName(name.clone()),
             ..spawn
         }),
         (None, Some(name)) => Some(SpawnCommand {
-            domain: SpawnTabDomain::DomainName(name.to_string()),
+            domain: SpawnTabDomain::DomainName(name.clone()),
             ..SpawnCommand::default()
         }),
         (spawn, None) => spawn,
@@ -458,8 +461,8 @@ async fn async_run_terminal_gui(
 
     let is_connecting = opts.attach;
 
-    if let Some(domain) = &domain {
-        if !opts.attach {
+    if let Some(domain) = &domain
+        && !opts.attach {
             let window_id = {
                 // Force the builder to notify the frontend early,
                 // so that the attach await below doesn't block it.
@@ -471,7 +474,7 @@ async fn async_run_terminal_gui(
 
             domain.attach(Some(window_id)).await?;
             let config = config::configuration();
-            let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi());
+            let dpi = config.dpi.unwrap_or_else(::window::default_dpi);
             let tab = domain
                 .spawn(
                     config.initial_size(dpi as u32, Some(cell_pixel_dims(&config, dpi)?)),
@@ -488,13 +491,13 @@ async fn async_run_terminal_gui(
             }
             trigger_and_log_gui_attached(MuxDomain(domain.domain_id())).await;
         }
-    }
     spawn_tab_in_domain_if_mux_is_empty(cmd, is_connecting, domain, opts.workspace).await
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
 enum Publish {
-    TryPathOrPublish(PathBuf),
+    TryPathOr(PathBuf),
     NoConnectNoPublish,
     NoConnectButPublish,
 }
@@ -520,14 +523,14 @@ impl Publish {
         match wezterm_client::discovery::resolve_gui_sock_path(
             &crate::termwindow::get_window_class(),
         ) {
-            Ok(path) => Self::TryPathOrPublish(path),
+            Ok(path) => Self::TryPathOr(path),
             Err(_) => Self::NoConnectButPublish,
         }
     }
 
-    pub fn should_publish(&self) -> bool {
+    pub const fn should_publish(&self) -> bool {
         match self {
-            Self::TryPathOrPublish(_) | Self::NoConnectButPublish => true,
+            Self::TryPathOr(_) | Self::NoConnectButPublish => true,
             Self::NoConnectNoPublish => false,
         }
     }
@@ -540,7 +543,7 @@ impl Publish {
         domain: SpawnTabDomain,
         new_tab: bool,
     ) -> anyhow::Result<bool> {
-        if let Publish::TryPathOrPublish(gui_sock) = &self {
+        if let Self::TryPathOr(gui_sock) = &self {
             let dom = config::UnixDomain {
                 socket_path: Some(gui_sock.clone()),
                 no_serve_automatically: true,
@@ -551,19 +554,19 @@ impl Publish {
             {
                 Ok(client) => {
                     let executor = promise::spawn::ScopedExecutor::new();
-                    let command = cmd.clone();
+                    let command = cmd;
                     let res = block_on(executor.run(async move {
-                        let vers = client.verify_version_compat(&mut ui).await?;
+                        let vers = client.verify_version_compat(&ui).await?;
 
                         if vers.executable_path != std::env::current_exe().context("resolve executable path")? {
-                            *self = Publish::NoConnectNoPublish;
+                            *self = Self::NoConnectNoPublish;
                             anyhow::bail!(
                                 "Running GUI is a different executable from us, will start a new one");
                         }
                         if vers.config_file_path
                             != std::env::var_os("WEZTERM_CONFIG_FILE").map(Into::into)
                         {
-                            *self = Publish::NoConnectNoPublish;
+                            *self = Self::NoConnectNoPublish;
                             anyhow::bail!(
                                 "Running GUI has different config from us, will start a new one"
                             );
@@ -578,12 +581,11 @@ impl Publish {
                                     let mut cursor = tabroot.into_tree().cursor();
 
                                     loop {
-                                        if let Some(entry) = cursor.leaf_mut() {
-                                            if entry.pane_id == pane_id {
+                                        if let Some(entry) = cursor.leaf_mut()
+                                            && entry.pane_id == pane_id {
                                                 window_id.replace(entry.window_id);
                                                 break 'outer;
                                             }
-                                        }
                                         match cursor.preorder_next() {
                                             Ok(c) => cursor = c,
                                             Err(_) => break,
@@ -621,15 +623,13 @@ impl Publish {
                             log::info!(
                                 "Spawned your command via the existing GUI instance. \
                              Use wezterm start --always-new-process if you do not want this behavior. \
-                             Result={:?}",
-                                res
+                             Result={res:?}"
                             );
                             Ok(true)
                         }
                         Err(err) => {
                             log::trace!(
-                                "while attempting to ask existing instance to spawn: {:#}",
-                                err
+                                "while attempting to ask existing instance to spawn: {err:#}"
                             );
                             Ok(false)
                         }
@@ -638,7 +638,7 @@ impl Publish {
                 Err(err) => {
                     // Couldn't connect: it's probably a stale symlink.
                     // That's fine: we can continue with starting a fresh gui below.
-                    log::trace!("{:#}", err);
+                    log::trace!("{err:#}");
                     Ok(false)
                 }
             }
@@ -662,7 +662,7 @@ fn spawn_mux_server(unix_socket_path: PathBuf, should_publish: bool) -> anyhow::
                 &crate::termwindow::get_window_class(),
             );
             if let Err(err) = &name_holder {
-                log::warn!("{:#}", err);
+                log::warn!("{err:#}");
             }
         }
 
@@ -690,7 +690,7 @@ fn setup_mux(
             .as_deref()
             .unwrap_or(mux::DEFAULT_WORKSPACE),
     );
-    mux.set_active_workspace(&default_workspace_name);
+    mux.set_active_workspace(default_workspace_name);
     crate::update::load_last_release_info_and_set_banner();
     update_mux_domains(config)?;
 
@@ -699,8 +699,7 @@ fn setup_mux(
 
     let domain = mux.get_domain_by_name(default_name).ok_or_else(|| {
         anyhow::anyhow!(
-            "desired default domain '{}' was not found in mux!?",
-            default_name
+            "desired default domain '{default_name}' was not found in mux!?"
         )
     })?;
     mux.set_default_domain(&domain);
@@ -729,7 +728,7 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
     let need_builder = !opts.prog.is_empty() || opts.cwd.is_some();
 
     let cmd = if need_builder {
-        let prog = opts.prog.iter().map(|s| s.as_os_str()).collect::<Vec<_>>();
+        let prog = opts.prog.iter().map(std::ffi::OsString::as_os_str).collect::<Vec<_>>();
         let mut builder = config.build_prog(
             if prog.is_empty() { None } else { Some(prog) },
             config.default_prog.as_ref(),
@@ -761,13 +760,13 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
         &config,
         opts.always_new_process || opts.position.is_some(),
     );
-    log::trace!("{:?}", publish);
+    log::trace!("{publish:?}");
     if publish.try_spawn(
         cmd.clone(),
         &config,
         opts.workspace.as_deref(),
         match &opts.domain {
-            Some(name) => SpawnTabDomain::DomainName(name.to_string()),
+            Some(name) => SpawnTabDomain::DomainName(name.clone()),
             None => SpawnTabDomain::DefaultDomain,
         },
         opts.new_tab,
@@ -809,8 +808,8 @@ fn notify_on_panic() {
 }
 
 fn terminate_with_error_message(err: &str) -> ! {
-    log::error!("{}; terminating", err);
-    fatal_toast_notification("Wezterm Error", &err);
+    log::error!("{err}; terminating");
+    fatal_toast_notification("Wezterm Error", err);
     std::process::exit(1);
 }
 
@@ -862,17 +861,17 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
     use wezterm_font::parser::ParsedFont;
 
     if let Err(err) = config::configuration_result() {
-        log::error!("{}", err);
+        log::error!("{err}");
         return Ok(());
     }
 
     // Disable the normal config error UI window, as we don't have
     // a fully baked GUI environment running
-    config::assign_error_callback(|err| eprintln!("{}", err));
+    config::assign_error_callback(|err| eprintln!("{err}"));
 
     let font_config = Rc::new(wezterm_font::FontConfiguration::new(
         Some(config.clone()),
-        config.dpi.unwrap_or_else(|| ::window::default_dpi()) as usize,
+        config.dpi.unwrap_or_else(::window::default_dpi) as usize,
     )?);
 
     let render_metrics = crate::utilsprites::RenderMetrics::new(&font_config)?;
@@ -886,10 +885,10 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
     let unicode_version = config.unicode_version();
 
     let text = match (&cmd.text, &cmd.codepoints) {
-        (Some(text), _) => Some(text.to_string()),
+        (Some(text), _) => Some(text.clone()),
         (_, Some(codepoints)) => {
             let mut s = String::new();
-            for cp in codepoints.split(",") {
+            for cp in codepoints.split(',') {
                 let cp = u32::from_str_radix(cp, 16)
                     .with_context(|| format!("{cp} is not a hex number"))?;
                 let c = char::from_u32(cp)
@@ -906,7 +905,7 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
         let text = if config.normalize_output_to_unicode_nfc {
             text.nfc().collect()
         } else {
-            text.to_string()
+            text.clone()
         };
 
         let line = Line::from_text(
@@ -927,10 +926,12 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
             let infos = font
                 .blocking_shape(
                     &cluster.text,
-                    Some(cluster.presentation),
-                    cluster.direction,
-                    None,
-                    Some(&presentation_width),
+                    wezterm_font::shaper::ShapeContext {
+                        presentation: Some(cluster.presentation),
+                        direction: cluster.direction,
+                        range: None,
+                        presentation_width: Some(&presentation_width),
+                    },
                 )
                 .unwrap();
 
@@ -978,8 +979,8 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
                 let mut is_custom = false;
 
                 let cached_glyph = glyph_cache.cached_glyph(
-                    &info,
-                    &style,
+                    info,
+                    style,
                     followed_by_space,
                     &font,
                     &render_metrics,
@@ -988,8 +989,8 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
 
                 let mut texture = cached_glyph.texture.clone();
 
-                if config.custom_block_glyphs {
-                    if let Some(block) = info.only_char.and_then(BlockKey::from_char) {
+                if config.custom_block_glyphs
+                    && let Some(block) = info.only_char.and_then(BlockKey::from_char) {
                         texture.replace(glyph_cache.cached_block(block, &render_metrics)?);
                         println!(
                             "{:2} {:4} {:12} drawn by wezterm because custom_block_glyphs=true: {:?}",
@@ -997,14 +998,13 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
                         );
                         is_custom = true;
                     }
-                }
 
                 if !is_custom {
                     let glyph_name = faces[info.font_idx]
                         .as_ref()
                         .and_then(|face| {
                             face.get_glyph_name(info.glyph_pos)
-                                .map(|name| format!("{},", name))
+                                .map(|name| format!("{name},"))
                         })
                         .unwrap_or_else(String::new);
 
@@ -1082,28 +1082,28 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
 
         let mut condition = "When".to_string();
         if let Some(intensity) = &rule.intensity {
-            condition.push_str(&format!(" Intensity={:?}", intensity));
+            condition.push_str(&format!(" Intensity={intensity:?}"));
         }
         if let Some(underline) = &rule.underline {
-            condition.push_str(&format!(" Underline={:?}", underline));
+            condition.push_str(&format!(" Underline={underline:?}"));
         }
         if let Some(italic) = &rule.italic {
-            condition.push_str(&format!(" Italic={:?}", italic));
+            condition.push_str(&format!(" Italic={italic:?}"));
         }
         if let Some(blink) = &rule.blink {
-            condition.push_str(&format!(" Blink={:?}", blink));
+            condition.push_str(&format!(" Blink={blink:?}"));
         }
         if let Some(rev) = &rule.reverse {
-            condition.push_str(&format!(" Reverse={:?}", rev));
+            condition.push_str(&format!(" Reverse={rev:?}"));
         }
         if let Some(strikethrough) = &rule.strikethrough {
-            condition.push_str(&format!(" Strikethrough={:?}", strikethrough));
+            condition.push_str(&format!(" Strikethrough={strikethrough:?}"));
         }
         if let Some(invisible) = &rule.invisible {
-            condition.push_str(&format!(" Invisible={:?}", invisible));
+            condition.push_str(&format!(" Invisible={invisible:?}"));
         }
 
-        println!("{}:", condition);
+        println!("{condition}:");
         let font = font_config.resolve_font(&rule.font)?;
         println!("{}", ParsedFont::lua_fallback(&font.clone_handles()));
         println!();
@@ -1122,7 +1122,7 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
         );
         for font in font_dirs {
             let pixel_sizes = if font.pixel_sizes.is_empty() {
-                "".to_string()
+                String::new()
             } else {
                 format!(" pixel_sizes={:?}", font.pixel_sizes)
             };
@@ -1144,7 +1144,7 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
                 );
                 for font in sys_fonts {
                     let pixel_sizes = if font.pixel_sizes.is_empty() {
-                        "".to_string()
+                        String::new()
                     } else {
                         format!(" pixel_sizes={:?}", font.pixel_sizes)
                     };
@@ -1157,7 +1157,7 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
                     );
                 }
             }
-            Err(err) => log::error!("Unable to list system fonts: {}", err),
+            Err(err) => log::error!("Unable to list system fonts: {err}"),
         }
     }
 
@@ -1216,10 +1216,10 @@ fn run() -> anyhow::Result<()> {
     )?;
     let config = config::configuration();
     if let Some(value) = &config.default_ssh_auth_sock {
-        std::env::set_var("SSH_AUTH_SOCK", value);
+        unsafe { std::env::set_var("SSH_AUTH_SOCK", value); }
     }
 
-    let sub = match opts.cmd.as_ref().cloned() {
+    let sub = match opts.cmd.clone() {
         Some(SubCommand::BlockingStart(start)) => {
             // Act as if the normal start subcommand was used,
             // except that we always start a new instance.
@@ -1248,7 +1248,7 @@ fn run() -> anyhow::Result<()> {
 
     match sub {
         SubCommand::Start(start) => {
-            log::trace!("Using configuration: {:#?}\nopts: {:#?}", config, opts);
+            log::trace!("Using configuration: {config:#?}\nopts: {opts:#?}");
             let res = run_terminal_gui(start, None);
             wezterm_blob_leases::clear_storage();
             res

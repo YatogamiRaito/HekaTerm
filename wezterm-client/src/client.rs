@@ -3,7 +3,7 @@ use crate::pane::ClientPane;
 use anyhow::{anyhow, bail, Context};
 use async_ossl::AsyncSslStream;
 use async_trait::async_trait;
-use codec::*;
+use codec::{Pdu, CODEC_VERSION, DecodedPdu, WindowTitleChanged, RenameWorkspace, TabTitleChanged, GetTlsCredsResponse, GetCodecVersionResponse, GetCodecVersion, SetClientId, CorruptResponse, Pong, Ping, ListPanesResponse, ListPanes, SpawnV2, SpawnResponse, SplitPane, MovePaneToNewTab, MovePaneToNewTabResponse, WriteToPane, UnitResponse, SendPaste, SendKeyDown, SendMouseEvent, Resize, SetPaneZoomed, ActivatePaneDirection, GetPaneRenderChanges, LivenessResponse, GetLines, GetLinesResponse, GetPaneRenderableDimensions, GetPaneRenderableDimensionsResponse, GetTlsCreds, SearchScrollbackRequest, SearchScrollbackResponse, KillPane, GetClientListResponse, GetClientList, SetWindowWorkspace, SetFocusedPane, GetImageCell, GetImageCellResponse, SetPalette, EraseScrollbackRequest, GetPaneDirection, GetPaneDirectionResponse, AdjustPaneSize};
 use config::{configuration, SshDomain, TlsDomainClient, UnixDomain, UnixTarget};
 use filedescriptor::FileDescriptor;
 use futures::FutureExt;
@@ -81,12 +81,12 @@ macro_rules! rpc {
     ($method_name:ident, $request_type:ident, $response_type:ident) => {
         pub async fn $method_name(&self, pdu: $request_type) -> anyhow::Result<$response_type> {
             let start = std::time::Instant::now();
-            let result = self.send_pdu(Pdu::$request_type(pdu)).await;
+            let result = self.send_pdu(Pdu::$request_type(Box::new(pdu))).await;
             let elapsed = start.elapsed();
             metrics::histogram!("rpc", "method" => stringify!($method_name)).record(elapsed);
             metrics::counter!("rpc.count", "method" => stringify!($method_name)).increment(1);
             match result {
-                Ok(Pdu::$response_type(res)) => Ok(res),
+                Ok(Pdu::$response_type(res)) => Ok(*res),
                 Ok(_) => bail!("unexpected response {:?}", result),
                 Err(err) => Err(err),
             }
@@ -100,12 +100,12 @@ macro_rules! rpc {
         #[allow(dead_code)]
         pub async fn $method_name(&self) -> anyhow::Result<$response_type> {
             let start = std::time::Instant::now();
-            let result = self.send_pdu(Pdu::$request_type($request_type{})).await;
+            let result = self.send_pdu(Pdu::$request_type(Box::new($request_type{}))).await;
             let elapsed = start.elapsed();
             metrics::histogram!("rpc", "method" => stringify!($method_name)).record(elapsed);
             metrics::counter!("rpc.count", "method" => stringify!($method_name)).increment(1);
             match result {
-                Ok(Pdu::$response_type(res)) => Ok(res),
+                Ok(Pdu::$response_type(res)) => Ok(*res),
                 Ok(_) => bail!("unexpected response {:?}", result),
                 Err(err) => Err(err),
             }
@@ -136,43 +136,37 @@ async fn process_unilateral_inner_async(
 
     let client_domain = mux
         .get_domain(local_domain_id)
-        .ok_or_else(|| anyhow!("no such domain {}", local_domain_id))?;
+        .ok_or_else(|| anyhow!("no such domain {local_domain_id}"))?;
     let client_domain = client_domain
         .downcast_ref::<ClientDomain>()
-        .ok_or_else(|| anyhow!("domain {} is not a ClientDomain instance", local_domain_id))?;
+        .ok_or_else(|| anyhow!("domain {local_domain_id} is not a ClientDomain instance"))?;
 
     // If we get a push for a pane that we don't yet know about,
     // it means that some other client has manipulated the mux
     // topology; we need to re-sync.
-    let local_pane_id = match client_domain.remote_to_local_pane_id(pane_id) {
-        Some(p) => p,
-        None => {
-            log::debug!("got {decoded:?}, pane not found locally, resync");
-            client_domain.resync().await?;
+    let local_pane_id = if let Some(p) = client_domain.remote_to_local_pane_id(pane_id) { p } else {
+        log::debug!("got {decoded:?}, pane not found locally, resync");
+        client_domain.resync().await?;
+        client_domain
+            .remote_to_local_pane_id(pane_id)
+            .ok_or_else(|| {
+                anyhow!("remote pane id {pane_id} does not have a local pane id")
+            })?
+    };
+
+    let pane = if let Some(p) = mux.get_pane(local_pane_id) { p } else {
+        log::debug!("got {decoded:?}, but local pane {local_pane_id} no longer exists; resync");
+        client_domain.resync().await?;
+
+        let local_pane_id =
             client_domain
                 .remote_to_local_pane_id(pane_id)
                 .ok_or_else(|| {
-                    anyhow!("remote pane id {} does not have a local pane id", pane_id)
-                })?
-        }
-    };
+                    anyhow!("remote pane id {pane_id} does not have a local pane id")
+                })?;
 
-    let pane = match mux.get_pane(local_pane_id) {
-        Some(p) => p,
-        None => {
-            log::debug!("got {decoded:?}, but local pane {local_pane_id} no longer exists; resync");
-            client_domain.resync().await?;
-
-            let local_pane_id =
-                client_domain
-                    .remote_to_local_pane_id(pane_id)
-                    .ok_or_else(|| {
-                        anyhow!("remote pane id {} does not have a local pane id", pane_id)
-                    })?;
-
-            mux.get_pane(local_pane_id)
-                .ok_or_else(|| anyhow!("local pane {local_pane_id} not found"))?
-        }
+        mux.get_pane(local_pane_id)
+            .ok_or_else(|| anyhow!("local pane {local_pane_id} not found"))?
     };
     let client_pane = pane.downcast_ref::<ClientPane>().ok_or_else(|| {
         log::error!(
@@ -195,41 +189,35 @@ fn process_unilateral(
     local_domain_id: Option<DomainId>,
     decoded: DecodedPdu,
 ) -> anyhow::Result<()> {
-    let local_domain_id = match local_domain_id {
-        Some(id) => id,
-        None => {
-            // FIXME: We currently get a bunch of these; we'll need
-            // to do something to advise the server when we want them.
-            // For now, we just ignore them.
-            log::trace!(
-                "client doesn't have a real local domain, \
-                 so unilateral message cannot be processed by it"
-            );
-            return Ok(());
-        }
+    let local_domain_id = if let Some(id) = local_domain_id { id } else {
+        // FIXME: We currently get a bunch of these; we'll need
+        // to do something to advise the server when we want them.
+        // For now, we just ignore them.
+        log::trace!(
+            "client doesn't have a real local domain, \
+             so unilateral message cannot be processed by it"
+        );
+        return Ok(());
     };
     match &decoded.pdu {
-        Pdu::WindowWorkspaceChanged(WindowWorkspaceChanged {
-            window_id,
-            workspace,
-        }) => {
-            let window_id = *window_id;
-            let workspace = workspace.to_string();
+        Pdu::WindowWorkspaceChanged(p) => {
+            let window_id = p.window_id;
+            let workspace = p.workspace.clone();
             promise::spawn::spawn_into_main_thread(async move {
                 let mux = Mux::try_get().ok_or_else(|| anyhow!("no more mux"))?;
                 let client_domain = mux
                     .get_domain(local_domain_id)
-                    .ok_or_else(|| anyhow!("no such domain {}", local_domain_id))?;
+                    .ok_or_else(|| anyhow!("no such domain {local_domain_id}"))?;
                 let client_domain =
                     client_domain
                         .downcast_ref::<ClientDomain>()
                         .ok_or_else(|| {
-                            anyhow!("domain {} is not a ClientDomain instance", local_domain_id)
+                            anyhow!("domain {local_domain_id} is not a ClientDomain instance")
                         })?;
 
                 let local_window_id = client_domain
                     .remote_to_local_window_id(window_id)
-                    .ok_or_else(|| anyhow!("no local window for remote window id {}", window_id))?;
+                    .ok_or_else(|| anyhow!("no local window for remote window id {window_id}"))?;
                 if let Some(mut window) = mux.get_window_mut(local_window_id) {
                     window.set_workspace(&workspace);
                 }
@@ -240,19 +228,19 @@ fn process_unilateral(
 
             return Ok(());
         }
-        Pdu::WindowTitleChanged(WindowTitleChanged { window_id, title }) => {
-            let title = title.to_string();
-            let window_id = *window_id;
+        Pdu::WindowTitleChanged(p) => {
+            let title = p.title.clone();
+            let window_id = p.window_id;
             promise::spawn::spawn_into_main_thread(async move {
                 let mux = Mux::try_get().ok_or_else(|| anyhow!("no more mux"))?;
                 let client_domain = mux
                     .get_domain(local_domain_id)
-                    .ok_or_else(|| anyhow!("no such domain {}", local_domain_id))?;
+                    .ok_or_else(|| anyhow!("no such domain {local_domain_id}"))?;
                 let client_domain =
                     client_domain
                         .downcast_ref::<ClientDomain>()
                         .ok_or_else(|| {
-                            anyhow!("domain {} is not a ClientDomain instance", local_domain_id)
+                            anyhow!("domain {local_domain_id} is not a ClientDomain instance")
                         })?;
 
                 client_domain.process_remote_window_title_change(window_id, title);
@@ -261,12 +249,9 @@ fn process_unilateral(
             .detach();
             return Ok(());
         }
-        Pdu::RenameWorkspace(RenameWorkspace {
-            old_workspace,
-            new_workspace,
-        }) => {
-            let old_workspace = old_workspace.to_string();
-            let new_workspace = new_workspace.to_string();
+        Pdu::RenameWorkspace(p) => {
+            let old_workspace = p.old_workspace.clone();
+            let new_workspace = p.new_workspace.clone();
             promise::spawn::spawn_into_main_thread(async move {
                 let mux = Mux::try_get().ok_or_else(|| anyhow!("no more mux"))?;
                 log::debug!("got a rename {old_workspace} -> {new_workspace}");
@@ -276,19 +261,19 @@ fn process_unilateral(
             .detach();
             return Ok(());
         }
-        Pdu::TabTitleChanged(TabTitleChanged { tab_id, title }) => {
-            let title = title.to_string();
-            let tab_id = *tab_id;
+        Pdu::TabTitleChanged(p) => {
+            let title = p.title.clone();
+            let tab_id = p.tab_id;
             promise::spawn::spawn_into_main_thread(async move {
                 let mux = Mux::try_get().ok_or_else(|| anyhow!("no more mux"))?;
                 let client_domain = mux
                     .get_domain(local_domain_id)
-                    .ok_or_else(|| anyhow!("no such domain {}", local_domain_id))?;
+                    .ok_or_else(|| anyhow!("no such domain {local_domain_id}"))?;
                 let client_domain =
                     client_domain
                         .downcast_ref::<ClientDomain>()
                         .ok_or_else(|| {
-                            anyhow!("domain {} is not a ClientDomain instance", local_domain_id)
+                            anyhow!("domain {local_domain_id} is not a ClientDomain instance")
                         })?;
 
                 client_domain.process_remote_tab_title_change(tab_id, title);
@@ -303,12 +288,12 @@ fn process_unilateral(
                 let mux = Mux::try_get().ok_or_else(|| anyhow!("no more mux"))?;
                 let client_domain = mux
                     .get_domain(local_domain_id)
-                    .ok_or_else(|| anyhow!("no such domain {}", local_domain_id))?;
+                    .ok_or_else(|| anyhow!("no such domain {local_domain_id}"))?;
                 let client_domain =
                     client_domain
                         .downcast_ref::<ClientDomain>()
                         .ok_or_else(|| {
-                            anyhow!("domain {} is not a ClientDomain instance", local_domain_id)
+                            anyhow!("domain {local_domain_id} is not a ClientDomain instance")
                         })?;
 
                 client_domain.resync().await
@@ -322,11 +307,11 @@ fn process_unilateral(
 
     if let Some(pane_id) = decoded.pdu.pane_id() {
         promise::spawn::spawn_into_main_thread(async move {
-            process_unilateral_inner(pane_id, local_domain_id, decoded)
+            process_unilateral_inner(pane_id, local_domain_id, decoded);
         })
         .detach();
     } else {
-        bail!("don't know how to handle {:?}", decoded);
+        bail!("don't know how to handle {decoded:?}");
     }
     Ok(())
 }
@@ -358,9 +343,9 @@ async fn client_thread_async(
 
     impl Promises {
         fn fail_all(&mut self, reason: &str) {
-            log::trace!("failing all promises: {}", reason);
+            log::trace!("failing all promises: {reason}");
             for (_, promise) in self.map.drain() {
-                let _ = promise.try_send(Err(anyhow!("{}", reason)));
+                let _ = promise.try_send(Err(anyhow!("{reason}")));
             }
         }
     }
@@ -405,7 +390,7 @@ async fn client_thread_async(
                             process_unilateral(local_domain_id, decoded)
                                 .context("processing unilateral PDU from server")
                                 .map_err(|e| {
-                                    log::error!("process_unilateral: {:?}", e);
+                                    log::error!("process_unilateral: {e:?}");
                                     e
                                 })?;
                         } else if let Some(promise) = promises.map.remove(&decoded.serial) {
@@ -414,14 +399,14 @@ async fn client_thread_async(
                             }
                         } else {
                             let reason =
-                                format!("got serial {:?} without a corresponding promise", decoded);
+                                format!("got serial {decoded:?} without a corresponding promise");
                             promises.fail_all(&reason);
-                            anyhow::bail!("{}", reason);
+                            anyhow::bail!("{reason}");
                         }
                     }
                     Err(err) => {
-                        let reason = format!("Error while decoding response pdu: {:#}", err);
-                        log::error!("{}", reason);
+                        let reason = format!("Error while decoding response pdu: {err:#}");
+                        log::error!("{reason}");
                         promises.fail_all(&reason);
                         return Err(err).context("Error while decoding response pdu");
                     }
@@ -456,7 +441,7 @@ pub fn unix_connect_with_retry(
                 Ok(stream) => return Ok(stream),
                 Err(err) => {
                     error =
-                        Some(Err(err).with_context(|| format!("connecting to {}", path.display())))
+                        Some(Err(err).with_context(|| format!("connecting to {}", path.display())));
                 }
             },
             UnixTarget::Proxy(argv) => {
@@ -470,7 +455,7 @@ pub fn unix_connect_with_retry(
                 cmd.stderr(std::process::Stdio::inherit());
                 let mut child = cmd
                     .spawn()
-                    .with_context(|| format!("spawning proxy command {:?}", cmd))?;
+                    .with_context(|| format!("spawning proxy command {cmd:?}"))?;
 
                 error.take();
 
@@ -480,9 +465,7 @@ pub fn unix_connect_with_retry(
                     match child.try_wait() {
                         Ok(Some(status)) => {
                             error = Some(Err(anyhow!(
-                                "{:?} exited already with status {:?}",
-                                cmd,
-                                status
+                                "{cmd:?} exited already with status {status:?}"
                             )));
                             continue;
                         }
@@ -491,7 +474,7 @@ pub fn unix_connect_with_retry(
                         }
                         Err(err) => {
                             error =
-                                Some(Err(err).context(format!("spawning proxy command {:?}", cmd)));
+                                Some(Err(err).context(format!("spawning proxy command {cmd:?}")));
                             continue;
                         }
                     }
@@ -625,11 +608,11 @@ impl Reconnectable {
         self.stream.take()
     }
 
-    fn is_local(&mut self) -> bool {
+    const fn is_local(&mut self) -> bool {
         matches!(&self.config, ClientDomainConfig::Unix(_))
     }
 
-    fn reconnectable(&mut self) -> bool {
+    const fn reconnectable(&mut self) -> bool {
         match &self.config {
             // It doesn't make sense to reconnect to a unix socket; we only
             // get disconnected it it dies, so respawning it would not preserve
@@ -664,7 +647,7 @@ impl Reconnectable {
     /// We can't simply derive this from the current executable because
     /// we are being asked to produce a path for the remote system and
     /// we don't really know anything about it.
-    /// `path` comes from the SshDoman::remote_wezterm_path option; if set
+    /// `path` comes from the `SshDoman::remote_wezterm_path` option; if set
     /// then the user has told us where to look.
     /// Otherwise, we have to rely on the `PATH` environment for the remote
     /// system, and we don't know if it is even running unix, or whether
@@ -685,15 +668,15 @@ impl Reconnectable {
         let sess = ssh_connect_with_ui(ssh_config, ui)?;
         let proxy_bin = Self::wezterm_bin_path(&ssh_dom.remote_wezterm_path);
 
-        let cmd = if let Some(cmd) = ssh_dom.override_proxy_command.clone() {
+        let cmd = if let Some(cmd) = ssh_dom.override_proxy_command {
             cmd
         } else if initial {
-            format!("{} cli --prefer-mux proxy", proxy_bin)
+            format!("{proxy_bin} cli --prefer-mux proxy")
         } else {
-            format!("{} cli --prefer-mux --no-auto-start proxy", proxy_bin)
+            format!("{proxy_bin} cli --prefer-mux --no-auto-start proxy")
         };
-        ui.output_str(&format!("Running: {}\n", cmd));
-        log::debug!("going to run {}", cmd);
+        ui.output_str(&format!("Running: {cmd}\n"));
+        log::debug!("going to run {cmd}");
 
         let exec = smol::block_on(sess.exec(&cmd, None))?;
 
@@ -715,8 +698,8 @@ impl Reconnectable {
         // has died
         let mut child = exec.child;
         std::thread::spawn(move || match child.wait() {
-            Err(err) => log::error!("waiting on {} failed: {:#}", cmd, err),
-            Ok(status) if !status.success() => log::error!("{}: {}", cmd, status),
+            Err(err) => log::error!("waiting on {cmd} failed: {err:#}"),
+            Ok(status) if !status.success() => log::error!("{cmd}: {status}"),
             _ => {}
         });
 
@@ -736,8 +719,8 @@ impl Reconnectable {
         no_auto_start: bool,
     ) -> anyhow::Result<()> {
         let target = unix_dom.target();
-        ui.output_str(&format!("Connect to {:?}\n", target));
-        log::trace!("connect to {:?}", target);
+        ui.output_str(&format!("Connect to {target:?}\n"));
+        log::trace!("connect to {target:?}");
 
         let max_attempts = if no_auto_start { Some(1) } else { None };
 
@@ -745,14 +728,12 @@ impl Reconnectable {
             Ok(stream) => stream,
             Err(e) => {
                 if no_auto_start || unix_dom.no_serve_automatically || !initial {
-                    bail!("failed to connect to {:?}: {}", target, e);
+                    bail!("failed to connect to {target:?}: {e}");
                 }
                 log::warn!(
-                    "While connecting to {:?}: {}.  Will try spawning the server.",
-                    target,
-                    e
+                    "While connecting to {target:?}: {e}.  Will try spawning the server."
                 );
-                ui.output_str(&format!("Error: {}.  Will try spawning server.\n", e));
+                ui.output_str(&format!("Error: {e}.  Will try spawning server.\n"));
 
                 let argv = unix_dom.serve_command()?;
 
@@ -769,32 +750,30 @@ impl Reconnectable {
                     }
                 }
 
-                log::warn!("Running: {:?}", cmd);
-                ui.output_str(&format!("Running: {:?}\n", cmd));
+                log::warn!("Running: {cmd:?}");
+                ui.output_str(&format!("Running: {cmd:?}\n"));
 
                 let child = cmd
                     .spawn()
-                    .with_context(|| format!("while spawning {:?}", cmd))?;
+                    .with_context(|| format!("while spawning {cmd:?}"))?;
                 std::thread::spawn(move || match child.wait_with_output() {
                     Ok(out) => {
-                        if let Ok(stdout) = std::str::from_utf8(&out.stdout) {
-                            if !stdout.is_empty() {
-                                log::warn!("stdout: {}", stdout);
+                        if let Ok(stdout) = std::str::from_utf8(&out.stdout)
+                            && !stdout.is_empty() {
+                                log::warn!("stdout: {stdout}");
                             }
-                        }
-                        if let Ok(stderr) = std::str::from_utf8(&out.stderr) {
-                            if !stderr.is_empty() {
-                                log::warn!("stderr: {}", stderr);
+                        if let Ok(stderr) = std::str::from_utf8(&out.stderr)
+                            && !stderr.is_empty() {
+                                log::warn!("stderr: {stderr}");
                             }
-                        }
                     }
                     Err(err) => {
-                        log::error!("spawn: {:#}", err);
+                        log::error!("spawn: {err:#}");
                     }
                 });
 
                 unix_connect_with_retry(&target, true, None).with_context(|| {
-                    format!("(after spawning server) failed to connect to {:?}", target)
+                    format!("(after spawning server) failed to connect to {target:?}")
                 })?
             }
         };
@@ -819,8 +798,7 @@ impl Reconnectable {
 
         let remote_host_name = remote_address.split(':').next().ok_or_else(|| {
             anyhow!(
-                "expected mux_server_remote_address to have the form 'host:port', but have {}",
-                remote_address
+                "expected mux_server_remote_address to have the form 'host:port', but have {remote_address}"
             )
         })?;
 
@@ -828,7 +806,7 @@ impl Reconnectable {
         // we can connect using those same credentials and avoid running through
         // the SSH authentication flow.
         if let Some(Ok(_)) = tls_client.ssh_parameters() {
-            match self.try_connect(&tls_client, ui, &remote_address, remote_host_name) {
+            match self.try_connect(&tls_client, ui, remote_address, remote_host_name) {
                 Ok(stream) => {
                     self.stream.replace(stream);
                     return Ok(());
@@ -849,15 +827,14 @@ impl Reconnectable {
                         }
                     }
                     ui.output_str(&format!(
-                        "Failed to reuse creds: {:?}\nWill retry bootstrap via SSH\n",
-                        err
+                        "Failed to reuse creds: {err:?}\nWill retry bootstrap via SSH\n"
                     ));
                 }
             }
         }
 
-        if let Some(Ok(ssh_params)) = tls_client.ssh_parameters() {
-            if self.tls_creds.is_none() {
+        if let Some(Ok(ssh_params)) = tls_client.ssh_parameters()
+            && self.tls_creds.is_none() {
                 // We need to bootstrap via an ssh session
 
                 let mut ssh_config = wezterm_ssh::Config::new();
@@ -871,7 +848,7 @@ impl Reconnectable {
 
                 let mut ssh_config = ssh_config.for_host(host);
                 if let Some(username) = &ssh_params.username {
-                    ssh_config.insert("user".to_string(), username.to_string());
+                    ssh_config.insert("user".to_string(), username.clone());
                 }
                 if let Some(port) = port {
                     ssh_config.insert("port".to_string(), port.to_string());
@@ -887,14 +864,14 @@ impl Reconnectable {
                         Self::wezterm_bin_path(&tls_client.remote_wezterm_path)
                     );
 
-                    ui.output_str(&format!("Running: {}\n", cmd));
+                    ui.output_str(&format!("Running: {cmd}\n"));
                     let mut exec = smol::block_on(sess.exec(&cmd, None))
-                        .with_context(|| format!("executing `{}` on remote host", cmd))?;
+                        .with_context(|| format!("executing `{cmd}` on remote host"))?;
 
                     log::debug!("waiting for command to finish");
                     let status = exec.child.wait()?;
                     if !status.success() {
-                        anyhow::bail!("{} failed", cmd);
+                        anyhow::bail!("{cmd} failed");
                     }
 
                     drop(exec.stdin);
@@ -905,7 +882,7 @@ impl Reconnectable {
                         let mut err = String::new();
                         let _ = stderr.read_to_string(&mut err);
                         if !err.is_empty() {
-                            log::error!("remote: `{}` stderr -> `{}`", cmd, err);
+                            log::error!("remote: `{cmd}` stderr -> `{err}`");
                         }
                     });
 
@@ -913,7 +890,7 @@ impl Reconnectable {
                         .context("reading tlscreds response")?
                         .pdu
                     {
-                        Pdu::GetTlsCredsResponse(creds) => creds,
+                        Pdu::GetTlsCredsResponse(creds) => *creds,
                         _ => bail!("unexpected response to tlscreds"),
                     };
 
@@ -930,11 +907,10 @@ impl Reconnectable {
                 })?;
                 self.tls_creds.replace(creds);
             }
-        }
 
         let cloned_ui = ui.clone();
         let stream = cloned_ui.run_and_log_error({
-            || self.try_connect(&tls_client, ui, &remote_address, remote_host_name)
+            || self.try_connect(&tls_client, ui, remote_address, remote_host_name)
         })?;
         self.stream.replace(stream);
         Ok(())
@@ -963,7 +939,7 @@ impl Reconnectable {
 
         if let Some(chain_file) = tls_client.pem_ca.as_ref() {
             connector
-                .set_certificate_chain_file(&chain_file)
+                .set_certificate_chain_file(chain_file)
                 .context(format!(
                     "set_certificate_chain_file to {} for TLS client",
                     chain_file.display()
@@ -998,20 +974,19 @@ impl Reconnectable {
             }
         }
 
-        if let Ok(ca_path) = self.tls_creds_ca_path() {
-            if ca_path.exists() {
+        if let Ok(ca_path) = self.tls_creds_ca_path()
+            && ca_path.exists() {
                 connector.cert_store_mut().add_cert(load_cert(&ca_path)?)?;
             }
-        }
 
         let connector = connector.build();
         let connector = connector
             .configure()?
             .verify_hostname(!tls_client.accept_invalid_hostnames);
 
-        ui.output_str(&format!("Connecting to {} using TLS\n", remote_address));
+        ui.output_str(&format!("Connecting to {remote_address} using TLS\n"));
         let stream = TcpStream::connect(remote_address)
-            .with_context(|| format!("connecting to {}", remote_address))?;
+            .with_context(|| format!("connecting to {remote_address}"))?;
         stream.set_nodelay(true)?;
         stream.set_write_timeout(Some(tls_client.write_timeout))?;
         stream.set_read_timeout(Some(tls_client.read_timeout))?;
@@ -1027,8 +1002,7 @@ impl Reconnectable {
                 )
                 .with_context(|| {
                     format!(
-                        "SslConnector for {} with host name {}",
-                        remote_address, remote_host_name,
+                        "SslConnector for {remote_address} with host name {remote_host_name}",
                     )
                 })?,
         ))?);
@@ -1053,22 +1027,21 @@ impl Client {
             loop {
                 if let Err(e) = client_thread(&mut reconnectable, local_domain_id, &mut receiver) {
                     if !reconnectable.reconnectable() || local_domain_id.is_none() {
-                        log::debug!("client thread ended: {}", e);
+                        log::debug!("client thread ended: {e}");
                         break;
                     }
 
                     let local_domain_id = local_domain_id.expect("checked above");
 
-                    if let Some(ioerr) = e.root_cause().downcast_ref::<std::io::Error>() {
-                        if let std::io::ErrorKind::UnexpectedEof = ioerr.kind() {
+                    if let Some(ioerr) = e.root_cause().downcast_ref::<std::io::Error>()
+                        && ioerr.kind() == std::io::ErrorKind::UnexpectedEof {
                             // Don't reconnect for a simple EOF
-                            log::error!("server closed connection ({})", e);
+                            log::error!("server closed connection ({e})");
                             break;
                         }
-                    }
 
                     if let Some(err) = e.root_cause().downcast_ref::<NotReconnectableError>() {
-                        log::error!("{}; won't try to reconnect", err);
+                        log::error!("{err}; won't try to reconnect");
                         break;
                     }
 
@@ -1077,14 +1050,14 @@ impl Client {
 
                     loop {
                         ui.sleep_with_reason(
-                            &format!("client disconnected {}; will reconnect", e),
+                            &format!("client disconnected {e}; will reconnect"),
                             backoff,
                         )
                         .ok();
                         let initial = false;
                         let no_auto_start = true; // Don't auto-start on a reconnect
                         match reconnectable.connect(initial, &mut ui, no_auto_start) {
-                            Ok(_) => {
+                            Ok(()) => {
                                 backoff = BASE_INTERVAL;
                                 log::error!("Reconnected!");
                                 promise::spawn::spawn_into_main_thread(async move {
@@ -1096,8 +1069,7 @@ impl Client {
                             Err(err) => {
                                 backoff = (backoff + backoff).min(MAX_INTERVAL);
                                 ui.output_str(&format!(
-                                    "problem reconnecting: {}; will reconnect in {:?}\n",
-                                    err, backoff
+                                    "problem reconnecting: {err}; will reconnect in {backoff:?}\n"
                                 ));
                             }
                         }
@@ -1112,12 +1084,12 @@ impl Client {
                 if let Some(mux) = Mux::try_get() {
                     let client_domain = mux
                         .get_domain(local_domain_id)
-                        .ok_or_else(|| anyhow!("no such domain {}", local_domain_id))?;
+                        .ok_or_else(|| anyhow!("no such domain {local_domain_id}"))?;
                     let client_domain =
                         client_domain
                             .downcast_ref::<ClientDomain>()
                             .ok_or_else(|| {
-                                anyhow!("domain {} is not a ClientDomain instance", local_domain_id)
+                                anyhow!("domain {local_domain_id} is not a ClientDomain instance")
                             })?;
                     client_domain.perform_detach();
                 }
@@ -1134,13 +1106,14 @@ impl Client {
         Self {
             sender,
             local_domain_id,
-            is_reconnectable,
-            is_local,
             client_id,
             client_domain_config,
+            is_reconnectable,
+            is_local,
         }
     }
 
+    #[must_use] 
     pub fn into_client_domain_config(self) -> ClientDomainConfig {
         self.client_domain_config
     }
@@ -1176,11 +1149,11 @@ impl Client {
                     codec_vers: info.codec_vers,
                 };
                 ui.output_str(&err.to_string());
-                log::error!("{:?}", err);
-                return Err(err.into());
+                log::error!("{err:?}");
+                Err(err.into())
             }
             Err(err) => {
-                log::trace!("{:?}", err);
+                log::trace!("{err:?}");
                 let msg = if err.root_cause().is::<Timeout>() {
                     "Timed out while parsing the response from the server. \
                     This may be due to network connectivity issues"
@@ -1209,13 +1182,14 @@ impl Client {
                     )
                 };
                 ui.output_str(&msg);
-                bail!("{}", msg);
+                bail!("{msg}");
             }
         }
     }
 
     #[allow(dead_code)]
-    pub fn local_domain_id(&self) -> Option<DomainId> {
+    #[must_use] 
+    pub const fn local_domain_id(&self) -> Option<DomainId> {
         self.local_domain_id
     }
 
@@ -1229,15 +1203,14 @@ impl Client {
                 ..Default::default()
             }),
             Some(_) | None => {
-                if !prefer_mux {
-                    if let Ok(gui) = crate::discovery::resolve_gui_sock_path(class_name) {
+                if !prefer_mux
+                    && let Ok(gui) = crate::discovery::resolve_gui_sock_path(class_name) {
                         return Ok(config::UnixDomain {
                             socket_path: Some(gui),
                             no_serve_automatically: true,
                             ..Default::default()
                         });
                     }
-                }
 
                 let config = configuration();
                 Ok(config

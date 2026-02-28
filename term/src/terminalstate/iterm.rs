@@ -1,4 +1,4 @@
-use crate::terminalstate::image::*;
+use crate::terminalstate::image::{dimensions, check_image_dimensions, ImageAttachParams, ImageAttachStyle};
 use crate::TerminalState;
 use ::image::imageops::FilterType;
 use ::image::ImageFormat;
@@ -103,10 +103,7 @@ impl TerminalState {
 
         let downscaled = (width < info.width as usize) || (height < info.height as usize);
         let data = match (downscaled, info.format) {
-            (true, ImageFormat::Gif)
-            | (true, ImageFormat::Png)
-            | (true, ImageFormat::WebP)
-            | (false, _) => {
+            (true, ImageFormat::Gif | ImageFormat::Png | ImageFormat::WebP) | (false, _) => {
                 // Don't resample things that might be animations,
                 // or things that don't need resampling
                 ImageDataType::EncodedFile(image.data)
@@ -147,7 +144,7 @@ impl TerminalState {
             placement_id: None,
             do_not_move_cursor: image.do_not_move_cursor,
         }) {
-            log::error!("set iterm2 image: {:#}", err);
+            log::error!("set iterm2 image: {err:#}");
         }
     }
 }

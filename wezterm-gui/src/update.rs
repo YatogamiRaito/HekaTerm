@@ -3,18 +3,16 @@ use anyhow::anyhow;
 use config::{configuration, wezterm_version};
 use http_req::request::{HttpVersion, Request};
 use http_req::uri::Uri;
-use mux::connui::ConnectionUI;
-use serde::*;
+use serde::{Serialize, Deserialize};
 use std::convert::TryFrom;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
 use std::time::Duration;
 use termwiz::cell::{Hyperlink, Underline};
 use termwiz::color::AnsiColor;
 use termwiz::escape::csi::{Cursor, Sgr};
 use termwiz::escape::osc::{ITermDimension, ITermFileData, ITermProprietary};
 use termwiz::escape::{OneBased, OperatingSystemCommand, CSI};
-use wezterm_toast_notification::*;
+use wezterm_toast_notification::persistent_toast_notification_with_click_to_open_url;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Release {
@@ -44,7 +42,7 @@ fn get_github_release_info(uri: &str) -> anyhow::Result<Release> {
             &format!("wezterm/wezterm-{}", wezterm_version()),
         )
         .send(&mut latest)
-        .map_err(|e| anyhow!("failed to query github releases: {}", e))?;
+        .map_err(|e| anyhow!("failed to query github releases: {e}"))?;
 
     /*
     println!("Status: {} {}", _res.status_code(), _res.reason());
@@ -64,9 +62,6 @@ pub fn get_nightly_release_info() -> anyhow::Result<Release> {
     get_github_release_info("https://api.github.com/repos/wezterm/wezterm/releases/tags/nightly")
 }
 
-lazy_static::lazy_static! {
-    static ref UPDATER_WINDOW: Mutex<Option<ConnectionUI>> = Mutex::new(None);
-}
 
 pub fn load_last_release_info_and_set_banner() {
     if !configuration().check_for_updates {
@@ -119,15 +114,7 @@ fn set_banner_from_release_info(latest: &Release) {
     let reset = CSI::Sgr(Sgr::Reset);
     let link_off = OperatingSystemCommand::SetHyperlink(None);
     mux.set_banner(Some(format!(
-        "{}{}WezTerm Update Available\r\n{}{}{}{}Click to see what's new{}{}\r\n",
-        icon,
-        top_line_pos,
-        second_line_pos,
-        link_on,
-        underline_color,
-        underline_on,
-        link_off,
-        reset,
+        "{icon}{top_line_pos}WezTerm Update Available\r\n{second_line_pos}{link_on}{underline_color}{underline_on}Click to see what's new{link_off}{reset}\r\n",
     )));
 }
 
@@ -180,8 +167,8 @@ fn update_checker() {
         // running, we don't spam the user with a lot of notifications.
         let socks = wezterm_client::discovery::discover_gui_socks();
 
-        if configuration().check_for_updates {
-            if let Ok(latest) = get_latest_release_info() {
+        if configuration().check_for_updates
+            && let Ok(latest) = get_latest_release_info() {
                 schedule_set_banner_from_release_info(&latest);
                 let current = wezterm_version();
                 if latest.tag_name.as_str() > current || force_ui {
@@ -214,7 +201,6 @@ fn update_checker() {
                     serde_json::to_writer_pretty(f, &latest).ok();
                 }
             }
-        }
 
         std::thread::sleep(Duration::from_secs(
             configuration().check_for_updates_interval_seconds,
@@ -224,8 +210,7 @@ fn update_checker() {
 
 pub fn start_update_checker() {
     static CHECKER_STARTED: AtomicBool = AtomicBool::new(false);
-    if let Ok(false) =
-        CHECKER_STARTED.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+    if CHECKER_STARTED.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed) == Ok(false)
     {
         std::thread::Builder::new()
             .name("update_checker".into())

@@ -12,7 +12,7 @@ use wezterm_client::client::Client;
 pub struct SpawnCommand {
     /// Specify the current pane.
     /// The default is to use the current pane based on the
-    /// environment variable WEZTERM_PANE.
+    /// environment variable `WEZTERM_PANE`.
     /// The pane is used to determine the current domain
     /// and window.
     #[arg(long)]
@@ -54,33 +54,27 @@ impl SpawnCommand {
     pub async fn run(self, client: Client, config: &ConfigHandle) -> anyhow::Result<()> {
         let window_id = if self.new_window {
             None
-        } else {
-            match self.window_id {
-                Some(w) => Some(w),
-                None => {
-                    let pane_id = client.resolve_pane_id(self.pane_id).await?;
+        } else if let Some(w) = self.window_id { Some(w) } else {
+            let pane_id = client.resolve_pane_id(self.pane_id).await?;
 
-                    let panes = client.list_panes().await?;
-                    let mut window_id = None;
-                    'outer: for tabroot in panes.tabs {
-                        let mut cursor = tabroot.into_tree().cursor();
+            let panes = client.list_panes().await?;
+            let mut window_id = None;
+            'outer: for tabroot in panes.tabs {
+                let mut cursor = tabroot.into_tree().cursor();
 
-                        loop {
-                            if let Some(entry) = cursor.leaf_mut() {
-                                if entry.pane_id == pane_id {
-                                    window_id.replace(entry.window_id);
-                                    break 'outer;
-                                }
-                            }
-                            match cursor.preorder_next() {
-                                Ok(c) => cursor = c,
-                                Err(_) => break,
-                            }
+                loop {
+                    if let Some(entry) = cursor.leaf_mut()
+                        && entry.pane_id == pane_id {
+                            window_id.replace(entry.window_id);
+                            break 'outer;
                         }
+                    match cursor.preorder_next() {
+                        Ok(c) => cursor = c,
+                        Err(_) => break,
                     }
-                    window_id
                 }
             }
+            window_id
         };
 
         let workspace = self
@@ -116,7 +110,7 @@ impl SpawnCommand {
             })
             .await?;
 
-        log::debug!("{:?}", spawned);
+        log::debug!("{spawned:?}");
         println!("{}", spawned.pane_id);
         Ok(())
     }

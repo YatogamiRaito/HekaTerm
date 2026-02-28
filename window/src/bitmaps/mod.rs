@@ -54,7 +54,7 @@ impl Texture2d for SrgbTexture2d {
             format: glium::texture::ClientFormat::U8U8U8U8,
         };
 
-        SrgbTexture2d::write(
+        Self::write(
             self,
             glium::Rect {
                 left: rect.min_x() as u32,
@@ -63,7 +63,7 @@ impl Texture2d for SrgbTexture2d {
                 height: rect.size.height as u32,
             },
             source,
-        )
+        );
     }
 
     fn read(&self, _rect: Rect, _im: &mut dyn BitmapImage) {
@@ -71,11 +71,11 @@ impl Texture2d for SrgbTexture2d {
     }
 
     fn width(&self) -> usize {
-        SrgbTexture2d::width(self) as usize
+        Self::width(self) as usize
     }
 
     fn height(&self) -> usize {
-        SrgbTexture2d::height(self) as usize
+        Self::height(self) as usize
     }
 }
 
@@ -85,13 +85,13 @@ pub trait BitmapImage {
     /// Obtain a read only pointer to the pixel data
     /// # Safety
     /// The caller is responsible for ensuring that pixel
-    /// access is bounded by the image_dimensions
+    /// access is bounded by the `image_dimensions`
     unsafe fn pixel_data(&self) -> *const u8;
 
     /// Obtain a mutable pointer to the pixel data
     /// # Safety
     /// The caller is responsible for ensuring that pixel
-    /// access is bounded by the image_dimensions
+    /// access is bounded by the `image_dimensions`
     unsafe fn pixel_data_mut(&mut self) -> *mut u8;
 
     /// Return the pair (width, height) of the image, measured in pixels
@@ -118,7 +118,7 @@ pub trait BitmapImage {
         let (width, height) = self.image_dimensions();
         unsafe {
             #[allow(clippy::cast_ptr_alignment)]
-            let first = self.pixel_data() as *const u32;
+            let first = self.pixel_data().cast::<u32>();
             std::slice::from_raw_parts(first, width * height)
         }
     }
@@ -128,7 +128,7 @@ pub trait BitmapImage {
         let (width, height) = self.image_dimensions();
         unsafe {
             #[allow(clippy::cast_ptr_alignment)]
-            let first = self.pixel_data_mut() as *mut u32;
+            let first = self.pixel_data_mut().cast::<u32>();
             std::slice::from_raw_parts_mut(first, width * height)
         }
     }
@@ -139,16 +139,12 @@ pub trait BitmapImage {
         let (width, height) = self.image_dimensions();
         debug_assert!(
             x < width && y < height,
-            "x={} width={} y={} height={}",
-            x,
-            width,
-            y,
-            height
+            "x={x} width={width} y={y} height={height}"
         );
         unsafe {
             let offset = (y * width * 4) + (x * 4);
             #[allow(clippy::cast_ptr_alignment)]
-            &mut *(self.pixel_data_mut().add(offset) as *mut u32)
+            &mut *self.pixel_data_mut().add(offset).cast::<u32>()
         }
     }
 
@@ -160,7 +156,7 @@ pub trait BitmapImage {
         unsafe {
             let offset = (y * width * 4) + (x * 4);
             #[allow(clippy::cast_ptr_alignment)]
-            &*(self.pixel_data().add(offset) as *const u32)
+            &*self.pixel_data().add(offset).cast::<u32>()
         }
     }
 
@@ -285,7 +281,7 @@ pub trait BitmapImage {
         }
 
         for y in src_rect.origin.y..src_rect.origin.y + copy_height {
-            let dest_y = y as isize + dest_top_left.y - src_rect.origin.y as isize;
+            let dest_y = y + dest_top_left.y - src_rect.origin.y;
             if dest_y < 0 {
                 continue;
             }
@@ -334,18 +330,20 @@ impl From<Image> for Vec<u8> {
 impl Image {
     /// Create a new bgra32 image buffer with the specified dimensions.
     /// The buffer is initialized to all zeroes.
-    pub fn new(width: usize, height: usize) -> Image {
+    #[must_use] 
+    pub fn new(width: usize, height: usize) -> Self {
         let size = height * width * 4;
         let mut data = vec![0; size];
         data.resize(size, 0);
-        Image {
+        Self {
             data,
             width,
             height,
         }
     }
 
-    pub fn from_raw(width: usize, height: usize, data: Vec<u8>) -> Self {
+    #[must_use] 
+    pub const fn from_raw(width: usize, height: usize, data: Vec<u8>) -> Self {
         Self {
             data,
             width,
@@ -355,8 +353,9 @@ impl Image {
 
     /// Create a new bgra32 image buffer with the specified dimensions.
     /// The buffer is populated with the source data in rgba32 format.
-    pub fn with_rgba32(width: usize, height: usize, stride: usize, data: &[u8]) -> Image {
-        let mut image = Image::new(width, height);
+    #[must_use] 
+    pub fn with_rgba32(width: usize, height: usize, stride: usize, data: &[u8]) -> Self {
+        let mut image = Self::new(width, height);
         for y in 0..height {
             let src_offset = y * stride;
             let dest_offset = y * width * 4;
@@ -377,8 +376,9 @@ impl Image {
 
     /// Creates a new image with the contents of the current image, but
     /// resized to the specified dimensions.
-    pub fn resize(&self, width: usize, height: usize) -> Image {
-        let mut dest = Image::new(width, height);
+    #[must_use] 
+    pub fn resize(&self, width: usize, height: usize) -> Self {
+        let mut dest = Self::new(width, height);
         let algo = if (width * height) < (self.width * self.height) {
             resize::Type::Lanczos3
         } else {
@@ -396,7 +396,8 @@ impl Image {
         dest
     }
 
-    pub fn scale_by(&self, scale: f64) -> Image {
+    #[must_use] 
+    pub fn scale_by(&self, scale: f64) -> Self {
         let width = (self.width as f64 * scale) as usize;
         let height = (self.height as f64 * scale) as usize;
         self.resize(width, height)
@@ -411,7 +412,7 @@ impl Image {
             for p in row {
                 line.push_str(&format!("{:08x} ", *p));
             }
-            log::info!("{}", line);
+            log::info!("{line}");
         }
     }
 }
@@ -436,6 +437,7 @@ pub struct ImageTexture {
 }
 
 impl ImageTexture {
+    #[must_use] 
     pub fn new(width: usize, height: usize) -> Self {
         let im = Image::new(width, height);
         Self {

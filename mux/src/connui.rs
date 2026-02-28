@@ -7,9 +7,9 @@ use promise::Promise;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use termwiz::cell::{unicode_column_width, CellAttributes};
-use termwiz::lineedit::*;
+use termwiz::lineedit::{BasicHistory, LineEditorHost, History, OutputElement, LineEditor, NopLineEditorHost};
 use termwiz::surface::{Change, Position};
-use termwiz::terminal::*;
+use termwiz::terminal::Terminal;
 use wezterm_term::TerminalSize;
 
 #[derive(Default)]
@@ -94,7 +94,7 @@ impl ConnectionUIImpl {
                     respond.result(self.sleep(&reason, duration));
                 }
                 Err(err) if err.is_timeout() => {}
-                Err(err) => bail!("recv_timeout: {}", err),
+                Err(err) => bail!("recv_timeout: {err}"),
             }
         }
     }
@@ -141,7 +141,7 @@ impl ConnectionUIImpl {
             let prog_width = term_width as u128 * (duration.as_millis() - remain.as_millis())
                 / duration.as_millis();
             let prog_width = prog_width as usize;
-            let message = format!("{} ({:.0?})", reason, remain);
+            let message = format!("{reason} ({remain:.0?})");
 
             let mut reversed_string = String::new();
             let mut default_string = String::new();
@@ -164,7 +164,7 @@ impl ConnectionUIImpl {
                 col += 1;
             }
 
-            let combined = format!("{}{}", reversed_string, default_string);
+            let combined = format!("{reversed_string}{default_string}");
 
             if last_draw.is_none() || last_draw.as_ref().unwrap() != &combined {
                 self.term.render(&[
@@ -189,7 +189,7 @@ impl ConnectionUIImpl {
                 .poll_input(Some(remain.min(Duration::from_millis(50))))?;
         }
 
-        let message = format!("{} (done)\r\n", reason);
+        let message = format!("{reason} (done)\r\n");
         self.term.render(&[
             Change::CursorPosition {
                 x: Position::Absolute(0),
@@ -212,7 +212,7 @@ impl HeadlessImpl {
             match self.rx.recv_timeout(Duration::from_millis(200)) {
                 Ok(UIRequest::Close) => break,
                 Ok(UIRequest::Output(changes)) => {
-                    log::trace!("Output: {:?}", changes);
+                    log::trace!("Output: {changes:?}");
                 }
                 Ok(UIRequest::Input { mut respond, .. }) => {
                     respond.result(Err(anyhow!("Input requested from headless context")));
@@ -222,12 +222,12 @@ impl HeadlessImpl {
                     reason,
                     duration,
                 }) => {
-                    log::error!("{} (sleeping for {:?})", reason, duration);
+                    log::error!("{reason} (sleeping for {duration:?})");
                     std::thread::sleep(duration);
                     respond.result(Ok(()));
                 }
                 Err(err) if err.is_timeout() => {}
-                Err(err) => bail!("recv_timeout: {}", err),
+                Err(err) => bail!("recv_timeout: {err}"),
             }
         }
 
@@ -247,11 +247,19 @@ pub struct ConnectionUI {
     tx: Sender<UIRequest>,
 }
 
+impl Default for ConnectionUI {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConnectionUI {
+    #[must_use] 
     pub fn new() -> Self {
         Self::with_params(Default::default())
     }
 
+    #[must_use] 
     pub fn with_params(params: ConnectionUIParams) -> Self {
         let (tx, rx) = unbounded();
         promise::spawn::spawn_into_main_thread(termwiztermtab::run(
@@ -260,7 +268,7 @@ impl ConnectionUI {
             move |term| {
                 let mut ui = ConnectionUIImpl { term, rx };
                 let status = ui.run().unwrap_or_else(|e| {
-                    log::error!("while running ConnectionUI loop: {:?}", e);
+                    log::error!("while running ConnectionUI loop: {e:?}");
                     CloseStatus::Implicit
                 });
 
@@ -279,6 +287,7 @@ impl ConnectionUI {
         Self { tx }
     }
 
+    #[must_use] 
     pub fn new_with_no_close_delay() -> Self {
         Self::with_params(ConnectionUIParams {
             disable_close_delay: true,
@@ -286,6 +295,7 @@ impl ConnectionUI {
         })
     }
 
+    #[must_use] 
     pub fn new_headless() -> Self {
         let (tx, rx) = unbounded();
         std::thread::spawn(move || {
@@ -301,8 +311,8 @@ impl ConnectionUI {
     {
         match f() {
             Err(e) => {
-                let what = format!("\r\nFailed: {:?}\r\n", e);
-                log::error!("{}", what);
+                let what = format!("\r\nFailed: {e:?}\r\n");
+                log::error!("{what}");
                 self.output_str(&what);
                 Err(e)
             }
@@ -316,7 +326,7 @@ impl ConnectionUI {
     {
         match f.await {
             Err(e) => {
-                let what = format!("\r\nFailed: {:?}\r\n", e);
+                let what = format!("\r\nFailed: {e:?}\r\n");
                 self.output_str(&what);
                 Err(e)
             }
@@ -333,7 +343,7 @@ impl ConnectionUI {
     }
 
     pub fn output_str(&self, s: &str) {
-        let s = s.replace("\n", "\r\n");
+        let s = s.replace('\n', "\r\n");
         self.output(vec![Change::Text(s)]);
     }
 
@@ -359,7 +369,7 @@ impl ConnectionUI {
     /// is only designed for a single line prompt; a multi-line prompt
     /// messes up the cursor positioning.
     fn split_multi_line_prompt(s: &str) -> (Option<String>, String) {
-        let text = s.replace("\n", "\r\n");
+        let text = s.replace('\n', "\r\n");
         let bits: Vec<&str> = text.rsplitn(2, "\r\n").collect();
 
         if bits.len() == 2 {
@@ -413,8 +423,9 @@ impl ConnectionUI {
         self.tx.send(UIRequest::Close).ok();
     }
 
+    #[must_use] 
     pub fn test_alive(&self) -> bool {
-        if !self.tx.send(UIRequest::Output(vec![])).is_ok() {
+        if self.tx.send(UIRequest::Output(vec![])).is_err() {
             return false;
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -422,13 +433,11 @@ impl ConnectionUI {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref ERROR_WINDOW: Mutex<Option<ConnectionUI>> = Mutex::new(None);
-}
+static ERROR_WINDOW: std::sync::LazyLock<Mutex<Option<ConnectionUI>>> = std::sync::LazyLock::new(|| Mutex::new(None));
 
 fn get_error_window() -> ConnectionUI {
     let mut err = ERROR_WINDOW.lock().unwrap();
-    if let Some(ui) = err.as_ref().map(|ui| ui.clone()) {
+    if let Some(ui) = err.as_ref().map(std::clone::Clone::clone) {
         ui.output_str("\n");
         if ui.test_alive() {
             return ui;
@@ -445,10 +454,10 @@ fn get_error_window() -> ConnectionUI {
 /// message framed as a configuration error.
 /// If there is no GUI front end, generates a toast notification instead.
 pub fn show_configuration_error_message(err: &str) {
-    log::error!("Configuration Error: {}", err);
+    log::error!("Configuration Error: {err}");
     let ui = get_error_window();
 
-    let mut wrapped = textwrap::fill(&err, 78);
-    wrapped.push_str("\n");
+    let mut wrapped = textwrap::fill(err, 78);
+    wrapped.push('\n');
     ui.output_str(&wrapped);
 }

@@ -10,7 +10,7 @@ use crate::{
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use config::{ConfigHandle, ImePreeditRendering, SystemBackdrop};
-use lazy_static::lazy_static;
+
 use promise::Future;
 use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle,
@@ -71,8 +71,7 @@ extern "system" {
     pub fn ImmSetCandidateWindow(himc: HIMC, lpCandidate: LPCANDIDATEFORM) -> BOOL;
 }
 
-lazy_static! {
-    static ref IS_WIN10: bool = {
+static IS_WIN10: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
         let osver = OSVERSIONINFOW {
             dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as _,
             ..Default::default()
@@ -83,8 +82,9 @@ lazy_static! {
         } else {
             true
         }
-    };
-    static ref IS_WIN11_22H2: bool = {
+    });
+
+static IS_WIN11_22H2: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
         let osver = OSVERSIONINFOW {
             dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as _,
             ..Default::default()
@@ -95,9 +95,9 @@ lazy_static! {
         } else {
             true
         }
-    };
-    static ref TITLE_FONT: Mutex<Option<parameters::FontAndSize>> = Mutex::new(None);
-}
+    });
+
+static TITLE_FONT: std::sync::LazyLock<Mutex<Option<parameters::FontAndSize>>> = std::sync::LazyLock::new(|| Mutex::new(None));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub(crate) struct HWindow(HWND);
@@ -168,7 +168,7 @@ fn rc_to_pointer(arc: &Rc<RefCell<WindowInner>>) -> *const RefCell<WindowInner> 
 
 fn rc_from_pointer(lparam: LPVOID) -> Rc<RefCell<WindowInner>> {
     // Turn it into an Rc
-    let arc = unsafe { Rc::from_raw(std::mem::transmute(lparam)) };
+    let arc = unsafe { Rc::from_raw(std::mem::transmute::<winapi::shared::minwindef::LPVOID, *const RefCell<WindowInner>>(lparam)) };
     // Add a ref for the caller
     let cloned = Rc::clone(&arc);
 
@@ -188,7 +188,7 @@ fn rc_from_hwnd(hwnd: HWND) -> Option<Rc<RefCell<WindowInner>>> {
 }
 
 fn take_rc_from_pointer(lparam: LPVOID) -> Rc<RefCell<WindowInner>> {
-    unsafe { Rc::from_raw(std::mem::transmute(lparam)) }
+    unsafe { Rc::from_raw(std::mem::transmute::<winapi::shared::minwindef::LPVOID, *const RefCell<WindowInner>>(lparam)) }
 }
 
 fn callback_behavior() -> glium::debug::DebugCallbackBehavior {
@@ -494,7 +494,7 @@ impl Window {
                 null_mut(),
                 null_mut(),
                 null_mut(),
-                std::mem::transmute(lparam),
+                std::mem::transmute::<*const RefCell<WindowInner>, winapi::shared::minwindef::LPVOID>(lparam),
             )
         };
 
@@ -1894,10 +1894,8 @@ unsafe fn mouse_leave(hwnd: HWND, _msg: UINT, _wparam: WPARAM, _lparam: LPARAM) 
     Some(0)
 }
 
-lazy_static! {
-    static ref WHEEL_SCROLL_LINES: i16 = read_scroll_speed("WheelScrollLines").unwrap_or(3);
-    static ref WHEEL_SCROLL_CHARS: i16 = read_scroll_speed("WheelScrollChars").unwrap_or(3);
-}
+static WHEEL_SCROLL_LINES: std::sync::LazyLock<i16> = std::sync::LazyLock::new(|| read_scroll_speed("WheelScrollLines").unwrap_or(3));
+static WHEEL_SCROLL_CHARS: std::sync::LazyLock<i16> = std::sync::LazyLock::new(|| read_scroll_speed("WheelScrollChars").unwrap_or(3));
 
 fn read_scroll_speed(name: &str) -> io::Result<i16> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);

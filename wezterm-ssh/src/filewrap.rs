@@ -1,7 +1,7 @@
 use crate::sftp::types::Metadata;
 use crate::sftp::{SftpChannelError, SftpChannelResult};
 
-pub(crate) enum FileWrap {
+pub enum FileWrap {
     #[cfg(feature = "ssh2")]
     Ssh2(ssh2::File),
 

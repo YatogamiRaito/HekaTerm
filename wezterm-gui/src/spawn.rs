@@ -30,7 +30,7 @@ pub fn spawn_command_impl(
         if let Err(err) =
             spawn_command_internal(spawn, spawn_where, size, src_window_id, term_config).await
         {
-            log::error!("Failed to spawn: {:#}", err);
+            log::error!("Failed to spawn: {err:#}");
         }
     })
     .detach();
@@ -58,96 +58,87 @@ pub async fn spawn_command_internal(
     };
 
     let cwd = if let Some(cwd) = spawn.cwd.as_ref() {
-        Some(cwd.to_str().map(|s| s.to_owned()).ok_or_else(|| {
+        Some(cwd.to_str().map(std::borrow::ToOwned::to_owned).ok_or_else(|| {
             anyhow!(
-                "Domain::spawn requires that the cwd be unicode in {:?}",
-                cwd
+                "Domain::spawn requires that the cwd be unicode in {cwd:?}"
             )
         })?)
     } else {
         None
     };
 
-    let cmd_builder = match (
+    let cmd_builder = if let (None, None, true) = (
         spawn.args.as_ref(),
         spawn.cwd.as_ref(),
         spawn.set_environment_variables.is_empty(),
-    ) {
-        (None, None, true) => None,
-        _ => {
-            let mut builder = spawn
-                .args
-                .as_ref()
-                .map(|args| CommandBuilder::from_argv(args.iter().map(Into::into).collect()))
-                .unwrap_or_else(CommandBuilder::new_default_prog);
-            for (k, v) in spawn.set_environment_variables.iter() {
-                builder.env(k, v);
-            }
-            if let Some(cwd) = &spawn.cwd {
-                builder.cwd(cwd);
-            }
-            Some(builder)
+    ) { None } else {
+        let mut builder = spawn
+            .args
+            .as_ref().map_or_else(CommandBuilder::new_default_prog, |args| CommandBuilder::from_argv(args.iter().map(Into::into).collect()));
+        for (k, v) in &spawn.set_environment_variables {
+            builder.env(k, v);
         }
+        if let Some(cwd) = &spawn.cwd {
+            builder.cwd(cwd);
+        }
+        Some(builder)
     };
 
     let workspace = mux.active_workspace().clone();
 
-    match spawn_where {
-        SpawnWhere::SplitPane(direction) => {
-            let src_window_id = match src_window_id {
-                Some(id) => id,
-                None => anyhow::bail!("no src window when splitting a pane?"),
-            };
-            if let Some(tab) = mux.get_active_tab_for_window(src_window_id) {
-                let pane = tab
-                    .get_active_pane()
-                    .ok_or_else(|| anyhow!("tab to have a pane"))?;
+    if let SpawnWhere::SplitPane(direction) = spawn_where {
+        let src_window_id = match src_window_id {
+            Some(id) => id,
+            None => anyhow::bail!("no src window when splitting a pane?"),
+        };
+        if let Some(tab) = mux.get_active_tab_for_window(src_window_id) {
+            let pane = tab
+                .get_active_pane()
+                .ok_or_else(|| anyhow!("tab to have a pane"))?;
 
-                log::trace!("doing split_pane");
-                let (pane, _size) = mux
-                    .split_pane(
-                        // tab.tab_id(),
-                        pane.pane_id(),
-                        direction,
-                        SplitSource::Spawn {
-                            command: cmd_builder,
-                            command_dir: cwd,
-                        },
-                        spawn.domain,
-                    )
-                    .await
-                    .context("split_pane")?;
-                pane.set_config(term_config);
-            } else {
-                bail!("there is no active tab while splitting pane!?");
-            }
-        }
-        _ => {
-            let (_tab, pane, window_id) = mux
-                .spawn_tab_or_window(
-                    match spawn_where {
-                        SpawnWhere::NewWindow => None,
-                        _ => src_window_id,
+            log::trace!("doing split_pane");
+            let (pane, _size) = mux
+                .split_pane(
+                    // tab.tab_id(),
+                    pane.pane_id(),
+                    direction,
+                    SplitSource::Spawn {
+                        command: cmd_builder,
+                        command_dir: cwd,
                     },
                     spawn.domain,
-                    cmd_builder,
-                    cwd,
-                    size,
-                    current_pane_id,
-                    workspace,
-                    spawn.position,
                 )
                 .await
-                .context("spawn_tab_or_window")?;
-
-            // If it was created in this window, it copies our handlers.
-            // Otherwise, we'll pick them up when we later respond to
-            // the new window being created.
-            if Some(window_id) == src_window_id {
-                pane.set_config(term_config);
-            }
+                .context("split_pane")?;
+            pane.set_config(term_config);
+        } else {
+            bail!("there is no active tab while splitting pane!?");
         }
-    };
+    } else {
+        let (_tab, pane, window_id) = mux
+            .spawn_tab_or_window(mux::SpawnTabOrWindow {
+                window_id: match spawn_where {
+                    SpawnWhere::NewWindow => None,
+                    _ => src_window_id,
+                },
+                domain: spawn.domain,
+                command: cmd_builder,
+                command_dir: cwd,
+                size,
+                current_pane_id,
+                workspace_for_new_window: workspace,
+                window_position: spawn.position,
+            })
+            .await
+            .context("spawn_tab_or_window")?;
+
+        // If it was created in this window, it copies our handlers.
+        // Otherwise, we'll pick them up when we later respond to
+        // the new window being created.
+        if Some(window_id) == src_window_id {
+            pane.set_config(term_config);
+        }
+    }
 
     drop(activity);
 

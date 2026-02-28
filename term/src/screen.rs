@@ -1,5 +1,4 @@
-#![allow(clippy::range_plus_one)]
-use super::*;
+use super::{Line, TerminalConfiguration, SavedCursor, TerminalSize, PhysRowIndex, CursorPosition, VisibleRowIndex, Cell, CellAttributes, str, Range, ScrollbackOrVisibleRowIndex, StableRowIndex};
 use crate::config::BidiMode;
 use log::debug;
 use std::collections::VecDeque;
@@ -25,7 +24,7 @@ pub struct Screen {
 
     /// Whenever we scroll a line off the top of the scrollback, we
     /// increment this.  We use this offset to translate between
-    /// PhysRowIndex and StableRowIndex.
+    /// `PhysRowIndex` and `StableRowIndex`.
     stable_row_index_offset: usize,
 
     /// config so we can access Maximum number of lines of scrollback
@@ -64,7 +63,7 @@ impl Screen {
         allow_scrollback: bool,
         seqno: SequenceNo,
         bidi_mode: BidiMode,
-    ) -> Screen {
+    ) -> Self {
         let physical_rows = size.rows.max(1);
         let physical_cols = size.cols.max(1);
 
@@ -76,7 +75,7 @@ impl Screen {
             lines.push_back(line);
         }
 
-        Screen {
+        Self {
             lines,
             config: Arc::clone(config),
             allow_scrollback,
@@ -181,7 +180,7 @@ impl Screen {
         // real information off the top of the scrollback
         let capacity = physical_rows + self.scrollback_size();
         while self.lines.len() > capacity
-            && self.lines.back().map(Line::is_whitespace).unwrap_or(false)
+            && self.lines.back().is_some_and(Line::is_whitespace)
         {
             self.lines.pop_back();
         }
@@ -217,12 +216,14 @@ impl Screen {
         // maximized states.
         let cursor_phys = self.phys_row(cursor.y);
         for _ in cursor_phys + 1..self.lines.len() {
-            if self.lines.back().map(Line::is_whitespace).unwrap_or(false) {
+            if self.lines.back().is_some_and(Line::is_whitespace) {
                 self.lines.pop_back();
             }
         }
 
-        let (cursor_x, cursor_y) = if physical_cols != self.physical_cols {
+        let (cursor_x, cursor_y) = if physical_cols == self.physical_cols {
+            (cursor.x, cursor_phys)
+        } else {
             // Check to see if we need to rewrap lines that were
             // wrapped due to reaching the right hand side of the terminal.
             // For each one that we find, we need to join it with its
@@ -244,8 +245,6 @@ impl Screen {
                 }
                 (cursor.x, cursor_phys)
             }
-        } else {
-            (cursor.x, cursor_phys)
         };
 
         let capacity = physical_rows + self.scrollback_size();
@@ -332,6 +331,7 @@ impl Screen {
     }
 
     /// Returns the number of occupied rows of scrollback
+    #[must_use] 
     pub fn scrollback_rows(&self) -> usize {
         self.lines.len()
     }
@@ -362,7 +362,7 @@ impl Screen {
     /// Returns a copy of the lines in the screen (including scrollback)
     #[cfg(test)]
     pub fn all_lines(&self) -> Vec<Line> {
-        self.lines.iter().map(|l| l.clone()).collect()
+        self.lines.iter().cloned().collect()
     }
 
     pub fn insert_cell(
@@ -451,16 +451,17 @@ impl Screen {
     }
 
     /// Ensure that row is within the range of the physical portion of
-    /// the screen; 0 .. physical_rows by clamping it to the nearest
+    /// the screen; 0 .. `physical_rows` by clamping it to the nearest
     /// boundary.
     #[inline]
     fn clamp_visible_row(&self, row: VisibleRowIndex) -> VisibleRowIndex {
         (row.max(0) as usize).min(self.physical_rows) as VisibleRowIndex
     }
 
-    /// Translate a VisibleRowIndex into a PhysRowIndex.  The resultant index
+    /// Translate a `VisibleRowIndex` into a `PhysRowIndex`.  The resultant index
     /// will be invalidated by inserting or removing rows!
     #[inline]
+    #[must_use] 
     pub fn phys_row(&self, row: VisibleRowIndex) -> PhysRowIndex {
         let row = self.clamp_visible_row(row);
         self.lines
@@ -470,15 +471,17 @@ impl Screen {
     }
 
     /// Given a possibly negative row number, return the corresponding physical
-    /// row.  This is similar to phys_row() but allows indexing backwards into
+    /// row.  This is similar to `phys_row()` but allows indexing backwards into
     /// the scrollback.
     #[inline]
+    #[must_use] 
     pub fn scrollback_or_visible_row(&self, row: ScrollbackOrVisibleRowIndex) -> PhysRowIndex {
         ((self.lines.len() - self.physical_rows) as ScrollbackOrVisibleRowIndex + row).max(0)
             as usize
     }
 
     #[inline]
+    #[must_use] 
     pub fn scrollback_or_visible_range(
         &self,
         range: &Range<ScrollbackOrVisibleRowIndex>,
@@ -486,10 +489,11 @@ impl Screen {
         self.scrollback_or_visible_row(range.start)..self.scrollback_or_visible_row(range.end)
     }
 
-    /// Converts a StableRowIndex range to the current effective
-    /// physical row index range.  If the StableRowIndex goes off the top
+    /// Converts a `StableRowIndex` range to the current effective
+    /// physical row index range.  If the `StableRowIndex` goes off the top
     /// of the scrollback, we'll return the top n rows, but if it goes off
     /// the bottom we'll return the bottom n rows.
+    #[must_use] 
     pub fn stable_range(&self, range: &Range<StableRowIndex>) -> Range<PhysRowIndex> {
         let range_len = (range.end - range.start) as usize;
 
@@ -500,30 +504,36 @@ impl Screen {
             }
         };
 
-        let last = match self.stable_row_to_phys(range.end.saturating_sub(1)) {
-            Some(last) => last,
-            None => {
-                let last = self.lines.len() - 1;
-                return last.saturating_sub(range_len)..last + 1;
-            }
+        let last = if let Some(last) = self.stable_row_to_phys(range.end.saturating_sub(1)) { last } else {
+            let last = self.lines.len() - 1;
+            return std::ops::Range {
+                start: last.saturating_sub(range_len),
+                end: last + 1,
+            };
         };
 
-        first..last + 1
+        std::ops::Range {
+            start: first,
+            end: last + 1,
+        }
     }
 
-    /// Translate a range of VisibleRowIndex to a range of PhysRowIndex.
+    /// Translate a range of `VisibleRowIndex` to a range of `PhysRowIndex`.
     /// The resultant range will be invalidated by inserting or removing rows!
     #[inline]
+    #[must_use] 
     pub fn phys_range(&self, range: &Range<VisibleRowIndex>) -> Range<PhysRowIndex> {
         self.phys_row(range.start)..self.phys_row(range.end)
     }
 
     #[inline]
-    pub fn phys_to_stable_row_index(&self, phys: PhysRowIndex) -> StableRowIndex {
+    #[must_use] 
+    pub const fn phys_to_stable_row_index(&self, phys: PhysRowIndex) -> StableRowIndex {
         (phys + self.stable_row_index_offset) as StableRowIndex
     }
 
     #[inline]
+    #[must_use] 
     pub fn stable_row_to_phys(&self, stable: StableRowIndex) -> Option<PhysRowIndex> {
         let idx = stable - self.stable_row_index_offset as isize;
         if idx < 0 || idx >= self.lines.len() as isize {
@@ -535,11 +545,12 @@ impl Screen {
     }
 
     #[inline]
+    #[must_use] 
     pub fn visible_row_to_stable_row(&self, vis: VisibleRowIndex) -> StableRowIndex {
         self.phys_to_stable_row_index(self.phys_row(vis))
     }
 
-    /// Scroll the scroll_region up by num_rows, respecting left and right margins.
+    /// Scroll the `scroll_region` up by `num_rows`, respecting left and right margins.
     /// Text outside the left and right margins is left untouched.
     /// Any rows that would be scrolled beyond the top get removed from the screen.
     /// Blank rows are added at the bottom.
@@ -555,10 +566,7 @@ impl Screen {
         bidi_mode: BidiMode,
     ) {
         log::debug!(
-            "scroll_up_within_margins region:{:?} margins:{:?} rows={}",
-            scroll_region,
-            left_and_right_margins,
-            num_rows
+            "scroll_up_within_margins region:{scroll_region:?} margins:{left_and_right_margins:?} rows={num_rows}"
         );
 
         if left_and_right_margins.start == 0 && left_and_right_margins.end == self.physical_cols {
@@ -636,9 +644,9 @@ impl Screen {
     /// |--- bottom
     /// ```
     ///
-    /// scroll the region up by num_rows.  Any rows that would be scrolled
+    /// scroll the region up by `num_rows`.  Any rows that would be scrolled
     /// beyond the top get removed from the screen.
-    /// In other words, we remove (top..top+num_rows) and then insert num_rows
+    /// In other words, we remove (`top..top+num_rows`) and then insert `num_rows`
     /// at bottom.
     /// If the top of the region is the top of the visible display, rather than
     /// removing the lines we let them go into the scrollback.
@@ -656,8 +664,7 @@ impl Screen {
         let insert_at_end = scroll_region.end as usize == self.physical_rows;
 
         debug!(
-            "scroll_up {:?} num_rows={} phys_scroll={:?}",
-            scroll_region, num_rows, phys_scroll
+            "scroll_up {scroll_region:?} num_rows={num_rows} phys_scroll={phys_scroll:?}"
         );
         // Invalidate the lines that will move before they move so that
         // the indices of the lines are stable (we may remove lines below)
@@ -673,17 +680,17 @@ impl Screen {
 
         // if we're going to remove lines due to lack of scrollback capacity,
         // remember how many so that we can adjust our insertion point later.
-        let lines_removed = if !scrollback_ok {
-            // No scrollback available for these;
-            // Remove the scrolled lines
-            num_rows
-        } else {
+        let lines_removed = if scrollback_ok {
             let max_allowed = self.physical_rows + self.scrollback_size();
             if self.lines.len() + num_rows >= max_allowed {
                 (self.lines.len() + num_rows) - max_allowed
             } else {
                 0
             }
+        } else {
+            // No scrollback available for these;
+            // Remove the scrolled lines
+            num_rows
         };
 
         if scroll_region.start == 0 {
@@ -778,10 +785,10 @@ impl Screen {
     /// |--- bottom
     /// ```
     ///
-    /// scroll the region down by num_rows.  Any rows that would be scrolled
+    /// scroll the region down by `num_rows`.  Any rows that would be scrolled
     /// beyond the bottom get removed from the screen.
     /// In other words, we remove (bottom-num_rows..bottom) and then insert
-    /// num_rows at scroll_top.
+    /// `num_rows` at `scroll_top`.
     pub fn scroll_down(
         &mut self,
         scroll_region: &Range<VisibleRowIndex>,
@@ -790,7 +797,7 @@ impl Screen {
         blank_attr: CellAttributes,
         bidi_mode: BidiMode,
     ) {
-        debug!("scroll_down {:?} {}", scroll_region, num_rows);
+        debug!("scroll_down {scroll_region:?} {num_rows}");
         let phys_scroll = self.phys_range(scroll_region);
         let num_rows = num_rows.min(phys_scroll.end - phys_scroll.start);
 
@@ -897,6 +904,7 @@ impl Screen {
         }
     }
 
+    #[must_use] 
     pub fn lines_in_phys_range(&self, phys_range: Range<PhysRowIndex>) -> Vec<Line> {
         self.lines
             .iter()
@@ -906,6 +914,7 @@ impl Screen {
             .collect()
     }
 
+    #[must_use] 
     pub fn get_changed_stable_rows(
         &self,
         stable_lines: Range<StableRowIndex>,
@@ -921,7 +930,7 @@ impl Screen {
             .take(phys.end - phys.start)
         {
             if line.changed_since(seqno) {
-                set.push(self.phys_to_stable_row_index(idx))
+                set.push(self.phys_to_stable_row_index(idx));
             }
         }
         set
@@ -944,7 +953,7 @@ impl Screen {
         for line in &second[second_range] {
             lines.push(line);
         }
-        func(&lines)
+        func(&lines);
     }
 
     pub fn with_phys_lines_mut<F>(&mut self, phys_range: Range<PhysRowIndex>, mut func: F)
@@ -967,7 +976,7 @@ impl Screen {
         {
             lines.push(line);
         }
-        func(&mut lines)
+        func(&mut lines);
     }
 
     pub fn for_each_phys_line<F>(&self, mut f: F)
@@ -988,6 +997,7 @@ impl Screen {
         }
     }
 
+    #[allow(clippy::range_plus_one)]
     pub fn for_each_logical_line_in_stable_range_mut<F>(
         &mut self,
         stable_range: Range<StableRowIndex>,
@@ -1014,7 +1024,7 @@ impl Screen {
                 break;
             }
             back_len += prior.len();
-            phys_range.start -= 1
+            phys_range.start -= 1;
         }
 
         let mut phys_row = phys_range.start;
@@ -1042,7 +1052,10 @@ impl Screen {
                 }
             }
 
-            let phys_range = phys_row..end_inclusive + 1;
+            let phys_range = std::ops::Range {
+                start: phys_row,
+                end: end_inclusive + 1,
+            };
 
             let logical_stable_range = self.phys_to_stable_row_index(phys_row)
                 ..self.phys_to_stable_row_index(end_inclusive + 1);
@@ -1067,6 +1080,7 @@ impl Screen {
         }
     }
 
+    #[allow(clippy::range_plus_one)]
     pub fn for_each_logical_line_in_stable_range<F>(
         &self,
         stable_range: Range<StableRowIndex>,
@@ -1093,7 +1107,7 @@ impl Screen {
                 break;
             }
             back_len += prior.len();
-            phys_range.start -= 1
+            phys_range.start -= 1;
         }
 
         let mut phys_row = phys_range.start;

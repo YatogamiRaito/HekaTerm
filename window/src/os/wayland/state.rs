@@ -62,6 +62,7 @@ pub(super) struct WaylandState {
     pub(super) keyboard_window_id: Option<usize>,
 
     pub(super) pointer: Option<ThemedPointer<PointerUserData>>,
+    #[allow(clippy::mutable_key_type)]
     pub(super) surface_to_pending: HashMap<ObjectId, Arc<Mutex<PendingMouse>>>,
 
     pub(super) data_device_manager_state: DataDeviceManagerState,
@@ -77,7 +78,7 @@ pub(super) struct WaylandState {
 
 impl WaylandState {
     pub(super) fn new(globals: &GlobalList, qh: &QueueHandle<Self>) -> anyhow::Result<Self> {
-        let shm = Shm::bind(&globals, qh)?;
+        let shm = Shm::bind(globals, qh)?;
         let mem_pool = SlotPool::new(1, &shm)?;
 
         let compositor = CompositorState::bind(globals, qh)?;
@@ -85,7 +86,7 @@ impl WaylandState {
             SubcompositorState::bind(compositor.wl_compositor().clone(), globals, qh)?;
 
         let blur_manager: Option<OrgKdeKwinBlurManager> = globals.bind(qh, 1..=1, GlobalData).ok();
-        let wayland_state = WaylandState {
+        let wayland_state = Self {
             registry: RegistryState::new(globals),
             output: OutputState::new(globals, qh),
             compositor,

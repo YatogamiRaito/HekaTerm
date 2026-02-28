@@ -46,20 +46,19 @@ pub enum Position {
 
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Hash, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum CursorVisibility {
     Hidden,
+    #[default]
     Visible,
 }
 
-impl Default for CursorVisibility {
-    fn default() -> CursorVisibility {
-        CursorVisibility::Visible
-    }
-}
 
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum CursorShape {
+    #[default]
     Default,
     BlinkingBlock,
     SteadyBlock,
@@ -69,14 +68,10 @@ pub enum CursorShape {
     SteadyBar,
 }
 
-impl Default for CursorShape {
-    fn default() -> CursorShape {
-        CursorShape::Default
-    }
-}
 
 impl CursorShape {
-    pub fn is_blinking(self) -> bool {
+    #[must_use] 
+    pub const fn is_blinking(self) -> bool {
         matches!(
             self,
             Self::BlinkingBlock | Self::BlinkingUnderline | Self::BlinkingBar
@@ -84,12 +79,13 @@ impl CursorShape {
     }
 }
 
-/// SequenceNo indicates a logical position within a stream of changes.
+/// `SequenceNo` indicates a logical position within a stream of changes.
 /// The sequence is only meaningful within a given `Surface` instance.
 pub type SequenceNo = usize;
 pub const SEQ_ZERO: SequenceNo = 0;
 
 /// The `Surface` type represents the contents of a terminal screen.
+///
 /// It is not directly connected to a terminal device.
 /// It consists of a buffer and a log of changes.  You can accumulate
 /// updates to the screen by adding instances of the `Change` enum
@@ -193,7 +189,7 @@ impl DiffState {
         // character Text entries; just append to the string.
         let result_len = self.changes.len();
         if result_len > 0 && self.changes[result_len - 1].is_text() {
-            if let Some(Change::Text(ref mut prefix)) = self.changes.get_mut(result_len - 1) {
+            if let Some(Change::Text(prefix)) = self.changes.get_mut(result_len - 1) {
                 prefix.push_str(other_cell.str());
             }
         } else {
@@ -205,8 +201,9 @@ impl DiffState {
 
 impl Surface {
     /// Create a new Surface with the specified width and height.
+    #[must_use] 
     pub fn new(width: usize, height: usize) -> Self {
-        let mut scr = Surface {
+        let mut scr = Self {
             width,
             height,
             ..Default::default()
@@ -216,22 +213,27 @@ impl Surface {
     }
 
     /// Returns the (width, height) of the surface
-    pub fn dimensions(&self) -> (usize, usize) {
+    #[must_use] 
+    pub const fn dimensions(&self) -> (usize, usize) {
         (self.width, self.height)
     }
 
-    pub fn cursor_position(&self) -> (usize, usize) {
+    #[must_use] 
+    pub const fn cursor_position(&self) -> (usize, usize) {
         (self.xpos, self.ypos)
     }
 
-    pub fn cursor_shape(&self) -> Option<CursorShape> {
+    #[must_use] 
+    pub const fn cursor_shape(&self) -> Option<CursorShape> {
         self.cursor_shape
     }
 
-    pub fn cursor_visibility(&self) -> CursorVisibility {
+    #[must_use] 
+    pub const fn cursor_visibility(&self) -> CursorVisibility {
         self.cursor_visibility
     }
 
+    #[must_use] 
     pub fn title(&self) -> &str {
         &self.title
     }
@@ -278,7 +280,7 @@ impl Surface {
         let seq = self.seqno.saturating_sub(1) + changes.len();
 
         for change in &changes {
-            self.apply_change(&change);
+            self.apply_change(change);
         }
 
         self.seqno += changes.len();
@@ -501,6 +503,7 @@ impl Surface {
     /// Only the character data is returned.  The end of each line is
     /// returned as a \n character.
     /// This function exists primarily for testing purposes.
+    #[must_use] 
     pub fn screen_chars_to_string(&self) -> String {
         let mut s = String::new();
 
@@ -525,7 +528,7 @@ impl Surface {
     }
 
     pub fn screen_lines(&self) -> Vec<Cow<'_, Line>> {
-        self.lines.iter().map(|line| Cow::Borrowed(line)).collect()
+        self.lines.iter().map(Cow::Borrowed).collect()
     }
 
     /// Returns a stream of changes suitable to update the screen
@@ -539,6 +542,7 @@ impl Surface {
     /// of `Change` entries that will update the display accordingly.
     /// The worst case is that this function will fabricate a sequence
     /// of Change entries to paint the screen from scratch.
+    #[must_use] 
     pub fn get_changes(&self, seq: SequenceNo) -> (SequenceNo, Cow<'_, [Change]>) {
         // Do we have continuity in the sequence numbering?
         let first = self.seqno.saturating_sub(self.changes.len());
@@ -559,11 +563,13 @@ impl Surface {
         }
     }
 
-    pub fn has_changes(&self, seq: SequenceNo) -> bool {
+    #[must_use] 
+    pub const fn has_changes(&self, seq: SequenceNo) -> bool {
         self.seqno != seq
     }
 
-    pub fn current_seqno(&self) -> SequenceNo {
+    #[must_use] 
+    pub const fn current_seqno(&self) -> SequenceNo {
         self.seqno
     }
 
@@ -581,7 +587,7 @@ impl Surface {
     }
 
     /// Without allocating resources, estimate how many Change entries
-    /// we would produce in repaint_all for the current state.
+    /// we would produce in `repaint_all` for the current state.
     fn estimate_full_paint_cost(&self) -> usize {
         // assume 1 per cell with 20% overhead for attribute changes
         3 + (((self.width * self.height) as f64) * 1.2) as usize
@@ -596,7 +602,7 @@ impl Surface {
         ];
 
         if !self.title.is_empty() {
-            result.push(Change::Title(self.title.to_owned()));
+            result.push(Change::Title(self.title.clone()));
         }
 
         let mut attr = CellAttributes::default();
@@ -637,17 +643,16 @@ impl Surface {
             } else {
                 let last_change = changes.len() - 1;
                 match (&changes[last_change], trailing_color) {
-                    (&Change::ClearToEndOfLine(ref color), None) => {
+                    (Change::ClearToEndOfLine(color), None) => {
                         trailing_color = Some(*color);
                         trailing_idx = Some(idx);
                     }
-                    (&Change::ClearToEndOfLine(ref color), Some(other)) => {
+                    (Change::ClearToEndOfLine(color), Some(other)) => {
                         if other == *color {
                             trailing_idx = Some(idx);
                             continue;
-                        } else {
-                            break;
                         }
+                        break;
                     }
                     _ => break,
                 }
@@ -746,17 +751,15 @@ impl Surface {
     ///
     /// The returned list of `Change`s can be passed to the `add_changes` method
     /// to make the region within self match the region within other.
-    #[allow(clippy::too_many_arguments)]
+    #[must_use] 
     pub fn diff_region(
         &self,
-        x: usize,
-        y: usize,
-        width: usize,
-        height: usize,
-        other: &Surface,
-        other_x: usize,
-        other_y: usize,
+        rect: (usize, usize, usize, usize),
+        other: &Self,
+        other_origin: (usize, usize),
     ) -> Vec<Change> {
+        let (x, y, width, height) = rect;
+        let (other_x, other_y) = other_origin;
         let mut diff_state = DiffState::default();
 
         for ((row_num, line), other_line) in self
@@ -781,6 +784,7 @@ impl Surface {
         diff_state.changes
     }
 
+    #[must_use] 
     pub fn diff_lines(&self, other_lines: Vec<&Line>) -> Vec<Change> {
         let mut diff_state = DiffState::default();
         for ((row_num, line), other_line) in self.lines.iter().enumerate().zip(other_lines.iter()) {
@@ -799,8 +803,9 @@ impl Surface {
 
     /// Computes the change stream required to make `self` have the same
     /// screen contents as `other`.
-    pub fn diff_screens(&self, other: &Surface) -> Vec<Change> {
-        self.diff_region(0, 0, self.width, self.height, other, 0, 0)
+    #[must_use] 
+    pub fn diff_screens(&self, other: &Self) -> Vec<Change> {
+        self.diff_region((0, 0, self.width, self.height), other, (0, 0))
     }
 
     /// Draw the contents of `other` into self at the specified coordinates.
@@ -809,10 +814,10 @@ impl Surface {
     /// Saves the cursor position and attributes that were in effect prior to
     /// calling `draw_from_screen` and restores them after applying the changes
     /// from the other surface.
-    pub fn draw_from_screen(&mut self, other: &Surface, x: usize, y: usize) -> SequenceNo {
+    pub fn draw_from_screen(&mut self, other: &Self, x: usize, y: usize) -> SequenceNo {
         let attrs = self.attributes.clone();
         let cursor = (self.xpos, self.ypos);
-        let changes = self.diff_region(x, y, other.width, other.height, other, 0, 0);
+        let changes = self.diff_region((x, y, other.width, other.height), other, (0, 0));
         let seq = self.add_changes(changes);
         self.xpos = cursor.0;
         self.ypos = cursor.1;
@@ -837,13 +842,13 @@ impl Surface {
         dest_x: usize,
         dest_y: usize,
     ) -> SequenceNo {
-        let changes = self.diff_region(dest_x, dest_y, width, height, self, src_x, src_y);
+        let changes = self.diff_region((dest_x, dest_y, width, height), self, (src_x, src_y));
         self.add_changes(changes)
     }
 }
 
 /// Populate `diff_state` with changes to replace contents of `line` in range [x,x+width)
-/// with the contents of `other_line` in range [other_x,other_x+width).
+/// with the contents of `other_line` in range [`other_x,other_x+width`).
 fn diff_line(
     diff_state: &mut DiffState,
     line: &Line,
@@ -897,7 +902,7 @@ fn diff_line(
 /// Applies a Position update to either the x or y position.
 /// The value is clamped to be in the range: 0..limit
 fn compute_position_change(current: usize, pos: &Position, limit: usize) -> usize {
-    use self::Position::*;
+    use self::Position::{Relative, Absolute, EndRelative};
     match pos {
         Relative(delta) => {
             if *delta >= 0 {
@@ -906,7 +911,7 @@ fn compute_position_change(current: usize, pos: &Position, limit: usize) -> usiz
                     limit.saturating_sub(1),
                 )
             } else {
-                current.saturating_sub((*delta).abs() as usize)
+                current.saturating_sub((*delta).unsigned_abs())
             }
         }
         Absolute(abs) => min(*abs, limit.saturating_sub(1)),
@@ -1412,7 +1417,7 @@ mod test {
 
         {
             // We want to sample the top left corner
-            let changes = s2.diff_region(0, 0, 2, 2, &s, 0, 0);
+            let changes = s2.diff_region((0, 0, 2, 2), &s, (0, 0));
             assert_eq!(
                 vec![
                     Change::CursorPosition {
@@ -1442,7 +1447,7 @@ mod test {
         s.add_change("XO");
 
         {
-            let changes = s2.diff_region(0, 0, 2, 2, &s, 1, 1);
+            let changes = s2.diff_region((0, 0, 2, 2), &s, (1, 1));
             assert_eq!(
                 vec![
                     Change::CursorPosition {
@@ -1632,7 +1637,7 @@ mod test {
         s.add_change("かa");
 
         let s2 = Surface::new(3, 1);
-        let changes = s2.diff_region(0, 0, 3, 1, &s, 0, 0);
+        let changes = s2.diff_region((0, 0, 3, 1), &s, (0, 0));
 
         assert_eq!(
             changes

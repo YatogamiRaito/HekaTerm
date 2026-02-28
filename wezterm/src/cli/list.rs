@@ -28,8 +28,7 @@ impl ListCommand {
                     let window_title = panes
                         .window_titles
                         .get(&entry.window_id)
-                        .map(|s| s.as_str())
-                        .unwrap_or("");
+                        .map_or("", std::string::String::as_str);
                     output_items.push(CliListResultItem::from(
                         entry.clone(),
                         tab_title,
@@ -85,10 +84,10 @@ impl ListCommand {
                             output_item.window_id.to_string(),
                             output_item.tab_id.to_string(),
                             output_item.pane_id.to_string(),
-                            output_item.workspace.to_string(),
+                            output_item.workspace.clone(),
                             format!("{}x{}", output_item.size.cols, output_item.size.rows),
-                            output_item.title.to_string(),
-                            output_item.cwd.to_string(),
+                            output_item.title.clone(),
+                            output_item.cwd.clone(),
                         ]
                     })
                     .collect::<Vec<_>>();
@@ -142,7 +141,7 @@ struct CliListResultItem {
 }
 
 impl CliListResultItem {
-    fn from(pane: mux::tab::PaneEntry, tab_title: &str, window_title: &str) -> CliListResultItem {
+    fn from(pane: mux::tab::PaneEntry, tab_title: &str, window_title: &str) -> Self {
         let mux::tab::PaneEntry {
             window_id,
             tab_id,
@@ -168,7 +167,7 @@ impl CliListResultItem {
             ..
         } = pane;
 
-        CliListResultItem {
+        Self {
             window_id,
             tab_id,
             pane_id,
@@ -183,8 +182,7 @@ impl CliListResultItem {
             title,
             cwd: working_dir
                 .as_ref()
-                .map(|url| url.url.as_str())
-                .unwrap_or("")
+                .map_or("", |url| url.url.as_str())
                 .to_string(),
             cursor_x: cursor_pos.x,
             cursor_y: cursor_pos.y.saturating_sub(physical_top) as usize,

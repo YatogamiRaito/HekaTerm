@@ -49,7 +49,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     window_mod.set(
         "gui_windows",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             let fe =
                 try_front_end().ok_or_else(|| mlua::Error::external("not called on gui thread"))?;
             Ok(fe.gui_windows())
@@ -58,7 +58,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     window_mod.set(
         "default_keys",
-        lua.create_function(|lua, _: ()| {
+        lua.create_function(|lua, (): ()| {
             let map = InputMap::default_input_map();
             let keys = key_table_to_lua(&map.keys.default);
             dynamic_to_lua_value(lua, keys.to_dynamic())
@@ -67,12 +67,12 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     window_mod.set(
         "default_key_tables",
-        lua.create_function(|lua, _: ()| {
+        lua.create_function(|lua, (): ()| {
             let inputmap = InputMap::default_input_map();
             let mut tables: HashMap<String, Vec<Key>> = HashMap::new();
             for (k, table) in &inputmap.keys.by_name {
                 let keys = key_table_to_lua(table);
-                tables.insert(k.to_string(), keys);
+                tables.insert(k.clone(), keys);
             }
             dynamic_to_lua_value(lua, tables.to_dynamic())
         })?,
@@ -80,7 +80,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     window_mod.set(
         "enumerate_gpus",
-        lua.create_function(|_, _: ()| {
+        lua.create_function(|_, (): ()| {
             let backends = wgpu::Backends::all();
             let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
                 backends,

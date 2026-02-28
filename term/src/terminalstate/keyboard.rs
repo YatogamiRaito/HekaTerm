@@ -1,4 +1,4 @@
-use crate::input::*;
+use crate::input::{KeyCode, KeyModifiers};
 use crate::TerminalState;
 use std::io::Write;
 use termwiz::input::{KeyCodeEncodeModes, KeyboardEncoding};
@@ -47,9 +47,9 @@ impl TerminalState {
 
         let label = if is_down { "key_down" } else { "key_up" };
         if self.config.debug_key_events() {
-            log::info!("{}: sending {:?}, {:?} {:?}", label, to_send, key, mods);
+            log::info!("{label}: sending {to_send:?}, {key:?} {mods:?}");
         } else {
-            log::trace!("{}: sending {:?}, {:?} {:?}", label, to_send, key, mods);
+            log::trace!("{label}: sending {to_send:?}, {key:?} {mods:?}");
         }
         self.writer.write_all(to_send.as_bytes())?;
         self.writer.flush()?;

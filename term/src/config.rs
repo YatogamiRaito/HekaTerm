@@ -13,7 +13,7 @@ pub enum NewlineCanon {
 }
 
 impl NewlineCanon {
-    fn target(self) -> Option<&'static str> {
+    const fn target(self) -> Option<&'static str> {
         match self {
             Self::None => None,
             Self::LineFeed => Some("\n"),
@@ -22,6 +22,7 @@ impl NewlineCanon {
         }
     }
 
+    #[must_use] 
     pub fn canonicalize(self, text: &str) -> String {
         let target = self.target();
         let mut buf = String::new();
@@ -34,7 +35,7 @@ impl NewlineCanon {
                         buf.push_str(canon);
                     } else if c == '\r' {
                         buf.push_str(canon);
-                        if let Some('\n') = iter.peek() {
+                        if matches!(iter.peek(), Some('\n')) {
                             // Paired with the \r, so consume this one
                             iter.next();
                         }
@@ -127,7 +128,7 @@ impl Default for NewlineCanon {
     }
 }
 
-/// TerminalConfiguration allows for the embedding application to pass configuration
+/// `TerminalConfiguration` allows for the embedding application to pass configuration
 /// information to the Terminal.
 /// The configuration can be changed at runtime; provided that the implementation
 /// increments the generation counter appropriately, the changes will be detected
@@ -169,7 +170,7 @@ pub trait TerminalConfiguration: Downcast + std::fmt::Debug + Send + Sync {
     }
 
     fn enq_answerback(&self) -> String {
-        "".to_string()
+        String::new()
     }
 
     fn enable_kitty_graphics(&self) -> bool {
@@ -205,7 +206,7 @@ pub trait TerminalConfiguration: Downcast + std::fmt::Debug + Send + Sync {
         false
     }
 
-    /// Returns (bidi_enabled, direction hint) that should be used
+    /// Returns (`bidi_enabled`, direction hint) that should be used
     /// unless an escape sequence has changed the default mode
     fn bidi_mode(&self) -> BidiMode {
         BidiMode {

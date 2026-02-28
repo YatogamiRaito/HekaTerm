@@ -1,5 +1,5 @@
 use crate::client::Client;
-use codec::*;
+use codec::SendMouseEvent;
 use mux::tab::TabId;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
@@ -15,7 +15,7 @@ pub struct MouseState {
 }
 
 impl MouseState {
-    pub fn new(remote_pane_id: TabId, client: Client) -> Self {
+    pub const fn new(remote_pane_id: TabId, client: Client) -> Self {
         Self {
             remote_pane_id,
             client,
@@ -25,8 +25,8 @@ impl MouseState {
     }
 
     pub fn append(&mut self, event: MouseEvent) {
-        if let Some(last) = self.queue.back_mut() {
-            if last.modifiers == event.modifiers {
+        if let Some(last) = self.queue.back_mut()
+            && last.modifiers == event.modifiers {
                 if last.kind == MouseEventKind::Move
                     && event.kind == MouseEventKind::Move
                     && last.button == event.button
@@ -59,16 +59,15 @@ impl MouseState {
                     _ => {}
                 }
             }
-        }
         self.queue.push_back(event);
         log::trace!("MouseEvent {}: queued", self.queue.len());
     }
 
     fn pop(&mut self) -> Option<MouseEvent> {
-        if !self.pending.load(Ordering::SeqCst) {
-            self.queue.pop_front()
-        } else {
+        if self.pending.load(Ordering::SeqCst) {
             None
+        } else {
+            self.queue.pop_front()
         }
     }
 

@@ -2,7 +2,7 @@ use ::window::glium::uniforms::{AsUniformValue, UniformValue, Uniforms};
 use std::borrow::Cow;
 
 /// Builds up the list of name/values that we will pass to the shader program.
-/// glium provides a uniform! macro that builds an aggretated UniformStorage
+/// glium provides a uniform! macro that builds an aggretated `UniformStorage`
 /// type that makes it awkward to pass things that are more complex than primitive
 /// types, because everything must be known statically.
 /// The builder works a bit more dynamically by accumulating references to
@@ -19,8 +19,8 @@ pub struct UniformBuilder<'a> {
 
 /// Implement this trait on a struct that you wish to pass to a shader
 /// program as a uniform.
-/// In your add_fields impl, you should call builder.add_struct_field
-/// for each of the fields in your struct, passing through the struct_name.
+/// In your `add_fields` impl, you should call `builder.add_struct_field`
+/// for each of the fields in your struct, passing through the `struct_name`.
 pub trait UniformStruct<'a> {
     fn add_fields(&'a self, struct_name: &str, builder: &mut UniformBuilder<'a>);
 }
@@ -37,7 +37,7 @@ impl<'a> UniformBuilder<'a> {
         s.add_fields(struct_name, self);
     }
 
-    /// Implementations of UniformStruct should call this for each
+    /// Implementations of `UniformStruct` should call this for each
     /// struct field they are adding
     pub fn add_struct_field<V: AsUniformValue>(&mut self, struct_name: &str, name: &str, v: &'a V) {
         self.entries.push((
@@ -48,7 +48,7 @@ impl<'a> UniformBuilder<'a> {
 }
 
 /// This is the glue that allows glium to bind the uniforms
-impl<'a> Uniforms for UniformBuilder<'a> {
+impl Uniforms for UniformBuilder<'_> {
     fn visit_values<'b, F: FnMut(&str, UniformValue<'b>)>(&'b self, mut output: F) {
         for (name, value) in &self.entries {
             output(name, *value);

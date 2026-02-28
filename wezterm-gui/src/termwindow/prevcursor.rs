@@ -9,7 +9,7 @@ pub struct PrevCursorPos {
 
 impl PrevCursorPos {
     pub fn new() -> Self {
-        PrevCursorPos {
+        Self {
             pos: StableCursorPosition::default(),
             when: Instant::now(),
         }
@@ -29,7 +29,7 @@ impl PrevCursorPos {
     }
 
     /// When did the cursor last move?
-    pub fn last_cursor_movement(&self) -> Instant {
+    pub const fn last_cursor_movement(&self) -> Instant {
         self.when
     }
 }

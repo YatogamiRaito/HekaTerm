@@ -1,7 +1,7 @@
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
-    Attribute, Error, Field, GenericArgument, Ident, Lit, Meta, NestedMeta, Path, PathArguments,
+    Attribute, Expr, ExprLit, Field, GenericArgument, Ident, Lit, Meta, Path, PathArguments,
     Result, Type,
 };
 
@@ -18,41 +18,33 @@ pub fn container_info(attrs: &[Attribute]) -> Result<ContainerInfo> {
     let mut debug = false;
 
     for attr in attrs {
-        if !attr.path.is_ident("dynamic") {
+        if !attr.path().is_ident("dynamic") {
             continue;
         }
 
-        let list = match attr.parse_meta()? {
-            Meta::List(list) => list,
-            other => return Err(Error::new_spanned(other, "unsupported attribute")),
-        };
-
-        for meta in &list.nested {
-            match meta {
-                NestedMeta::Meta(Meta::Path(path)) => {
-                    if path.is_ident("debug") {
-                        debug = true;
-                        continue;
-                    }
-                }
-                NestedMeta::Meta(Meta::NameValue(value)) => {
-                    if value.path.is_ident("into") {
-                        if let Lit::Str(s) = &value.lit {
-                            into = Some(s.parse()?);
-                            continue;
-                        }
-                    }
-                    if value.path.is_ident("try_from") {
-                        if let Lit::Str(s) = &value.lit {
-                            try_from = Some(s.parse()?);
-                            continue;
-                        }
-                    }
-                }
-                _ => {}
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("debug") {
+                debug = true;
+                return Ok(());
             }
-            return Err(Error::new_spanned(meta, "unsupported attribute"));
-        }
+            if meta.path.is_ident("into") {
+                let value = meta.value()?;
+                let s: Lit = value.parse()?;
+                if let Lit::Str(s) = s {
+                    into = Some(s.parse()?);
+                    return Ok(());
+                }
+            }
+            if meta.path.is_ident("try_from") {
+                let value = meta.value()?;
+                let s: Lit = value.parse()?;
+                if let Lit::Str(s) = s {
+                    try_from = Some(s.parse()?);
+                    return Ok(());
+                }
+            }
+            Err(meta.error("unsupported attribute"))
+        })?;
     }
 
     Ok(ContainerInfo {
@@ -66,6 +58,14 @@ pub enum DefValue {
     None,
     Default,
     Path(Path),
+}
+
+#[derive(Debug)]
+pub enum ContainerType {
+    None,
+    Option,
+    Vec,
+    Map,
 }
 
 #[allow(unused)]
@@ -84,24 +84,13 @@ pub struct FieldInfo<'a> {
     pub container_type: ContainerType,
 }
 
-#[derive(Debug)]
-pub enum ContainerType {
-    None,
-    Option,
-    Vec,
-    Map,
-}
-
-impl<'a> FieldInfo<'a> {
+impl FieldInfo<'_> {
     pub fn to_option(&self) -> TokenStream {
         let name = &self.name;
         let doc = &self.doc;
         let type_name = &self.type_name;
         let container_type = Ident::new(&format!("{:?}", self.container_type), Span::call_site());
-        let get_default = match self.compute_default() {
-            Some(def) => quote!(Some(|| #def.to_dynamic())),
-            None => quote!(None),
-        };
+        let get_default = if let Some(def) = self.compute_default() { quote!(Some(|| #def.to_dynamic())) } else { quote!(None) };
         quote!(
             crate::meta::ConfigOption {
                 name: #name,
@@ -127,6 +116,14 @@ impl<'a> FieldInfo<'a> {
             )),
             DefValue::None => None,
         }
+    }
+}
+
+const fn extract_lit_str_from_expr(expr: &Expr) -> Option<&syn::LitStr> {
+    if let Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = expr {
+        Some(s)
+    } else {
+        None
     }
 }
 
@@ -181,98 +178,98 @@ pub fn field_info(field: &Field) -> Result<FieldInfo<'_>> {
     };
 
     for attr in &field.attrs {
-        if !attr.path.is_ident("dynamic") && !attr.path.is_ident("doc") {
-            continue;
-        }
-
-        let list = match attr.parse_meta()? {
-            Meta::List(list) => list,
-            Meta::NameValue(value) if value.path.is_ident("doc") => {
-                if let Lit::Str(s) = &value.lit {
+        // Handle #[doc = "..."] attributes
+        if attr.path().is_ident("doc") {
+            if let Meta::NameValue(nv) = &attr.meta {
+                if let Some(s) = extract_lit_str_from_expr(&nv.value) {
                     if !doc.is_empty() {
                         doc.push('\n');
                     }
                     doc.push_str(&s.value());
                 }
-                continue;
             }
-            other => {
-                return Err(Error::new_spanned(
-                    other.clone(),
-                    format!("unsupported attribute {other:?}"),
-                ))
-            }
-        };
-
-        for meta in &list.nested {
-            match meta {
-                NestedMeta::Meta(Meta::NameValue(value)) => {
-                    if value.path.is_ident("rename") {
-                        if let Lit::Str(s) = &value.lit {
-                            name = s.value();
-                            continue;
-                        }
-                    }
-                    if value.path.is_ident("default") {
-                        if let Lit::Str(s) = &value.lit {
-                            allow_default = DefValue::Path(s.parse()?);
-                            continue;
-                        }
-                    }
-                    if value.path.is_ident("deprecated") {
-                        if let Lit::Str(s) = &value.lit {
-                            deprecated.replace(s.value());
-                            continue;
-                        }
-                    }
-                    if value.path.is_ident("into") {
-                        if let Lit::Str(s) = &value.lit {
-                            into = Some(s.parse()?);
-                            continue;
-                        }
-                    }
-                    if value.path.is_ident("try_from") {
-                        if let Lit::Str(s) = &value.lit {
-                            try_from = Some(s.parse()?);
-                            continue;
-                        }
-                    }
-                    if value.path.is_ident("validate") {
-                        if let Lit::Str(s) = &value.lit {
-                            validate = Some(s.parse()?);
-                            continue;
-                        }
-                    }
-                }
-                NestedMeta::Meta(Meta::Path(path)) => {
-                    if path.is_ident("skip") {
-                        skip = true;
-                        continue;
-                    }
-                    if path.is_ident("flatten") {
-                        flatten = true;
-                        continue;
-                    }
-                    if path.is_ident("default") {
-                        allow_default = DefValue::Default;
-                        continue;
-                    }
-                }
-                _ => {}
-            }
-            return Err(Error::new_spanned(meta, "unsupported attribute"));
+            continue;
         }
+
+        if !attr.path().is_ident("dynamic") {
+            continue;
+        }
+
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("rename") {
+                let value = meta.value()?;
+                let s: Lit = value.parse()?;
+                if let Lit::Str(s) = s {
+                    name = s.value();
+                    return Ok(());
+                }
+            }
+            if meta.path.is_ident("default") {
+                if meta.input.peek(syn::Token![=]) {
+                    let value = meta.value()?;
+                    let s: Lit = value.parse()?;
+                    if let Lit::Str(s) = s {
+                        allow_default = DefValue::Path(s.parse()?);
+                        return Ok(());
+                    }
+                } else {
+                    allow_default = DefValue::Default;
+                    return Ok(());
+                }
+            }
+            if meta.path.is_ident("deprecated") {
+                let value = meta.value()?;
+                let s: Lit = value.parse()?;
+                if let Lit::Str(s) = s {
+                    deprecated.replace(s.value());
+                    return Ok(());
+                }
+            }
+            if meta.path.is_ident("into") {
+                let value = meta.value()?;
+                let s: Lit = value.parse()?;
+                if let Lit::Str(s) = s {
+                    into = Some(s.parse()?);
+                    return Ok(());
+                }
+            }
+            if meta.path.is_ident("try_from") {
+                let value = meta.value()?;
+                let s: Lit = value.parse()?;
+                if let Lit::Str(s) = s {
+                    try_from = Some(s.parse()?);
+                    return Ok(());
+                }
+            }
+            if meta.path.is_ident("validate") {
+                let value = meta.value()?;
+                let s: Lit = value.parse()?;
+                if let Lit::Str(s) = s {
+                    validate = Some(s.parse()?);
+                    return Ok(());
+                }
+            }
+            if meta.path.is_ident("skip") {
+                skip = true;
+                return Ok(());
+            }
+            if meta.path.is_ident("flatten") {
+                flatten = true;
+                return Ok(());
+            }
+            Err(meta.error("unsupported attribute"))
+        })?;
     }
 
     Ok(FieldInfo {
-        type_name,
         field,
+        type_name,
         name,
         skip,
         flatten,
         allow_default,
-        try_from,
         into,
+        try_from,
         deprecated,
         validate,
         doc,

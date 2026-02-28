@@ -1,4 +1,4 @@
-use clap::*;
+use clap::{Parser, ValueHint};
 use config::configuration;
 use mux::activity::Activity;
 use mux::domain::{Domain, LocalDomain};
@@ -9,7 +9,7 @@ use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
-use wezterm_gui_subcommands::*;
+use wezterm_gui_subcommands::name_equals_value;
 use wezterm_mux_server_impl::update_mux_domains_for_server;
 
 mod daemonize;
@@ -66,7 +66,7 @@ struct Opt {
 fn main() {
     if let Err(err) = run() {
         wezterm_blob_leases::clear_storage();
-        log::error!("{:#}", err);
+        log::error!("{err:#}");
         std::process::exit(1);
     }
     wezterm_blob_leases::clear_storage();
@@ -100,7 +100,7 @@ fn run() -> anyhow::Result<()> {
 
     config.update_ulimit()?;
     if let Some(value) = &config.default_ssh_auth_sock {
-        std::env::set_var("SSH_AUTH_SOCK", value);
+        unsafe { std::env::set_var("SSH_AUTH_SOCK", value); }
     }
 
     #[cfg(unix)]
@@ -132,7 +132,7 @@ fn run() -> anyhow::Result<()> {
             // being propagated to its children when they spawn
             if let Some(fd) = pid_file {
                 cmd.arg("--pid-file-fd");
-                cmd.arg(&fd.to_string());
+                cmd.arg(fd.to_string());
             }
         }
         if opts.skip_config {
@@ -144,7 +144,7 @@ fn run() -> anyhow::Result<()> {
         }
         for (name, value) in &opts.config_override {
             cmd.arg("--config");
-            cmd.arg(&format!("{name}={value}"));
+            cmd.arg(format!("{name}={value}"));
         }
         if let Some(cwd) = opts.cwd {
             cmd.arg("--cwd");
@@ -198,10 +198,10 @@ fn run() -> anyhow::Result<()> {
         "WEZTERM_UNIX_SOCKET",
         "_",
     ] {
-        std::env::remove_var(name);
+        unsafe { std::env::remove_var(name); }
     }
     for name in &config::configuration().mux_env_remove {
-        std::env::remove_var(name);
+        unsafe { std::env::remove_var(name); }
     }
 
     wezterm_blob_leases::register_storage(Arc::new(
@@ -231,7 +231,7 @@ fn run() -> anyhow::Result<()> {
     let executor = promise::spawn::SimpleExecutor::new();
 
     spawn_listener().map_err(|e| {
-        log::error!("problem spawning listeners: {:?}", e);
+        log::error!("problem spawning listeners: {e:?}");
         e
     })?;
 
@@ -266,7 +266,7 @@ async fn async_run(cmd: Option<CommandBuilder>) -> anyhow::Result<()> {
     let _config_subscription = config::subscribe_to_config_reload(move || {
         promise::spawn::spawn_into_main_thread(async move {
             if let Err(err) = update_mux_domains_for_server(&config::configuration()) {
-                log::error!("Error updating mux domains: {:#}", err);
+                log::error!("Error updating mux domains: {err:#}");
             }
         })
         .detach();
@@ -277,7 +277,7 @@ async fn async_run(cmd: Option<CommandBuilder>) -> anyhow::Result<()> {
 
     {
         if let Err(err) = config::with_lua_config_on_main_thread(trigger_mux_startup).await {
-            log::error!("while processing mux-startup event: {:#}", err);
+            log::error!("while processing mux-startup event: {err:#}");
         }
     }
 
@@ -301,7 +301,7 @@ async fn async_run(cmd: Option<CommandBuilder>) -> anyhow::Result<()> {
 }
 
 fn terminate_with_error(err: anyhow::Error) -> ! {
-    log::error!("{:#}; terminating", err);
+    log::error!("{err:#}; terminating");
     std::process::exit(1);
 }
 
@@ -310,7 +310,7 @@ mod ossl;
 pub fn spawn_listener() -> anyhow::Result<()> {
     let config = configuration();
     for unix_dom in &config.unix_domains {
-        std::env::set_var("WEZTERM_UNIX_SOCKET", unix_dom.socket_path());
+        unsafe { std::env::set_var("WEZTERM_UNIX_SOCKET", unix_dom.socket_path()); }
         let mut listener = wezterm_mux_server_impl::local::LocalListener::with_domain(unix_dom)?;
         thread::spawn(move || {
             listener.run();

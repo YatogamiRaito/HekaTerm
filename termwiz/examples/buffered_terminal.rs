@@ -1,4 +1,5 @@
-//! This example shows how to use `BufferedTerminal` to queue
+//! This example demonstrates making `Change`s
+#![allow(clippy::result_large_err)]
 //! up changes and then flush them.  `BufferedTerminal` enables
 //! optimizing the output sequence to update the screen, which is
 //! important on links with poor connectivity.

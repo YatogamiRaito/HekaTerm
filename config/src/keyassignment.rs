@@ -23,8 +23,7 @@ pub struct LauncherActionArgs {
 }
 
 bitflags::bitflags! {
-    #[derive(Default,  FromDynamic, ToDynamic)]
-    #[dynamic(try_from="String", into="String")]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
     pub struct LauncherFlags :u32 {
         const ZERO = 0;
         const FUZZY = 1;
@@ -34,6 +33,22 @@ bitflags::bitflags! {
         const KEY_ASSIGNMENTS = 16;
         const WORKSPACES = 32;
         const COMMANDS = 64;
+    }
+}
+
+impl FromDynamic for LauncherFlags {
+    fn from_dynamic(
+        value: &wezterm_dynamic::Value,
+        _options: wezterm_dynamic::FromDynamicOptions,
+    ) -> Result<Self, wezterm_dynamic::Error> {
+        let s = String::from_dynamic(value, Default::default())?;
+        Self::try_from(s).map_err(std::convert::Into::into)
+    }
+}
+
+impl ToDynamic for LauncherFlags {
+    fn to_dynamic(&self) -> wezterm_dynamic::Value {
+        wezterm_dynamic::Value::String(self.to_string())
     }
 }
 
@@ -49,8 +64,8 @@ impl From<&LauncherFlags> for String {
     }
 }
 
-impl ToString for LauncherFlags {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for LauncherFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = vec![];
         if self.contains(Self::FUZZY) {
             s.push("FUZZY");
@@ -73,14 +88,14 @@ impl ToString for LauncherFlags {
         if self.contains(Self::COMMANDS) {
             s.push("COMMANDS");
         }
-        s.join("|")
+        write!(f, "{}", s.join("|"))
     }
 }
 
 impl TryFrom<String> for LauncherFlags {
     type Error = String;
     fn try_from(s: String) -> Result<Self, String> {
-        let mut flags = LauncherFlags::default();
+        let mut flags = Self::default();
 
         for ele in s.split('|') {
             let ele = ele.trim();
@@ -93,7 +108,7 @@ impl TryFrom<String> for LauncherFlags {
                 "WORKSPACES" => flags |= Self::WORKSPACES,
                 "COMMANDS" => flags |= Self::COMMANDS,
                 _ => {
-                    return Err(format!("invalid LauncherFlags `{}` in `{}`", ele, s));
+                    return Err(format!("invalid LauncherFlags `{ele}` in `{s}`"));
                 }
             }
         }
@@ -112,15 +127,18 @@ pub enum SelectionMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum Pattern {
     CaseSensitiveString(String),
     CaseInSensitiveString(String),
     Regex(String),
+    #[default]
     CurrentSelectionOrEmptyString,
 }
 
 impl Pattern {
-    pub fn is_empty(&self) -> bool {
+    #[must_use] 
+    pub const fn is_empty(&self) -> bool {
         match self {
             Self::CaseSensitiveString(s) | Self::CaseInSensitiveString(s) | Self::Regex(s) => {
                 s.is_empty()
@@ -130,11 +148,6 @@ impl Pattern {
     }
 }
 
-impl Default for Pattern {
-    fn default() -> Self {
-        Self::CurrentSelectionOrEmptyString
-    }
-}
 
 /// A mouse event that can trigger an action
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, FromDynamic, ToDynamic)]
@@ -153,10 +166,12 @@ pub enum MouseEventTrigger {
 /// When spawning a tab, specify which domain should be used to
 /// host/spawn that tab.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum SpawnTabDomain {
     /// Use the default domain
     DefaultDomain,
     /// Use the domain from the current tab in the associated window
+    #[default]
     CurrentPaneDomain,
     /// Use a specific domain by name
     DomainName(String),
@@ -164,11 +179,6 @@ pub enum SpawnTabDomain {
     DomainId(usize),
 }
 
-impl Default for SpawnTabDomain {
-    fn default() -> Self {
-        Self::CurrentPaneDomain
-    }
-}
 
 #[derive(Default, Clone, PartialEq, FromDynamic, ToDynamic)]
 pub struct SpawnCommand {
@@ -203,7 +213,7 @@ impl_lua_conversion_dynamic!(SpawnCommand);
 
 impl std::fmt::Debug for SpawnCommand {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(fmt, "{}", self)
+        write!(fmt, "{self}")
     }
 }
 
@@ -211,17 +221,17 @@ impl std::fmt::Display for SpawnCommand {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(fmt, "SpawnCommand")?;
         if let Some(label) = &self.label {
-            write!(fmt, " label='{}'", label)?;
+            write!(fmt, " label='{label}'")?;
         }
         write!(fmt, " domain={:?}", self.domain)?;
         if let Some(args) = &self.args {
-            write!(fmt, " args={:?}", args)?;
+            write!(fmt, " args={args:?}")?;
         }
         if let Some(cwd) = &self.cwd {
             write!(fmt, " cwd={}", cwd.display())?;
         }
         for (k, v) in &self.set_environment_variables {
-            write!(fmt, " {}={}", k, v)?;
+            write!(fmt, " {k}={v}")?;
         }
         Ok(())
     }
@@ -230,9 +240,9 @@ impl std::fmt::Display for SpawnCommand {
 impl SpawnCommand {
     pub fn label_for_palette(&self) -> Option<String> {
         if let Some(label) = &self.label {
-            Some(label.to_string())
+            Some(label.clone())
         } else if let Some(args) = &self.args {
-            Some(shlex::try_join(args.iter().map(|s| s.as_str())).ok()?)
+            Some(shlex::try_join(args.iter().map(std::string::String::as_str)).ok()?)
         } else {
             None
         }
@@ -251,10 +261,7 @@ impl SpawnCommand {
         for (k, v) in cmd.iter_full_env_as_str() {
             set_environment_variables.insert(k.to_string(), v.to_string());
         }
-        let cwd = match cmd.get_cwd() {
-            Some(cwd) => Some(PathBuf::from(cwd)),
-            None => None,
-        };
+        let cwd = cmd.get_cwd().map(PathBuf::from);
         Ok(Self {
             label: None,
             domain: SpawnTabDomain::DefaultDomain,
@@ -277,64 +284,56 @@ pub enum PaneDirection {
 }
 
 impl PaneDirection {
-    pub fn direction_from_str(arg: &str) -> Result<PaneDirection, String> {
-        for candidate in PaneDirection::variants() {
-            if candidate.to_lowercase() == arg.to_lowercase() {
-                if let Ok(direction) = PaneDirection::from_dynamic(
+    pub fn direction_from_str(arg: &str) -> Result<Self, String> {
+        for candidate in Self::variants() {
+            if candidate.to_lowercase() == arg.to_lowercase()
+                && let Ok(direction) = Self::from_dynamic(
                     &Value::String(candidate.to_string()),
                     FromDynamicOptions::default(),
                 ) {
                     return Ok(direction);
                 }
-            }
         }
         Err(format!(
             "invalid direction {arg}, possible values are {:?}",
-            PaneDirection::variants()
+            Self::variants()
         ))
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, FromDynamic, ToDynamic, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ScrollbackEraseMode {
+    #[default]
     ScrollbackOnly,
     ScrollbackAndViewport,
 }
 
-impl Default for ScrollbackEraseMode {
-    fn default() -> Self {
-        Self::ScrollbackOnly
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum ClipboardCopyDestination {
     Clipboard,
     PrimarySelection,
+    #[default]
     ClipboardAndPrimarySelection,
 }
 impl_lua_conversion_dynamic!(ClipboardCopyDestination);
 
-impl Default for ClipboardCopyDestination {
-    fn default() -> Self {
-        Self::ClipboardAndPrimarySelection
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum ClipboardPasteSource {
+    #[default]
     Clipboard,
     PrimarySelection,
 }
 
-impl Default for ClipboardPasteSource {
-    fn default() -> Self {
-        Self::Clipboard
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum PaneSelectMode {
+    #[default]
     Activate,
     SwapWithActive,
     SwapWithActiveKeepFocus,
@@ -342,15 +341,10 @@ pub enum PaneSelectMode {
     MoveToNewWindow,
 }
 
-impl Default for PaneSelectMode {
-    fn default() -> Self {
-        Self::Activate
-    }
-}
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
 pub struct PaneSelectArguments {
-    /// Overrides the main quick_select_alphabet config
+    /// Overrides the main `quick_select_alphabet` config
     #[dynamic(default)]
     pub alphabet: String,
 
@@ -362,8 +356,10 @@ pub struct PaneSelectArguments {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum CharSelectGroup {
     RecentlyUsed,
+    #[default]
     SmileysAndEmotion,
     PeopleAndBody,
     AnimalsAndNature,
@@ -413,11 +409,6 @@ char_select_group_impl_next_prev! (
     ShortCodes => RecentlyUsed,
 );
 
-impl Default for CharSelectGroup {
-    fn default() -> Self {
-        Self::SmileysAndEmotion
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
 pub struct CharSelectArguments {
@@ -441,10 +432,10 @@ impl Default for CharSelectArguments {
 
 #[derive(Default, Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
 pub struct QuickSelectArguments {
-    /// Overrides the main quick_select_alphabet config
+    /// Overrides the main `quick_select_alphabet` config
     #[dynamic(default)]
     pub alphabet: String,
-    /// Overrides the main quick_select_patterns config
+    /// Overrides the main `quick_select_patterns` config
     #[dynamic(default)]
     pub patterns: Vec<String>,
     #[dynamic(default)]
@@ -478,7 +469,7 @@ fn default_prompt() -> String {
     "> ".to_string()
 }
 
-#[derive(Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
+#[derive(Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
 pub struct InputSelectorEntry {
     pub label: String,
     pub id: Option<String>,
@@ -605,7 +596,7 @@ pub enum KeyAssignment {
     QuickSelect,
     QuickSelectArgs(QuickSelectArguments),
 
-    Multiple(Vec<KeyAssignment>),
+    Multiple(Vec<Self>),
 
     SwitchToWorkspace {
         name: Option<String>,

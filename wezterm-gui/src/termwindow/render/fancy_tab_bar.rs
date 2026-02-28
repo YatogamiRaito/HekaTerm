@@ -1,7 +1,7 @@
-use crate::customglyph::*;
+use crate::customglyph::{Poly, PolyCommand, BlockCoord, BlockAlpha, PolyStyle};
 use crate::tabbar::{TabBarItem, TabEntry};
-use crate::termwindow::box_model::*;
-use crate::termwindow::render::corners::*;
+use crate::termwindow::box_model::{ComputedElement, ElementColors, BorderColor, Element, BoxDimension, ElementContent, SizedPoly, VerticalAlign, Corners, Float, DisplayType, LayoutContext};
+use crate::termwindow::render::corners::{TOP_LEFT_ROUNDED_CORNER, TOP_RIGHT_ROUNDED_CORNER};
 
 use crate::termwindow::render::window_buttons::window_button_element;
 use crate::termwindow::{UIItem, UIItemType};
@@ -141,7 +141,7 @@ impl crate::TermWindow {
                     },
                 )
                 .vertical_align(VerticalAlign::Middle)
-                .item_type(UIItemType::TabBar(item.item.clone()))
+                .item_type(UIItemType::TabBar(item.item))
                 .margin(BoxDimension {
                     left: Dimension::Cells(0.5),
                     right: Dimension::Cells(0.),
@@ -167,7 +167,7 @@ impl crate::TermWindow {
                 })),
                 TabBarItem::Tab { active, .. } if active => element
                     .vertical_align(VerticalAlign::Bottom)
-                    .item_type(UIItemType::TabBar(item.item.clone()))
+                    .item_type(UIItemType::TabBar(item.item))
                     .margin(BoxDimension {
                         left: Dimension::Cells(0.),
                         right: Dimension::Cells(0.),
@@ -212,7 +212,7 @@ impl crate::TermWindow {
                     }),
                 TabBarItem::Tab { .. } => element
                     .vertical_align(VerticalAlign::Bottom)
-                    .item_type(UIItemType::TabBar(item.item.clone()))
+                    .item_type(UIItemType::TabBar(item.item))
                     .margin(BoxDimension {
                         left: Dimension::Cells(0.),
                         right: Dimension::Cells(0.),
@@ -303,8 +303,7 @@ impl crate::TermWindow {
                 _ => 0.,
             })
             .sum();
-        let max_tab_width = ((self.dimensions.pixel_width as f32 / num_tabs)
-            - (1.5 * metrics.cell_size.width as f32))
+        let max_tab_width = 1.5f32.mul_add(-(metrics.cell_size.width as f32), self.dimensions.pixel_width as f32 / num_tabs)
             .max(0.);
 
         // Reserve space for the native titlebar buttons
@@ -316,7 +315,7 @@ impl crate::TermWindow {
             && !self.window_state.contains(window::WindowState::FULL_SCREEN)
         {
             left_status.push(
-                Element::new(&font, ElementContent::Text("".to_string())).margin(BoxDimension {
+                Element::new(&font, ElementContent::Text(String::new())).margin(BoxDimension {
                     left: Dimension::Cells(4.0), // FIXME: determine exact width of macos ... buttons
                     right: Dimension::Cells(0.),
                     top: Dimension::Cells(0.),
@@ -333,9 +332,9 @@ impl crate::TermWindow {
                     if self.config.integrated_title_button_alignment
                         == IntegratedTitleButtonAlignment::Left
                     {
-                        left_eles.push(item_to_elem(item))
+                        left_eles.push(item_to_elem(item));
                     } else {
-                        right_eles.push(item_to_elem(item))
+                        right_eles.push(item_to_elem(item));
                     }
                 }
                 TabBarItem::Tab { tab_idx, active } => {
@@ -378,10 +377,10 @@ impl crate::TermWindow {
         let left_padding = if window_buttons_at_left {
             if self.config.integrated_title_button_style == IntegratedTitleButtonStyle::MacOsNative
             {
-                if !self.window_state.contains(window::WindowState::FULL_SCREEN) {
-                    Dimension::Pixels(70.0)
-                } else {
+                if self.window_state.contains(window::WindowState::FULL_SCREEN) {
                     Dimension::Cells(0.5)
+                } else {
+                    Dimension::Pixels(70.0)
                 }
             } else {
                 Dimension::Pixels(0.0)
@@ -465,7 +464,7 @@ impl crate::TermWindow {
         let ui_items = computed.ui_items();
 
         let gl_state = self.render_state.as_ref().unwrap();
-        self.render_element(&computed, gl_state, None)?;
+        self.render_element(computed, gl_state, None)?;
 
         Ok(ui_items)
     }
@@ -479,7 +478,7 @@ fn make_x_button(
     active: bool,
 ) -> Element {
     Element::new(
-        &font,
+        font,
         ElementContent::Poly {
             line_width: metrics.underline_height.max(2),
             poly: SizedPoly {

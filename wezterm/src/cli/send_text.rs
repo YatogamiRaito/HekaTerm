@@ -8,7 +8,7 @@ use wezterm_client::client::Client;
 pub struct SendText {
     /// Specify the target pane.
     /// The default is to use the current pane based on the
-    /// environment variable WEZTERM_PANE.
+    /// environment variable `WEZTERM_PANE`.
     #[arg(long)]
     pane_id: Option<PaneId>,
 
@@ -24,15 +24,12 @@ impl SendText {
     pub async fn run(self, client: Client) -> anyhow::Result<()> {
         let pane_id = client.resolve_pane_id(self.pane_id).await?;
 
-        let data = match self.text {
-            Some(text) => text,
-            None => {
-                let mut text = String::new();
-                std::io::stdin()
-                    .read_to_string(&mut text)
-                    .context("reading stdin")?;
-                text
-            }
+        let data = if let Some(text) = self.text { text } else {
+            let mut text = String::new();
+            std::io::stdin()
+                .read_to_string(&mut text)
+                .context("reading stdin")?;
+            text
         };
 
         if self.no_paste {

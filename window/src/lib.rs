@@ -23,6 +23,7 @@ pub(crate) const DEFAULT_DPI: f64 = 72.0;
 #[cfg(not(target_os = "macos"))]
 pub(crate) const DEFAULT_DPI: f64 = 96.0;
 
+#[must_use] 
 pub fn default_dpi() -> f64 {
     match Connection::get() {
         Some(conn) => conn.default_dpi(),
@@ -39,16 +40,13 @@ pub use os::*;
 pub use wezterm_input_types::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum Clipboard {
+    #[default]
     Clipboard,
     PrimarySelection,
 }
 
-impl Default for Clipboard {
-    fn default() -> Self {
-        Self::Clipboard
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Dimensions {
@@ -89,20 +87,19 @@ pub enum Appearance {
     DarkHighContrast,
 }
 
-impl std::string::ToString for Appearance {
-    fn to_string(&self) -> String {
-        match self {
+impl std::fmt::Display for Appearance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
             Self::Light => "Light",
             Self::Dark => "Dark",
             Self::LightHighContrast => "LightHighContrast",
             Self::DarkHighContrast => "DarkHighContrast",
-        }
-        .to_string()
+        })
     }
 }
 
 bitflags! {
-    #[derive(Default)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
     pub struct WindowState: u8 {
         /// Occupies the whole screen; cannot be resized while in this state.
         const FULL_SCREEN = 1<<1;
@@ -120,15 +117,18 @@ bitflags! {
 }
 
 impl WindowState {
+    #[must_use] 
     pub fn can_resize(self) -> bool {
         !self.intersects(Self::FULL_SCREEN | Self::MAXIMIZED)
     }
 
-    pub fn can_paint(self) -> bool {
+    #[must_use] 
+    pub const fn can_paint(self) -> bool {
         !self.contains(Self::HIDDEN)
     }
 
-    pub fn as_window_level(self) -> WindowLevel {
+    #[must_use] 
+    pub const fn as_window_level(self) -> WindowLevel {
         if self.contains(Self::ALWAYS_ON_TOP) {
             WindowLevel::AlwaysOnTop
         } else if self.contains(Self::ALWAYS_ON_BOTTOM) {
@@ -172,7 +172,7 @@ pub enum WindowEvent {
         live_resizing: bool,
     },
 
-    /// Called when a program-requested set_inner_size() has finished
+    /// Called when a program-requested `set_inner_size()` has finished
     SetInnerSizeCompleted,
 
     /// Called when the window has been invalidated and needs to
@@ -187,7 +187,7 @@ pub enum WindowEvent {
     /// Called to handle a raw key event, prior to any dead key,
     /// keymap composition or other higher level treatment.
     /// If you handle this key event, you must call
-    /// event.set_handled() to prevent additional processing.
+    /// `event.set_handled()` to prevent additional processing.
     RawKeyEvent(RawKeyEvent),
 
     /// Called to handle a key event.
@@ -218,8 +218,10 @@ pub enum WindowEvent {
     AdviseModifiersLedStatus(Modifiers, KeyboardLedStatus),
 }
 
+pub type WindowHandler = Box<dyn FnMut(WindowEvent, &Window)>;
+
 pub struct WindowEventSender {
-    handler: Box<dyn FnMut(WindowEvent, &Window)>,
+    handler: WindowHandler,
     window: Option<Window>,
 }
 
@@ -231,13 +233,13 @@ impl WindowEventSender {
         }
     }
 
-    pub(crate) fn assign_window(&mut self, window: Window) {
+    pub(crate) const fn assign_window(&mut self, window: Window) {
         self.window.replace(window);
     }
 
     pub fn dispatch(&mut self, event: WindowEvent) {
         if let Some(window) = self.window.as_ref() {
-            log::trace!("{:?}", event);
+            log::trace!("{event:?}");
             (self.handler)(event, window);
         }
     }
@@ -380,7 +382,8 @@ pub struct ResizeIncrement {
 
 impl ResizeIncrement {
     /// Use this as a readable shorthand for disabling the feature
-    pub fn disabled() -> Self {
+    #[must_use] 
+    pub const fn disabled() -> Self {
         Self {
             x: 1,
             y: 1,

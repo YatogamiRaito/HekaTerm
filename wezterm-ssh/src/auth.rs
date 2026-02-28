@@ -29,12 +29,11 @@ impl AuthenticationEvent {
 impl crate::sessioninner::SessionInner {
     #[cfg(feature = "ssh2")]
     fn agent_auth(&mut self, sess: &ssh2::Session, user: &str) -> anyhow::Result<bool> {
-        if let Some(only) = self.config.get("identitiesonly") {
-            if only == "yes" {
+        if let Some(only) = self.config.get("identitiesonly")
+            && only == "yes" {
                 log::trace!("Skipping agent auth because identitiesonly=yes");
                 return Ok(false);
             }
-        }
 
         let mut agent = sess.agent()?;
         if agent.connect().is_err() {
@@ -64,7 +63,7 @@ impl crate::sessioninner::SessionInner {
 
         if let Some(files) = self.config.get("identityfile") {
             for file in files.split_whitespace() {
-                let pubkey: PathBuf = format!("{}.pub", file).into();
+                let pubkey: PathBuf = format!("{file}.pub").into();
                 let file = Path::new(file);
 
                 if !file.exists() {
@@ -78,48 +77,45 @@ impl crate::sessioninner::SessionInner {
                 };
 
                 // We try with no passphrase first, in case the key is unencrypted
-                match sess.userauth_pubkey_file(user, pubkey, &file, None) {
-                    Ok(_) => {
-                        log::info!("pubkey_file immediately ok for {}", file.display());
-                        return Ok(true);
+                if let Ok(()) = sess.userauth_pubkey_file(user, pubkey, file, None) {
+                    log::info!("pubkey_file immediately ok for {}", file.display());
+                    return Ok(true);
+                } else {
+                    // Most likely cause of error is that we need a passphrase
+                    // to decrypt the key, so let's prompt the user for one.
+                    let (reply, answers) = bounded(1);
+                    self.tx_event
+                        .try_send(SessionEvent::Authenticate(AuthenticationEvent {
+                            username: String::new(),
+                            instructions: String::new(),
+                            prompts: vec![AuthenticationPrompt {
+                                prompt: format!(
+                                    "Passphrase to decrypt {} for {}@{}:\n> ",
+                                    file.display(),
+                                    user,
+                                    host
+                                ),
+                                echo: false,
+                            }],
+                            reply,
+                        }))
+                        .context("sending Authenticate request to user")?;
+
+                    let answers = smol::block_on(answers.recv())
+                        .context("waiting for authentication answers from user")?;
+
+                    if answers.is_empty() {
+                        anyhow::bail!("user cancelled authentication");
                     }
-                    Err(_) => {
-                        // Most likely cause of error is that we need a passphrase
-                        // to decrypt the key, so let's prompt the user for one.
-                        let (reply, answers) = bounded(1);
-                        self.tx_event
-                            .try_send(SessionEvent::Authenticate(AuthenticationEvent {
-                                username: "".to_string(),
-                                instructions: "".to_string(),
-                                prompts: vec![AuthenticationPrompt {
-                                    prompt: format!(
-                                        "Passphrase to decrypt {} for {}@{}:\n> ",
-                                        file.display(),
-                                        user,
-                                        host
-                                    ),
-                                    echo: false,
-                                }],
-                                reply,
-                            }))
-                            .context("sending Authenticate request to user")?;
 
-                        let answers = smol::block_on(answers.recv())
-                            .context("waiting for authentication answers from user")?;
+                    let passphrase = &answers[0];
 
-                        if answers.is_empty() {
-                            anyhow::bail!("user cancelled authentication");
+                    match sess.userauth_pubkey_file(user, pubkey, file, Some(passphrase)) {
+                        Ok(()) => {
+                            return Ok(true);
                         }
-
-                        let passphrase = &answers[0];
-
-                        match sess.userauth_pubkey_file(user, pubkey, &file, Some(passphrase)) {
-                            Ok(_) => {
-                                return Ok(true);
-                            }
-                            Err(err) => {
-                                log::warn!("pubkey auth: {:#}", err);
-                            }
+                        Err(err) => {
+                            log::warn!("pubkey auth: {err:#}");
                         }
                     }
                 }
@@ -137,11 +133,11 @@ impl crate::sessioninner::SessionInner {
         sess.set_auth_callback(move |prompt, echo, _verify, identity| {
             let (reply, answers) = bounded(1);
             tx.try_send(SessionEvent::Authenticate(AuthenticationEvent {
-                username: "".to_string(),
-                instructions: "".to_string(),
+                username: String::new(),
+                instructions: String::new(),
                 prompts: vec![AuthenticationPrompt {
                     prompt: match identity {
-                        Some(ident) => format!("{} ({}): ", prompt, ident),
+                        Some(ident) => format!("{prompt} ({ident}): "),
                         None => prompt.to_string(),
                     },
                     echo,
@@ -157,10 +153,7 @@ impl crate::sessioninner::SessionInner {
         });
 
         use libssh_rs::{AuthMethods, AuthStatus};
-        match sess.userauth_none(None)? {
-            AuthStatus::Success => return Ok(()),
-            _ => {}
-        }
+        if sess.userauth_none(None)? == AuthStatus::Success { return Ok(()) }
 
         loop {
             let auth_methods = sess.userauth_list(None)?;
@@ -212,7 +205,7 @@ impl crate::sessioninner::SessionInner {
                         }
                         AuthStatus::Partial => continue,
                         status => {
-                            anyhow::bail!("interactive auth status: {:?}", status);
+                            anyhow::bail!("interactive auth status: {status:?}");
                         }
                     }
                 }
@@ -222,8 +215,8 @@ impl crate::sessioninner::SessionInner {
                 let (reply, answers) = bounded(1);
                 self.tx_event
                     .try_send(SessionEvent::Authenticate(AuthenticationEvent {
-                        username: "".to_string(),
-                        instructions: "".to_string(),
+                        username: String::new(),
+                        instructions: String::new(),
                         prompts: vec![AuthenticationPrompt {
                             prompt: "Password: ".to_string(),
                             echo: false,
@@ -240,14 +233,12 @@ impl crate::sessioninner::SessionInner {
                 match sess.userauth_password(None, Some(&pw))? {
                     AuthStatus::Success => return Ok(()),
                     AuthStatus::Partial => continue,
-                    status => anyhow::bail!("password auth status: {:?}", status),
+                    status => anyhow::bail!("password auth status: {status:?}"),
                 }
             }
 
             anyhow::bail!(
-                "unhandled auth case; methods={:?}, status={:?}",
-                auth_methods,
-                status_by_method
+                "unhandled auth case; methods={auth_methods:?}, status={status_by_method:?}"
             );
         }
     }
@@ -269,8 +260,8 @@ impl crate::sessioninner::SessionInner {
             // Re-query the auth methods on each loop as a successful method
             // may unlock a new method on a subsequent iteration (eg: password
             // auth may then unlock 2fac)
-            let methods: HashSet<&str> = sess.auth_methods(&user)?.split(',').collect();
-            log::trace!("ssh auth methods: {:?}", methods);
+            let methods: HashSet<&str> = sess.auth_methods(user)?.split(',').collect();
+            log::trace!("ssh auth methods: {methods:?}");
 
             if !sess.authenticated() && methods.contains("publickey") {
                 if self.agent_auth(sess, user)? {
@@ -287,9 +278,9 @@ impl crate::sessioninner::SessionInner {
                 self.tx_event
                     .try_send(SessionEvent::Authenticate(AuthenticationEvent {
                         username: user.to_string(),
-                        instructions: "".to_string(),
+                        instructions: String::new(),
                         prompts: vec![AuthenticationPrompt {
-                            prompt: format!("Password for {}@{}: ", user, host),
+                            prompt: format!("Password for {user}@{host}: "),
                             echo: false,
                         }],
                         reply,
@@ -304,7 +295,7 @@ impl crate::sessioninner::SessionInner {
                 }
 
                 if let Err(err) = sess.userauth_password(user, &answers[0]) {
-                    log::error!("while attempting password auth: {}", err);
+                    log::error!("while attempting password auth: {err}");
                 }
             }
 
@@ -313,12 +304,12 @@ impl crate::sessioninner::SessionInner {
                     tx_event: &'a Sender<SessionEvent>,
                 }
 
-                impl<'a> ssh2::KeyboardInteractivePrompt for Helper<'a> {
-                    fn prompt<'b>(
+                impl ssh2::KeyboardInteractivePrompt for Helper<'_> {
+                    fn prompt(
                         &mut self,
                         username: &str,
                         instructions: &str,
-                        prompts: &[ssh2::Prompt<'b>],
+                        prompts: &[ssh2::Prompt<'_>],
                     ) -> Vec<String> {
                         let (reply, answers) = bounded(1);
                         if let Err(err) = self.tx_event.try_send(SessionEvent::Authenticate(
@@ -335,17 +326,16 @@ impl crate::sessioninner::SessionInner {
                                 reply,
                             },
                         )) {
-                            log::error!("sending Authenticate request to user: {:#}", err);
+                            log::error!("sending Authenticate request to user: {err:#}");
                             return vec![];
                         }
 
                         match smol::block_on(answers.recv()) {
                             Err(err) => {
                                 log::error!(
-                                    "waiting for authentication answers from user: {:#}",
-                                    err
+                                    "waiting for authentication answers from user: {err:#}"
                                 );
-                                return vec![];
+                                vec![]
                             }
                             Ok(answers) => answers,
                         }
@@ -357,7 +347,7 @@ impl crate::sessioninner::SessionInner {
                 };
 
                 if let Err(err) = sess.userauth_keyboard_interactive(user, &mut helper) {
-                    log::error!("while attempting keyboard-interactive auth: {}", err);
+                    log::error!("while attempting keyboard-interactive auth: {err}");
                 }
             }
         }

@@ -8,7 +8,7 @@ use wezterm_client::client::Client;
 pub struct ActivatePaneDirection {
     /// Specify the current pane.
     /// The default is to use the current pane based on the
-    /// environment variable WEZTERM_PANE.
+    /// environment variable `WEZTERM_PANE`.
     #[arg(long)]
     pane_id: Option<PaneId>,
 
@@ -42,7 +42,7 @@ impl clap::builder::TypedValueParser for PaneDirectionParser {
         _arg: Option<&clap::Arg>,
         value: &std::ffi::OsStr,
     ) -> Result<Self::Value, clap::Error> {
-        use clap::error::*;
+        use clap::error::{Error, ErrorKind};
 
         let value = value
             .to_str()

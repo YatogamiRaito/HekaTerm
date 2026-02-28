@@ -20,20 +20,20 @@ pub enum BorrowedKey<'a> {
 }
 
 pub trait ObjectKeyTrait {
-    fn key<'k>(&'k self) -> BorrowedKey<'k>;
+    fn key(&self) -> BorrowedKey<'_>;
 }
 
 impl ObjectKeyTrait for Value {
-    fn key<'k>(&'k self) -> BorrowedKey<'k> {
+    fn key(&self) -> BorrowedKey<'_> {
         match self {
-            Value::String(s) => BorrowedKey::Str(s.as_str()),
+            Self::String(s) => BorrowedKey::Str(s.as_str()),
             v => BorrowedKey::Value(v),
         }
     }
 }
 
-impl<'a> ObjectKeyTrait for BorrowedKey<'a> {
-    fn key<'k>(&'k self) -> BorrowedKey<'k> {
+impl ObjectKeyTrait for BorrowedKey<'_> {
+    fn key(&self) -> BorrowedKey<'_> {
         *self
     }
 }
@@ -44,29 +44,29 @@ impl<'a> Borrow<dyn ObjectKeyTrait + 'a> for Value {
     }
 }
 
-impl<'a> PartialEq for dyn ObjectKeyTrait + 'a {
+impl PartialEq for dyn ObjectKeyTrait + '_ {
     fn eq(&self, other: &Self) -> bool {
         self.key().eq(&other.key())
     }
 }
 
-impl<'a> Eq for dyn ObjectKeyTrait + 'a {}
+impl Eq for dyn ObjectKeyTrait + '_ {}
 
-impl<'a> PartialOrd for dyn ObjectKeyTrait + 'a {
+impl PartialOrd for dyn ObjectKeyTrait + '_ {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.key().partial_cmp(&other.key())
+        Some(self.cmp(other))
     }
 }
 
-impl<'a> Ord for dyn ObjectKeyTrait + 'a {
+impl Ord for dyn ObjectKeyTrait + '_ {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key().cmp(&other.key())
     }
 }
 
-impl<'a> core::hash::Hash for dyn ObjectKeyTrait + 'a {
+impl core::hash::Hash for dyn ObjectKeyTrait + '_ {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.key().hash(state)
+        self.key().hash(state);
     }
 }
 
@@ -76,6 +76,7 @@ pub struct Object {
 }
 
 impl Object {
+    #[must_use] 
     pub fn get_by_str(&self, field_name: &str) -> Option<&Value> {
         self.inner
             .get(&BorrowedKey::Str(field_name) as &dyn ObjectKeyTrait)
@@ -132,7 +133,7 @@ impl DerefMut for Object {
 
 fn take(object: Object) -> BTreeMap<Value, Value> {
     let object = core::mem::ManuallyDrop::new(object);
-    unsafe { core::ptr::read(&object.inner) }
+    unsafe { core::ptr::read(&raw const object.inner) }
 }
 
 impl IntoIterator for Object {
@@ -167,7 +168,7 @@ impl FromIterator<(Value, Value)> for Object {
     where
         I: IntoIterator<Item = (Value, Value)>,
     {
-        Object {
+        Self {
             inner: BTreeMap::from_iter(iter),
         }
     }

@@ -1,4 +1,4 @@
-use super::*;
+use super::{Serialize, Deserialize, FromDynamic, ToDynamic, str, TerminalState, Deref, DerefMut, TerminalConfiguration};
 use crate::terminalstate::performer::Performer;
 use std::sync::Arc;
 use wezterm_escape_parser::parser::Parser;
@@ -61,7 +61,7 @@ pub enum Alert {
     TabTitleChanged(Option<String>),
     /// When the color palette has been updated
     PaletteChanged,
-    /// A UserVar has changed value
+    /// A `UserVar` has changed value
     SetUserVar {
         name: String,
         value: String,
@@ -149,8 +149,8 @@ impl Terminal {
         term_version: &str,
         // writing to the writer sends data to input of the pty
         writer: Box<dyn std::io::Write + Send>,
-    ) -> Terminal {
-        Terminal {
+    ) -> Self {
+        Self {
             state: TerminalState::new(size, config, term_program, term_version, writer),
             parser: Parser::new(),
         }

@@ -44,10 +44,9 @@ impl crate::sessioninner::SessionInner {
                 self.tx_event
                     .try_send(SessionEvent::HostVerify(HostVerificationEvent {
                         message: format!(
-                            "SSH host {}:{} is not yet trusted.\n\
-                                    Fingerprint: {}.\n\
-                                    Trust and continue connecting?",
-                            hostname, port, key
+                            "SSH host {hostname}:{port} is not yet trusted.\n\
+                                    Fingerprint: {key}.\n\
+                                    Trust and continue connecting?"
                         ),
                         reply,
                     }))
@@ -64,12 +63,10 @@ impl crate::sessioninner::SessionInner {
             }
             libssh_rs::KnownHosts::Changed => {
                 let mut file = None;
-                if let Some(kh) = self.config.get("userknownhostsfile") {
-                    for candidate in kh.split_whitespace() {
+                if let Some(kh) = self.config.get("userknownhostsfile")
+                    && let Some(candidate) = kh.split_whitespace().next() {
                         file.replace(candidate.into());
-                        break;
                     }
-                }
 
                 let failed = HostVerificationFailed {
                     remote_address: format!("{hostname}:{port}"),
@@ -111,7 +108,7 @@ impl crate::sessioninner::SessionInner {
             .get("userknownhostsfile")
             .unwrap()
             .split_whitespace()
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
 
         for file in known_hosts_files {
             let file = Path::new(&file);
@@ -121,7 +118,7 @@ impl crate::sessioninner::SessionInner {
             }
 
             known_hosts
-                .read_file(&file, ssh2::KnownHostFileKind::OpenSSH)
+                .read_file(file, ssh2::KnownHostFileKind::OpenSSH)
                 .with_context(|| format!("reading known_hosts file {}", file.display()))?;
 
             let (key, key_type) = sess
@@ -152,17 +149,16 @@ impl crate::sessioninner::SessionInner {
                 })
                 .ok_or_else(|| anyhow!("failed to get host fingerprint"))?;
 
-            match known_hosts.check_port(&remote_host_name, port, key) {
+            match known_hosts.check_port(remote_host_name, port, key) {
                 ssh2::CheckResult::Match => {}
                 ssh2::CheckResult::NotFound => {
                     let (reply, confirm) = bounded(1);
                     self.tx_event
                         .try_send(SessionEvent::HostVerify(HostVerificationEvent {
                             message: format!(
-                                "SSH host {} is not yet trusted.\n\
-                                {:?} Fingerprint: {}.\n\
-                                Trust and continue connecting?",
-                                remote_address, key_type, fingerprint
+                                "SSH host {remote_address} is not yet trusted.\n\
+                                {key_type:?} Fingerprint: {fingerprint}.\n\
+                                Trust and continue connecting?"
                             ),
                             reply,
                         }))
@@ -175,18 +171,18 @@ impl crate::sessioninner::SessionInner {
                         anyhow::bail!("user declined to trust host");
                     }
 
-                    let host_and_port = if port != 22 {
-                        format!("[{}]:{}", remote_host_name, port)
-                    } else {
+                    let host_and_port = if port == 22 {
                         remote_host_name.to_string()
+                    } else {
+                        format!("[{remote_host_name}]:{port}")
                     };
 
                     known_hosts
-                        .add(&host_and_port, key, &remote_address, key_type.into())
+                        .add(&host_and_port, key, remote_address, key_type.into())
                         .context("adding known_hosts entry in memory")?;
 
                     known_hosts
-                        .write_file(&file, ssh2::KnownHostFileKind::OpenSSH)
+                        .write_file(file, ssh2::KnownHostFileKind::OpenSSH)
                         .with_context(|| format!("writing known_hosts file {}", file.display()))?;
                 }
                 ssh2::CheckResult::Mismatch => {

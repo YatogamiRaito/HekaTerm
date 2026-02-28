@@ -10,7 +10,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 
-use libc::*;
+use libc::{c_uchar, c_ushort, c_uint, c_int, c_double, c_void, c_char};
 
 pub type FcChar8 = c_uchar;
 pub type FcChar16 = c_ushort;

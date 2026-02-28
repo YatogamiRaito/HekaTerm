@@ -1,10 +1,10 @@
 use super::keyboard::{Keyboard, KeyboardWithFallback};
 use crate::connection::ConnectionOps;
 use crate::os::x11::window::XWindowInner;
-use crate::os::x11::xsettings::*;
+use crate::os::x11::xsettings::{XSettingsMap, XSetting, read_xsettings};
 use crate::os::Connection;
 use crate::screen::{ScreenInfo, Screens};
-use crate::spawn::*;
+use crate::spawn::SPAWN_QUEUE;
 use crate::{Appearance, DeadKeyStatus, ScreenRect};
 use anyhow::{anyhow, bail, Context as _};
 use mio::event::Source;
@@ -185,7 +185,7 @@ fn get_wm_name(
         }))
         .context("GetProperty _NET_SUPPORTING_WM_CHECK")?;
 
-    let wm_window = match reply.value::<xcb::x::Window>().get(0) {
+    let wm_window = match reply.value::<xcb::x::Window>().first() {
         Some(w) => *w,
         None => anyhow::bail!("empty list of windows"),
     };
@@ -276,7 +276,7 @@ impl ConnectionOps for XConnection {
             .send_and_wait_request(&xcb::randr::GetScreenResourcesCurrent { window: self.root })
             .context("get_screen_resources_current")
         {
-            Ok(cur) if cur.outputs().len() > 0 => ScreenResources::Current(cur),
+            Ok(cur) if !cur.outputs().is_empty() => ScreenResources::Current(cur),
             _ => ScreenResources::All(
                 self.send_and_wait_request(&xcb::randr::GetScreenResources { window: self.root })
                     .context("get_screen_resources")?,
@@ -319,7 +319,7 @@ impl ConnectionOps for XConnection {
                         }
                         if m.htotal > 0 && vtotal > 0 {
                             Some(
-                                (m.dot_clock as f32 / (m.htotal as f32 * vtotal as f32)).ceil()
+                                (m.dot_clock as f32 / (f32::from(m.htotal) * f32::from(vtotal))).ceil()
                                     as usize,
                             )
                         } else {
@@ -425,7 +425,7 @@ impl ConnectionOps for XConnection {
                 if err.kind() == std::io::ErrorKind::Interrupted {
                     continue;
                 }
-                bail!("polling for events: {:?}", err);
+                bail!("polling for events: {err:?}");
             }
         }
 
@@ -439,12 +439,11 @@ impl ConnectionOps for XConnection {
 
 fn compute_default_dpi(xrm: &HashMap<String, String>, xsettings: &XSettingsMap) -> f64 {
     if let Some(XSetting::Integer(dpi)) = xsettings.get("Xft/DPI") {
-        *dpi as f64 / 1024.0
+        f64::from(*dpi) / 1024.0
     } else {
         xrm.get("Xft.dpi")
             .as_ref()
-            .map(|s| s.as_str())
-            .unwrap_or("96")
+            .map_or("96", |s| s.as_str())
             .parse::<f64>()
             .unwrap_or(crate::DEFAULT_DPI)
     }
@@ -459,17 +458,17 @@ impl XConnection {
         ) {
             Ok(settings) => {
                 if *self.xsettings.borrow() != settings {
-                    log::trace!("xsettings changed to {:?}", settings);
+                    log::trace!("xsettings changed to {settings:?}");
                     *self.xsettings.borrow_mut() = settings;
                 }
             }
             Err(err) => {
-                log::trace!("error reading xsettings: {:#}", err);
+                log::trace!("error reading xsettings: {err:#}");
             }
         }
 
         let xrm = crate::x11::xrm::parse_root_resource_manager(&self.conn, self.root)
-            .unwrap_or(HashMap::new());
+            .unwrap_or_default();
         *self.xrm.borrow_mut() = xrm;
 
         let dpi = compute_default_dpi(&self.xrm.borrow(), &self.xsettings.borrow());
@@ -503,9 +502,7 @@ impl XConnection {
             .poll_for_event()
             .context("X11 connection is broken")?
         {
-            if let Err(err) = self.process_xcb_event_ime(&event) {
-                return Err(err);
-            }
+            self.process_xcb_event_ime(&event)?;
         }
         self.conn.flush().context("flushing pending requests")?;
 
@@ -539,17 +536,20 @@ impl XConnection {
     }
 
     unsafe fn rewire_event(&self, raw_ev: *mut xcb::ffi::xcb_generic_event_t) {
-        let ev_type = ((*raw_ev).response_type & 0x7f) as i32;
+        unsafe {
+            let ev_type = i32::from((*raw_ev).response_type) & 0x7f;
 
-        if let Some(func) = xlib::XESetWireToEvent(self.conn.get_raw_dpy(), ev_type, None) {
-            xlib::XESetWireToEvent(self.conn.get_raw_dpy(), ev_type, Some(func));
-            (*raw_ev).sequence = xlib::XLastKnownRequestProcessed(self.conn.get_raw_dpy()) as u16;
-            let mut dummy: xlib::XEvent = std::mem::zeroed();
-            func(
-                self.conn.get_raw_dpy(),
-                &mut dummy as *mut xlib::XEvent,
-                raw_ev as *mut xlib::xEvent,
-            );
+            if let Some(func) = xlib::XESetWireToEvent(self.conn.get_raw_dpy(), ev_type, None) {
+                xlib::XESetWireToEvent(self.conn.get_raw_dpy(), ev_type, Some(func));
+                (*raw_ev).sequence =
+                    xlib::XLastKnownRequestProcessed(self.conn.get_raw_dpy()) as u16;
+                let mut dummy: xlib::XEvent = std::mem::zeroed();
+                func(
+                    self.conn.get_raw_dpy(),
+                    &raw mut dummy,
+                    raw_ev.cast::<xlib::xEvent>(),
+                );
+            }
         }
     }
 
@@ -579,10 +579,10 @@ impl XConnection {
             // and mailing thread starting here:
             // <http://lists.freedesktop.org/archives/xcb/2015-November/010556.html>
             xcb::Event::Dri2(dri2::Event::BufferSwapComplete(ev)) => unsafe {
-                self.rewire_event(ev.as_raw())
+                self.rewire_event(ev.as_raw());
             },
             xcb::Event::Dri2(dri2::Event::InvalidateBuffers(ev)) => unsafe {
-                self.rewire_event(ev.as_raw())
+                self.rewire_event(ev.as_raw());
             },
             xcb::Event::RandR(randr) => {
                 log::trace!("{randr:?}");
@@ -643,12 +643,11 @@ impl XConnection {
         if let Some(window) = self.window_by_id(window_id) {
             let mut inner = window.lock().unwrap();
             inner.dispatch_event(event)?;
-        } else if let Some(parent_id) = self.parent_id_by_child_id(window_id) {
-            if let Some(window) = self.window_by_id(parent_id) {
+        } else if let Some(parent_id) = self.parent_id_by_child_id(window_id)
+            && let Some(window) = self.window_by_id(parent_id) {
                 let mut inner = window.lock().unwrap();
                 inner.dispatch_event(event)?;
             }
-        }
         Ok(())
     }
 
@@ -661,7 +660,7 @@ impl XConnection {
         Ok(reply.atom())
     }
 
-    pub(crate) fn create_new() -> anyhow::Result<Rc<XConnection>> {
+    pub(crate) fn create_new() -> anyhow::Result<Rc<Self>> {
         let (conn, screen_num) = xcb::Connection::connect_with_xlib_display_and_extensions(
             &[xcb::Extension::Xkb],
             &[
@@ -697,7 +696,7 @@ impl XConnection {
         let atom_xdndactionprivate = Self::intern_atom(&conn, "XdndActionPrivate")?;
         let atom_gtk_edge_constraints = Self::intern_atom(&conn, "_GTK_EDGE_CONSTRAINTS")?;
         let atom_xsettings_selection =
-            Self::intern_atom(&conn, &format!("_XSETTINGS_S{}", screen_num))?;
+            Self::intern_atom(&conn, &format!("_XSETTINGS_S{screen_num}"))?;
         let atom_xsettings_settings = Self::intern_atom(&conn, "_XSETTINGS_SETTINGS")?;
         let atom_manager = Self::intern_atom(&conn, "MANAGER")?;
         let atom_state_maximized_vert = Self::intern_atom(&conn, "_NET_WM_STATE_MAXIMIZED_VERT")?;
@@ -739,7 +738,7 @@ impl XConnection {
         if visuals.is_empty() {
             bail!("no suitable visuals of depth 24 or 32 are available");
         }
-        visuals.sort_by(|(a_depth, _), (b_depth, _)| b_depth.cmp(&a_depth));
+        visuals.sort_by(|(a_depth, _), (b_depth, _)| b_depth.cmp(a_depth));
         let (depth, visual) = visuals[0];
         let visual = *visual;
 
@@ -779,24 +778,24 @@ impl XConnection {
         }
 
         let xrm =
-            crate::x11::xrm::parse_root_resource_manager(&conn, root).unwrap_or(HashMap::new());
+            crate::x11::xrm::parse_root_resource_manager(&conn, root).unwrap_or_default();
 
         let xsettings = read_xsettings(&conn, atom_xsettings_selection, atom_xsettings_settings)
             .unwrap_or_else(|err| {
-                log::trace!("Failed to read xsettings: {:#}", err);
+                log::trace!("Failed to read xsettings: {err:#}");
                 Default::default()
             });
-        log::trace!("xsettings are {:?}", xsettings);
+        log::trace!("xsettings are {xsettings:?}");
 
         let default_dpi = RefCell::new(compute_default_dpi(&xrm, &xsettings));
-        log::trace!("computed initial dpi: {:?}", default_dpi);
+        log::trace!("computed initial dpi: {default_dpi:?}");
 
         let input_style = match config::configuration().ime_preedit_rendering {
             config::ImePreeditRendering::Builtin => xcb_imdkit::InputStyle::PREEDIT_CALLBACKS,
             config::ImePreeditRendering::System => xcb_imdkit::InputStyle::DEFAULT,
         };
 
-        xcb_imdkit::ImeClient::set_logger(|msg| log::debug!("Ime: {}", msg));
+        xcb_imdkit::ImeClient::set_logger(|msg| log::debug!("Ime: {msg}"));
         let ime = unsafe {
             xcb_imdkit::ImeClient::unsafe_new(
                 &conn,
@@ -806,7 +805,7 @@ impl XConnection {
             )
         };
 
-        let conn = Rc::new(XConnection {
+        let conn = Rc::new(Self {
             conn,
             default_dpi,
             xsettings: RefCell::new(xsettings),
@@ -915,11 +914,10 @@ impl XConnection {
                 .ime
                 .borrow_mut()
                 .set_forward_event_cb(move |_win, e| {
-                    if let err @ Err(_) = conn.process_xcb_event(e) {
-                        if let Err(err) = conn.ime_process_event_result.replace(err) {
-                            log::warn!("IME process event error dropped: {}", err);
+                    if let err @ Err(_) = conn.process_xcb_event(e)
+                        && let Err(err) = conn.ime_process_event_result.replace(err) {
+                            log::warn!("IME process event error dropped: {err}");
                         }
-                    }
                 });
         }
 
@@ -962,28 +960,28 @@ impl XConnection {
 
     pub fn atom_name(&self, atom: Atom) -> String {
         if let Some(name) = self.atom_names.borrow().get(&atom) {
-            return name.to_string();
+            return name.clone();
         }
         let cookie = self.conn.send_request(&xcb::x::GetAtomName { atom });
         let name = if let Ok(reply) = self.conn.wait_for_reply(cookie) {
             reply.name().to_string()
         } else {
-            format!("{:?}", atom)
+            format!("{atom:?}")
         };
 
-        self.atom_names.borrow_mut().insert(atom, name.to_string());
+        self.atom_names.borrow_mut().insert(atom, name.clone());
         name
     }
 
-    pub fn conn(&self) -> &xcb::Connection {
+    pub const fn conn(&self) -> &xcb::Connection {
         &self.conn
     }
 
-    pub fn screen_num(&self) -> i32 {
+    pub const fn screen_num(&self) -> i32 {
         self.screen_num
     }
 
-    pub fn atom_delete(&self) -> Atom {
+    pub const fn atom_delete(&self) -> Atom {
         self.atom_delete
     }
 
@@ -1003,10 +1001,10 @@ impl XConnection {
         promise::spawn::spawn_into_main_thread(async move {
             if let Some(handle) = Connection::get().unwrap().x11().window_by_id(window) {
                 let mut inner = handle.lock().unwrap();
-                if inner.window_id != window {
-                    prom.result(Err(anyhow!("window {window:?} has been destroyed")));
-                } else {
+                if inner.window_id == window {
                     prom.result(f(&mut inner));
+                } else {
+                    prom.result(Err(anyhow!("window {window:?} has been destroyed")));
                 }
             }
         })

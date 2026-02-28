@@ -29,5 +29,5 @@ pub struct ConfigOption {
     /// TODO: For enum types, the set of possible values
     pub possible_values: &'static [&'static Value],
     /// TODO: For struct types, the fields in the child struct
-    pub fields: &'static [ConfigOption],
+    pub fields: &'static [Self],
 }

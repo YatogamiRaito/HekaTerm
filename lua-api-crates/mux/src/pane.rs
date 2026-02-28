@@ -1,4 +1,4 @@
-use super::*;
+use super::{mlua, FromDynamic, ToDynamic, impl_lua_conversion_dynamic, PaneId, Mux, Pane, get_mux, UserData, UserDataMethods, MuxWindow, MuxTab, CommandBuilderFrag, SpawnTabDomain, HandySplitDirection, spawn_tab_default_domain, SplitSource, SplitSize, SplitDirection, SplitRequest};
 use luahelper::mlua::LuaSerdeExt;
 use luahelper::{dynamic_to_lua_value, from_lua, to_lua};
 use mlua::Value;
@@ -14,7 +14,7 @@ use wezterm_term::{SemanticZone, StableRowIndex};
 pub struct MuxPane(pub PaneId);
 
 impl MuxPane {
-    pub fn resolve<'a>(&self, mux: &'a Arc<Mux>) -> mlua::Result<Arc<dyn Pane>> {
+    pub fn resolve(&self, mux: &Arc<Mux>) -> mlua::Result<Arc<dyn Pane>> {
         mux.get_pane(self.0)
             .ok_or_else(|| mlua::Error::external(format!("pane id {} not found in mux", self.0)))
     }
@@ -27,7 +27,7 @@ impl MuxPane {
         let first_row = zone.start_y;
         let last_row = zone.end_y;
 
-        fn cols_for_row(zone: &SemanticZone, row: StableRowIndex) -> std::ops::Range<usize> {
+        const fn cols_for_row(zone: &SemanticZone, row: StableRowIndex) -> std::ops::Range<usize> {
             if row < zone.start_y || row > zone.end_y {
                 0..0
             } else if zone.start_y == zone.end_y {
@@ -42,10 +42,10 @@ impl MuxPane {
                 0..zone.end_x.saturating_add(1)
             } else if row == zone.start_y {
                 // first line of multi-line
-                zone.start_x..usize::max_value()
+                zone.start_x..usize::MAX
             } else {
                 // some "middle" line of multi-line
-                0..usize::max_value()
+                0..usize::MAX
             }
         }
 
@@ -74,8 +74,7 @@ impl MuxPane {
                     last_was_wrapped = last_col_idx == last_phys_idx
                         && phys
                             .get_cell(last_col_idx)
-                            .map(|c| c.attrs().wrapped())
-                            .unwrap_or(false);
+                            .is_some_and(|c| c.attrs().wrapped());
                 }
             }
         }
@@ -86,12 +85,12 @@ impl MuxPane {
 
 impl UserData for MuxPane {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, _: ()| {
+        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, (): ()| {
             Ok(format!("MuxPane(pane_id:{}, pid:{})", this.0, unsafe {
                 libc::getpid()
             }))
         });
-        methods.add_method("pane_id", |_, this, _: ()| Ok(this.0));
+        methods.add_method("pane_id", |_, this, (): ()| Ok(this.0));
 
         methods.add_async_method("split", |_, this, args: Option<SplitPane>| async move {
             args.unwrap_or_default().run(this).await
@@ -101,7 +100,7 @@ impl UserData for MuxPane {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             pane.send_paste(&text)
-                .map_err(|e| mlua::Error::external(format!("{:#}", e)))?;
+                .map_err(|e| mlua::Error::external(format!("{e:#}")))?;
             Ok(())
         });
 
@@ -111,7 +110,7 @@ impl UserData for MuxPane {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             pane.send_paste(&text)
-                .map_err(|e| mlua::Error::external(format!("{:#}", e)))?;
+                .map_err(|e| mlua::Error::external(format!("{e:#}")))?;
             Ok(())
         });
 
@@ -120,16 +119,16 @@ impl UserData for MuxPane {
             let pane = this.resolve(&mux)?;
             pane.writer()
                 .write_all(text.as_bytes())
-                .map_err(|e| mlua::Error::external(format!("{:#}", e)))?;
+                .map_err(|e| mlua::Error::external(format!("{e:#}")))?;
             Ok(())
         });
-        methods.add_method("window", |_, this, _: ()| {
+        methods.add_method("window", |_, this, (): ()| {
             let mux = get_mux()?;
             Ok(mux
                 .resolve_pane_id(this.0)
                 .map(|(_domain_id, window_id, _tab_id)| MuxWindow(window_id)))
         });
-        methods.add_method("tab", |_, this, _: ()| {
+        methods.add_method("tab", |_, this, (): ()| {
             let mux = get_mux()?;
             Ok(mux
                 .resolve_pane_id(this.0)
@@ -138,22 +137,22 @@ impl UserData for MuxPane {
 
         // For backwards compatibility with prior releases when there
         // was a separate Gui-level PaneObject
-        methods.add_method("mux_pane", |_, this, _: ()| Ok(*this));
+        methods.add_method("mux_pane", |_, this, (): ()| Ok(*this));
 
-        methods.add_method("get_title", |_, this, _: ()| {
+        methods.add_method("get_title", |_, this, (): ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             Ok(pane.get_title())
         });
 
-        methods.add_method("get_progress", |lua, this, _: ()| {
+        methods.add_method("get_progress", |lua, this, (): ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             let progress = pane.get_progress();
             lua.to_value(&progress)
         });
 
-        methods.add_method("get_current_working_dir", |_, this, _: ()| {
+        methods.add_method("get_current_working_dir", |_, this, (): ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             Ok(pane
@@ -161,50 +160,50 @@ impl UserData for MuxPane {
                 .map(|url| Url { url }))
         });
 
-        methods.add_method("get_metadata", |lua, this, _: ()| {
+        methods.add_method("get_metadata", |lua, this, (): ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             let value = pane.get_metadata();
             dynamic_to_lua_value(lua, value)
         });
 
-        methods.add_method("get_foreground_process_name", |_, this, _: ()| {
+        methods.add_method("get_foreground_process_name", |_, this, (): ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             Ok(pane.get_foreground_process_name(CachePolicy::FetchImmediate))
         });
 
-        methods.add_method("get_foreground_process_info", |_, this, _: ()| {
+        methods.add_method("get_foreground_process_info", |_, this, (): ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             Ok(pane.get_foreground_process_info(CachePolicy::AllowStale))
         });
 
-        methods.add_method("get_cursor_position", |_, this, _: ()| {
+        methods.add_method("get_cursor_position", |_, this, (): ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             Ok(pane.get_cursor_position())
         });
 
-        methods.add_method("get_dimensions", |_, this, _: ()| {
+        methods.add_method("get_dimensions", |_, this, (): ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             Ok(pane.get_dimensions())
         });
 
-        methods.add_method("get_user_vars", |_, this, _: ()| {
+        methods.add_method("get_user_vars", |_, this, (): ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             Ok(pane.copy_user_vars())
         });
 
-        methods.add_method("has_unseen_output", |_, this, _: ()| {
+        methods.add_method("has_unseen_output", |_, this, (): ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             Ok(pane.has_unseen_output())
         });
 
-        methods.add_method("is_alt_screen_active", |_, this, _: ()| {
+        methods.add_method("is_alt_screen_active", |_, this, (): ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             Ok(pane.is_alt_screen_active())
@@ -274,7 +273,7 @@ impl UserData for MuxPane {
             },
         );
 
-        methods.add_method("get_domain_name", |_, this, _: ()| {
+        methods.add_method("get_domain_name", |_, this, (): ()| {
             let mux = get_mux()?;
             let pane = this.resolve(&mux)?;
             let mut name = None;
@@ -286,7 +285,7 @@ impl UserData for MuxPane {
             }
             match name {
                 Some(name) => Ok(name),
-                None => Ok("".to_string()),
+                None => Ok(String::new()),
             }
         });
 
@@ -310,7 +309,7 @@ impl UserData for MuxPane {
 
             let mut zones = pane
                 .get_semantic_zones()
-                .map_err(|e| mlua::Error::external(format!("{:#}", e)))?;
+                .map_err(|e| mlua::Error::external(format!("{e:#}")))?;
 
             if let Some(of_type) = of_type {
                 zones.retain(|zone| zone.semantic_type == of_type);
@@ -386,7 +385,7 @@ impl UserData for MuxPane {
             let (tab, window) = mux
                 .move_pane_to_new_tab(this.0, Some(window_id), None)
                 .await
-                .map_err(|e| mlua::Error::external(format!("{:#?}", e)))?;
+                .map_err(|e| mlua::Error::external(format!("{e:#?}")))?;
 
             Ok((MuxTab(tab.tab_id()), MuxWindow(window)))
         });
@@ -398,7 +397,7 @@ impl UserData for MuxPane {
                 let (tab, window) = mux
                     .move_pane_to_new_tab(this.0, None, workspace)
                     .await
-                    .map_err(|e| mlua::Error::external(format!("{:#?}", e)))?;
+                    .map_err(|e| mlua::Error::external(format!("{e:#?}")))?;
 
                 Ok((MuxTab(tab.tab_id()), MuxWindow(window)))
             },
@@ -451,7 +450,7 @@ struct SplitPane {
 }
 impl_lua_conversion_dynamic!(SplitPane);
 
-fn default_split_size() -> f32 {
+const fn default_split_size() -> f32 {
     0.5
 }
 
@@ -490,7 +489,7 @@ impl SplitPane {
         let (pane, _size) = mux
             .split_pane(pane.0, request, source, self.domain.clone())
             .await
-            .map_err(|e| mlua::Error::external(format!("{:#?}", e)))?;
+            .map_err(|e| mlua::Error::external(format!("{e:#?}")))?;
 
         Ok(MuxPane(pane.pane_id()))
     }

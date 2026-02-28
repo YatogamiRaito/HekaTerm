@@ -3,7 +3,7 @@ use crate::pane::mousestate::MouseState;
 use crate::pane::renderable::{hydrate_lines, RenderableInner, RenderableState};
 use anyhow::bail;
 use async_trait::async_trait;
-use codec::*;
+use codec::{Pdu, SetPaneZoomed, Resize, SearchScrollbackRequest, SearchScrollbackResponse, InputSerial, SendKeyDown, KillPane, EraseScrollbackRequest, SetFocusedPane, WriteToPane, SendPaste, SetPalette};
 use config::configuration;
 use config::keyassignment::ScrollbackEraseMode;
 use mux::domain::DomainId;
@@ -147,31 +147,27 @@ impl ClientPane {
                     .lock()
                     .inner
                     .borrow_mut()
-                    .apply_changes_to_surface(delta, bonus_lines);
+                    .apply_changes_to_surface(*delta, bonus_lines);
             }
-            Pdu::SetClipboard(SetClipboard {
-                clipboard,
-                selection,
-                ..
-            }) => match self.clipboard.lock().as_ref() {
+            Pdu::SetClipboard(p) => match self.clipboard.lock().as_ref() {
                 Some(clip) => {
                     log::debug!(
                         "Pdu::SetClipboard pane={} remote={} {:?} {:?}",
                         self.local_pane_id,
                         self.remote_pane_id,
-                        selection,
-                        clipboard
+                        p.selection,
+                        p.clipboard
                     );
-                    clip.set_contents(selection, clipboard)?;
+                    clip.set_contents(p.selection, p.clipboard.clone())?;
                 }
                 None => {
-                    log::error!("ClientPane: Ignoring SetClipboard request {:?}", clipboard);
+                    log::error!("ClientPane: Ignoring SetClipboard request {:?}", p.clipboard);
                 }
             },
-            Pdu::SetPalette(SetPalette { palette, .. }) => {
-                *self.application_palette.lock() = palette != *self.configured_palette.lock();
+            Pdu::SetPalette(p) => {
+                *self.application_palette.lock() = p.palette != *self.configured_palette.lock();
 
-                *self.palette.lock() = palette;
+                *self.palette.lock() = p.palette.clone();
                 let mux = Mux::get();
                 self.renderable.lock().inner.borrow_mut().make_all_stale();
                 mux.notify(MuxNotification::Alert {
@@ -179,7 +175,8 @@ impl ClientPane {
                     alert: Alert::PaletteChanged,
                 });
             }
-            Pdu::NotifyAlert(NotifyAlert { alert, .. }) => {
+            Pdu::NotifyAlert(p) => {
+                let alert = &p.alert;
                 let mux = Mux::get();
                 match &alert {
                     Alert::SetUserVar { name, value } => {
@@ -203,18 +200,18 @@ impl ClientPane {
                 }
                 mux.notify(MuxNotification::Alert {
                     pane_id: self.local_pane_id,
-                    alert,
+                    alert: alert.clone(),
                 });
             }
-            Pdu::PaneRemoved(PaneRemoved { pane_id }) => {
-                log::trace!("remote pane {} has been removed", pane_id);
+            Pdu::PaneRemoved(p) => {
+                log::trace!("remote pane {} has been removed", p.pane_id);
                 self.renderable.lock().inner.borrow_mut().dead = true;
                 let mux = Mux::get();
                 mux.prune_dead_windows();
 
                 self.client.expire_stale_mappings();
             }
-            Pdu::PaneFocused(PaneFocused { pane_id }) => {
+            Pdu::PaneFocused(p) => {
                 // We get here whenever the pane focus is changed on the
                 // server. That might be due to the user here in the GUI
                 // doing things, or it may be due to a "remote"
@@ -224,26 +221,26 @@ impl ClientPane {
                 // for the focus change to be reflected locally after it
                 // has been changed on the server, so we work to apply
                 // it here.
-                log::trace!("advised of remote pane focus: {pane_id}");
+                log::trace!("advised of remote pane focus: {}", p.pane_id);
 
                 let mux = Mux::get();
                 if let Err(err) = mux.focus_pane_and_containing_tab(self.local_pane_id) {
                     log::error!("Error reconciling remote PaneFocused notification: {err:#}");
                 }
             }
-            _ => bail!("unhandled unilateral pdu: {:?}", pdu),
-        };
+            _ => bail!("unhandled unilateral pdu: {pdu:?}"),
+        }
         Ok(())
     }
 
-    pub fn remote_pane_id(&self) -> TabId {
+    pub const fn remote_pane_id(&self) -> TabId {
         self.remote_pane_id
     }
 
-    /// Arrange to suppress the next Pane::kill call.
+    /// Arrange to suppress the next `Pane::kill` call.
     /// This is a bit of a hack that we use when closing a window;
-    /// our Domain::local_window_is_closing impl calls this for each
-    /// ClientPane in the window so that closing a window effectively
+    /// our `Domain::local_window_is_closing` impl calls this for each
+    /// `ClientPane` in the window so that closing a window effectively
     /// "detaches" the window so that reconnecting later will resume
     /// from where they left off.
     /// It isn't perfect.
@@ -390,8 +387,8 @@ impl Pane for ClientPane {
         let render = self.renderable.lock();
         let mut inner = render.inner.borrow_mut();
 
-        let cols = size.cols as usize;
-        let rows = size.rows as usize;
+        let cols = size.cols;
+        let rows = size.rows;
 
         if inner.dimensions.cols != cols
             || inner.dimensions.viewport_rows != rows
@@ -501,11 +498,10 @@ impl Pane for ClientPane {
 
         {
             let mux = Mux::get();
-            if let Some(client_domain) = mux.get_domain(local_domain_id) {
-                if client_domain.state() == mux::domain::DomainState::Detached {
+            if let Some(client_domain) = mux.get_domain(local_domain_id)
+                && client_domain.state() == mux::domain::DomainState::Detached {
                     send_kill = false;
                 }
-            }
         }
 
         if send_kill {
@@ -652,7 +648,7 @@ impl std::io::Write for PaneWriter {
             pane_id: self.remote_pane_id,
             data: data.to_vec(),
         }))
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e)))?;
+        .map_err(|e| std::io::Error::other(format!("{e}")))?;
         Ok(data.len())
     }
 

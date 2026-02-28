@@ -1,9 +1,9 @@
-use crate::allocate::*;
+use crate::allocate::{BTreeMap, ToString, String, Vec};
 use crate::osc::{base64_decode, base64_encode};
 use core::fmt::{Display, Error as FmtError, Formatter};
 
 fn get<'a>(keys: &BTreeMap<&str, &'a str>, k: &str) -> Option<&'a str> {
-    keys.get(k).map(|&s| s)
+    keys.get(k).copied()
 }
 
 fn geti<T: core::str::FromStr>(keys: &BTreeMap<&str, &str>, k: &str) -> Option<T> {
@@ -48,10 +48,10 @@ pub enum KittyImageData {
     },
 
     /// The name of a shared memory object.
-    /// Can be opened via shm_open() and then should be removed
-    /// via shm_unlink().
-    /// On Windows, OpenFileMapping(), MapViewOfFile(), UnmapViewOfFile()
-    /// and CloseHandle() are used to access and release the data.
+    /// Can be opened via `shm_open()` and then should be removed
+    /// via `shm_unlink()`.
+    /// On Windows, `OpenFileMapping()`, `MapViewOfFile()`, `UnmapViewOfFile()`
+    /// and `CloseHandle()` are used to access and release the data.
     /// t='s'
     SharedMem {
         name: String,
@@ -110,17 +110,17 @@ impl KittyImageData {
         match t {
             "d" => Some(Self::Direct(String::from_utf8(payload.to_vec()).ok()?)),
             "f" => Some(Self::File {
-                path: String::from_utf8(base64_decode(payload.to_vec()).ok()?).ok()?,
+                path: String::from_utf8(base64_decode(payload).ok()?).ok()?,
                 data_size: geti(keys, "S"),
                 data_offset: geti(keys, "O"),
             }),
             "t" => Some(Self::TemporaryFile {
-                path: String::from_utf8(base64_decode(payload.to_vec()).ok()?).ok()?,
+                path: String::from_utf8(base64_decode(payload).ok()?).ok()?,
                 data_size: geti(keys, "S"),
                 data_offset: geti(keys, "O"),
             }),
             "s" => Some(Self::SharedMem {
-                name: String::from_utf8(base64_decode(payload.to_vec()).ok()?).ok()?,
+                name: String::from_utf8(base64_decode(payload).ok()?).ok()?,
                 data_size: geti(keys, "S"),
                 data_offset: geti(keys, "O"),
             }),
@@ -131,7 +131,7 @@ impl KittyImageData {
     fn to_keys(&self, keys: &mut BTreeMap<&'static str, String>) {
         match self {
             Self::Direct(d) => {
-                keys.insert("payload", d.to_string());
+                keys.insert("payload", d.clone());
             }
             Self::DirectBin(d) => {
                 keys.insert("payload", base64_encode(d));
@@ -142,7 +142,7 @@ impl KittyImageData {
                 data_size,
             } => {
                 keys.insert("t", "f".to_string());
-                keys.insert("payload", base64_encode(&path));
+                keys.insert("payload", base64_encode(path));
                 set(keys, "S", data_size);
                 set(keys, "S", data_offset);
             }
@@ -152,7 +152,7 @@ impl KittyImageData {
                 data_size,
             } => {
                 keys.insert("t", "t".to_string());
-                keys.insert("payload", base64_encode(&path));
+                keys.insert("payload", base64_encode(path));
                 set(keys, "S", data_size);
                 set(keys, "S", data_offset);
             }
@@ -162,7 +162,7 @@ impl KittyImageData {
                 data_size,
             } => {
                 keys.insert("t", "s".to_string());
-                keys.insert("payload", base64_encode(&name));
+                keys.insert("payload", base64_encode(name));
                 set(keys, "S", data_size);
                 set(keys, "S", data_offset);
             }
@@ -197,12 +197,10 @@ impl KittyImageData {
         }
 
         match self {
-            Self::Direct(data) => base64_decode(data).or_else(|err| {
-                Err(std::io::Error::new(
+            Self::Direct(data) => base64_decode(data).map_err(|err| std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     format!("base64 decode: {err:#}"),
-                ))
-            }),
+                )),
             Self::DirectBin(bin) => Ok(bin),
             Self::File {
                 path,
@@ -226,11 +224,10 @@ impl KittyImageData {
                         return true;
                     }
 
-                    if let Ok(t) = std::env::var("TMPDIR") {
-                        if p.starts_with(&t) {
+                    if let Ok(t) = std::env::var("TMPDIR")
+                        && p.starts_with(&t) {
                             return true;
                         }
-                    }
 
                     false
                 }
@@ -238,16 +235,13 @@ impl KittyImageData {
                 if looks_like_temp_path(&path) {
                     if let Err(err) = std::fs::remove_file(&path) {
                         log::error!(
-                            "Unable to remove kitty image protocol temporary file {}: {:#}",
-                            path,
-                            err
+                            "Unable to remove kitty image protocol temporary file {path}: {err:#}"
                         );
                     }
                 } else {
                     log::warn!(
-                        "kitty image protocol temporary file {} isn't in a known \
-                                temporary directory; won't try to remove it",
-                        path
+                        "kitty image protocol temporary file {path} isn't in a known \
+                                temporary directory; won't try to remove it"
                     );
                 }
 
@@ -279,9 +273,8 @@ fn read_shared_memory_data(
     )
     .map_err(|_| {
         let err = std::io::Error::last_os_error();
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("shm_open {} failed: {:#}", name, err),
+        std::io::Error::other(
+            format!("shm_open {name} failed: {err:#}"),
         )
     })?;
     let mut f = File::from(fd);
@@ -300,9 +293,7 @@ fn read_shared_memory_data(
 
     if let Err(err) = shm_unlink(name) {
         log::warn!(
-            "Unable to unlink kitty image protocol shm file {}: {:#}",
-            name,
-            err
+            "Unable to unlink kitty image protocol shm file {name}: {err:#}"
         );
     }
     Ok(data)
@@ -450,7 +441,7 @@ impl KittyImageVerbosity {
         }
     }
 
-    fn to_keys(&self, keys: &mut BTreeMap<&'static str, String>) {
+    fn to_keys(self, keys: &mut BTreeMap<&'static str, String>) {
         match self {
             Self::Verbose => {}
             Self::OnlyErrors => {
@@ -600,7 +591,7 @@ pub struct KittyImagePlacement {
     /// r=...
     pub rows: Option<u32>,
     /// By default, cursor will move to after the bottom right
-    /// cell of the image placement.  do_not_move_cursor cursor
+    /// cell of the image placement.  `do_not_move_cursor` cursor
     /// set to true prevents that.
     /// C=0, C=1
     pub do_not_move_cursor: bool,
@@ -660,9 +651,9 @@ pub enum KittyImageDelete {
     /// Delete all placements on visible screen
     All { delete: bool },
     /// d='i' or d='I'
-    /// Delete all images with specified image_id.
-    /// If placement_id is specified, then both image_id
-    /// and placement_id must match
+    /// Delete all images with specified `image_id`.
+    /// If `placement_id` is specified, then both `image_id`
+    /// and `placement_id` must match
     ByImageId {
         image_id: u32,
         placement_id: Option<u32>,
@@ -670,7 +661,7 @@ pub enum KittyImageDelete {
     },
     /// d='n' or d='N'
     /// Delete newest image with specified image number.
-    /// If placement_id is specified, then placement_id
+    /// If `placement_id` is specified, then `placement_id`
     /// must also match.
     ByImageNumber {
         image_number: u32,
@@ -843,7 +834,7 @@ pub struct KittyImageFrameCompose {
 
     /// 1-based number of the frame which should be the base
     /// data for the new frame being created.
-    /// If omitted, use background_pixel to specify color.
+    /// If omitted, use `background_pixel` to specify color.
     /// c=...
     pub target_frame: Option<u32>,
 
@@ -877,7 +868,7 @@ pub struct KittyImageFrameCompose {
     pub src_y: Option<u32>,
 
     /// Composition mode.
-    /// Default is AlphaBlending
+    /// Default is `AlphaBlending`
     /// C=...
     pub composition_mode: KittyFrameCompositionMode,
 }
@@ -938,7 +929,7 @@ pub struct KittyImageFrame {
 
     /// 1-based number of the frame which should be the base
     /// data for the new frame being created.
-    /// If omitted, use background_pixel to specify color.
+    /// If omitted, use `background_pixel` to specify color.
     /// c=...
     pub base_frame: Option<u32>,
 
@@ -953,7 +944,7 @@ pub struct KittyImageFrame {
     pub duration_ms: Option<u32>,
 
     /// Composition mode.
-    /// Default is AlphaBlending
+    /// Default is `AlphaBlending`
     /// X=...
     pub composition_mode: KittyFrameCompositionMode,
 
@@ -1046,7 +1037,8 @@ pub enum KittyImage {
 }
 
 impl KittyImage {
-    pub fn verbosity(&self) -> KittyImageVerbosity {
+    #[must_use] 
+    pub const fn verbosity(&self) -> KittyImageVerbosity {
         match self {
             Self::TransmitData { verbosity, .. } => *verbosity,
             Self::Query { .. } => KittyImageVerbosity::Verbose,
@@ -1058,6 +1050,7 @@ impl KittyImage {
         }
     }
 
+    #[must_use] 
     pub fn parse_apc(data: &[u8]) -> Option<Self> {
         if data.is_empty() || data[0] != b'G' {
             return None;
@@ -1067,9 +1060,9 @@ impl KittyImage {
         let key_string = core::str::from_utf8(keys).ok()?;
         let mut keys: BTreeMap<&str, &str> = BTreeMap::new();
         for k_v in key_string.split(',') {
-            let mut k_v = k_v.splitn(2, '=');
-            let k = k_v.next()?;
-            let v = k_v.next()?;
+            let (k, v) = k_v.split_once('=')?;
+            
+            
             keys.insert(k, v);
         }
 
@@ -1193,12 +1186,12 @@ impl Display for KittyImage {
                     write!(f, ",")?;
                 }
 
-                write!(f, "{}={}", k, v)?;
+                write!(f, "{k}={v}")?;
             }
         }
 
         if let Some(p) = payload {
-            write!(f, ";{}", p)?;
+            write!(f, ";{p}")?;
         }
 
         Ok(())

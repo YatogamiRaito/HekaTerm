@@ -83,7 +83,7 @@ impl ITerm2 {
 
         // Look for metadata encoded in comments(!)
         for line in s.lines() {
-            let fields = line.splitn(2, ":").collect::<Vec<_>>();
+            let fields = line.splitn(2, ':').collect::<Vec<_>>();
             if fields.len() == 2 {
                 let k = fields[0].trim().to_ascii_lowercase();
                 let v = fields[1].trim();
@@ -142,9 +142,9 @@ impl ITerm2 {
         })
     }
 
-    pub fn load_file<P: AsRef<Path>>(path: P) -> anyhow::Result<ColorSchemeFile>
+    pub fn load_file<P>(path: P) -> anyhow::Result<ColorSchemeFile>
     where
-        P: std::fmt::Debug,
+        P: AsRef<Path> + std::fmt::Debug,
     {
         let data = std::fs::read_to_string(&path).context(format!("read file {path:?}"))?;
 

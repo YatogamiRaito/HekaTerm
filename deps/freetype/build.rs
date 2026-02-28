@@ -162,7 +162,7 @@ fn freetype() {
     )
     .unwrap();
 
-    for f in [
+    for f in &[
         "autofit/autofit.c",
         "base/ftbase.c",
         "base/ftbbox.c",
@@ -208,9 +208,8 @@ fn freetype() {
         "type42/type42.c",
         "winfonts/winfnt.c",
     ]
-    .iter()
     {
-        cfg.file(format!("freetype2/src/{}", f));
+        cfg.file(format!("freetype2/src/{f}"));
     }
 
     if target.contains("windows") {
@@ -233,7 +232,7 @@ fn freetype() {
 
 fn git_submodule_update() {
     let _ = std::process::Command::new("git")
-        .args(&["submodule", "update", "--init"])
+        .args(["submodule", "update", "--init"])
         .status();
 }
 
@@ -242,6 +241,6 @@ fn main() {
     libpng();
     freetype();
     let out_dir = env::var("OUT_DIR").unwrap();
-    println!("cargo:outdir={}", out_dir);
+    println!("cargo:outdir={out_dir}");
     println!("cargo:rustc-env=MACOSX_DEPLOYMENT_TARGET=10.12");
 }

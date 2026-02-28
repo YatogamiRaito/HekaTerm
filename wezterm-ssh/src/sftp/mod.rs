@@ -9,10 +9,10 @@ use std::convert::TryInto;
 use std::io;
 use thiserror::Error;
 
-pub(crate) mod dir;
-pub(crate) mod error;
-pub(crate) mod file;
-pub(crate) mod types;
+pub mod dir;
+pub mod error;
+pub mod file;
+pub mod types;
 
 fn into_invalid_data<E>(err: E) -> io::Error
 where
@@ -177,8 +177,8 @@ impl Sftp {
                 reply,
             )))
             .await?;
-        let result = rx.recv().await??;
-        Ok(result)
+        rx.recv().await??;
+        Ok(())
     }
 
     /// Remove a directory from the remote filesystem.
@@ -194,8 +194,8 @@ impl Sftp {
                 reply,
             )))
             .await?;
-        let result = rx.recv().await??;
-        Ok(result)
+        rx.recv().await??;
+        Ok(())
     }
 
     /// Get the metadata for a file, performed by stat(2).
@@ -248,8 +248,8 @@ impl Sftp {
                 reply,
             )))
             .await?;
-        let result = rx.recv().await??;
-        Ok(result)
+        rx.recv().await??;
+        Ok(())
     }
 
     /// Create symlink at `target` pointing at `path`.
@@ -270,8 +270,8 @@ impl Sftp {
                 reply,
             )))
             .await?;
-        let result = rx.recv().await??;
-        Ok(result)
+        rx.recv().await??;
+        Ok(())
     }
 
     /// Read a symlink at `path`.
@@ -332,8 +332,8 @@ impl Sftp {
                 reply,
             )))
             .await?;
-        let result = rx.recv().await??;
-        Ok(result)
+        rx.recv().await??;
+        Ok(())
     }
 
     /// Remove a file on the remote filesystem.
@@ -349,13 +349,13 @@ impl Sftp {
                 reply,
             )))
             .await?;
-        let result = rx.recv().await??;
-        Ok(result)
+        rx.recv().await??;
+        Ok(())
     }
 }
 
 #[derive(Debug)]
-pub(crate) enum SftpRequest {
+pub enum SftpRequest {
     OpenWithMode(OpenWithMode, Sender<SftpChannelResult<File>>),
     OpenDir(Utf8PathBuf, Sender<SftpChannelResult<Dir>>),
     ReadDir(
@@ -379,31 +379,31 @@ pub(crate) enum SftpRequest {
 }
 
 #[derive(Debug)]
-pub(crate) struct OpenWithMode {
+pub struct OpenWithMode {
     pub filename: Utf8PathBuf,
     pub opts: OpenOptions,
 }
 
 #[derive(Debug)]
-pub(crate) struct CreateDir {
+pub struct CreateDir {
     pub filename: Utf8PathBuf,
     pub mode: i32,
 }
 
 #[derive(Debug)]
-pub(crate) struct SetMetadata {
+pub struct SetMetadata {
     pub filename: Utf8PathBuf,
     pub metadata: Metadata,
 }
 
 #[derive(Debug)]
-pub(crate) struct Symlink {
+pub struct Symlink {
     pub path: Utf8PathBuf,
     pub target: Utf8PathBuf,
 }
 
 #[derive(Debug)]
-pub(crate) struct Rename {
+pub struct Rename {
     pub src: Utf8PathBuf,
     pub dst: Utf8PathBuf,
     pub opts: RenameOptions,

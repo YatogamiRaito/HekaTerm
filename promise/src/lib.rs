@@ -2,7 +2,7 @@ use anyhow::Error;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
-use thiserror::*;
+use thiserror::Error;
 
 pub mod spawn;
 
@@ -32,6 +32,7 @@ impl<T> Default for Promise<T> {
 }
 
 impl<T> Promise<T> {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             core: Arc::new(Mutex::new(Core {
@@ -74,6 +75,7 @@ impl<T: Send + 'static> Future<T> {
 
     /// Create a leaf future which is immediately ready with
     /// the provided error
+    #[must_use] 
     pub fn err(err: Error) -> Self {
         Self::result(Err(err))
     }

@@ -2,15 +2,15 @@ use crate::bidi_class::BidiClass;
 use crate::level::{Level, MAX_DEPTH};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) enum Override {
+pub enum Override {
     Neutral,
-    LTR,
-    RTL,
+    Ltr,
+    Rtl,
 }
 
 /// An implementation of the stack/STATUSSTACKELEMENT from bidiref
 #[derive(Debug)]
-pub(crate) struct LevelStack {
+pub struct LevelStack {
     embedding_level: [Level; MAX_DEPTH],
     override_status: [Override; MAX_DEPTH],
     isolate_status: [bool; MAX_DEPTH],
@@ -28,7 +28,7 @@ impl LevelStack {
         }
     }
 
-    pub fn depth(&self) -> usize {
+    pub const fn depth(&self) -> usize {
         self.depth
     }
 
@@ -38,11 +38,7 @@ impl LevelStack {
             return;
         }
         log::trace!(
-            "pushing level={:?} override={:?} isolate={} at depth={}",
-            level,
-            override_status,
-            isolate_status,
-            depth
+            "pushing level={level:?} override={override_status:?} isolate={isolate_status} at depth={depth}"
         );
         self.embedding_level[depth] = level;
         self.override_status[depth] = override_status;
@@ -50,29 +46,29 @@ impl LevelStack {
         self.depth += 1;
     }
 
-    pub fn pop(&mut self) {
+    pub const fn pop(&mut self) {
         if self.depth > 0 {
             self.depth -= 1;
         }
     }
 
-    pub fn embedding_level(&self) -> Level {
+    pub const fn embedding_level(&self) -> Level {
         self.embedding_level[self.depth - 1]
     }
 
-    pub fn override_status(&self) -> Override {
+    pub const fn override_status(&self) -> Override {
         self.override_status[self.depth - 1]
     }
 
-    pub fn apply_override(&self, bc: &mut BidiClass) {
+    pub const fn apply_override(&self, bc: &mut BidiClass) {
         match self.override_status() {
-            Override::LTR => *bc = BidiClass::LeftToRight,
-            Override::RTL => *bc = BidiClass::RightToLeft,
+            Override::Ltr => *bc = BidiClass::LeftToRight,
+            Override::Rtl => *bc = BidiClass::RightToLeft,
             Override::Neutral => {}
         }
     }
 
-    pub fn isolate_status(&self) -> bool {
+    pub const fn isolate_status(&self) -> bool {
         self.isolate_status[self.depth - 1]
     }
 }

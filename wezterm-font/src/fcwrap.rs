@@ -1,5 +1,4 @@
 //! Slightly higher level helper for fontconfig
-#![allow(clippy::mutex_atomic)]
 
 use anyhow::{anyhow, ensure, Error};
 use config::{FontStretch, FontWeight};
@@ -57,7 +56,7 @@ impl<'a> Iterator for FontSetIter<'a> {
 }
 
 impl FontSet {
-    pub fn iter(&self) -> FontSetIter<'_> {
+    pub const fn iter(&self) -> FontSetIter<'_> {
         FontSetIter {
             set: self,
             position: 0,
@@ -73,7 +72,7 @@ pub enum MatchKind {
 pub struct FcResultWrap(FcResult);
 
 impl FcResultWrap {
-    pub fn succeeded(&self) -> bool {
+    pub const fn succeeded(&self) -> bool {
         self.0 == FcResultMatch
     }
 
@@ -188,11 +187,11 @@ pub struct Pattern {
 }
 
 impl Pattern {
-    pub fn new() -> Result<Pattern, Error> {
+    pub fn new() -> Result<Self, Error> {
         unsafe {
             let p = FcPatternCreate();
             ensure!(!p.is_null(), "FcPatternCreate failed");
-            Ok(Pattern { pat: p })
+            Ok(Self { pat: p })
         }
     }
 
@@ -237,9 +236,7 @@ impl Pattern {
         unsafe {
             ensure!(
                 FcPatternAddString(self.pat, key.as_ptr(), value.as_ptr() as *const u8) != 0,
-                "failed to add string property {:?} -> {:?}",
-                key,
-                value
+                "failed to add string property {key:?} -> {value:?}"
             );
             Ok(())
         }
@@ -251,9 +248,7 @@ impl Pattern {
         unsafe {
             ensure!(
                 FcPatternAddDouble(self.pat, key.as_ptr(), value) != 0,
-                "failed to set double property {:?} -> {}",
-                key,
-                value
+                "failed to set double property {key:?} -> {value}"
             );
             Ok(())
         }
@@ -264,9 +259,7 @@ impl Pattern {
         unsafe {
             ensure!(
                 FcPatternAddInteger(self.pat, key.as_ptr(), value) != 0,
-                "failed to set integer property {:?} -> {}",
-                key,
-                value
+                "failed to set integer property {key:?} -> {value}"
             );
             Ok(())
         }
@@ -303,11 +296,11 @@ impl Pattern {
         }
     }
 
-    pub fn render_prepare(&self, pat: &Pattern) -> Result<Pattern, Error> {
+    pub fn render_prepare(&self, pat: &Self) -> Result<Self, Error> {
         unsafe {
             let pat = FcFontRenderPrepare(ptr::null_mut(), self.pat, pat.pat);
             ensure!(!pat.is_null(), "failed to prepare pattern");
-            Ok(Pattern { pat })
+            Ok(Self { pat })
         }
     }
 
@@ -357,7 +350,7 @@ impl Pattern {
             if !res.succeeded() {
                 Err(res.as_err())
             } else {
-                Ok(Pattern { pat: best })
+                Ok(Self { pat: best })
             }
         }
     }
@@ -484,7 +477,7 @@ pub fn to_fc_weight(weight: FontWeight) -> c_int {
     }
 }
 
-pub fn to_fc_width(stretch: FontStretch) -> c_int {
+pub const fn to_fc_width(stretch: FontStretch) -> c_int {
     match stretch {
         FontStretch::UltraCondensed => FC_WIDTH_ULTRACONDENSED,
         FontStretch::ExtraCondensed => FC_WIDTH_EXTRACONDENSED,

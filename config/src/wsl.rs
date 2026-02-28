@@ -16,7 +16,8 @@ pub struct WslDomain {
 impl_lua_conversion_dynamic!(WslDomain);
 
 impl WslDomain {
-    pub fn default_domains() -> Vec<WslDomain> {
+    #[must_use] 
+    pub const fn default_domains() -> Vec<Self> {
         #[allow(unused_mut)]
         let mut domains = vec![];
 
@@ -59,20 +60,19 @@ impl WslDistro {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::ensure!(
             output.status.success(),
-            "wsl -l command invocation failed: {}",
-            stderr
+            "wsl -l command invocation failed: {stderr}"
         );
 
-        /// Ungh: https://github.com/microsoft/WSL/issues/4456
+        /// Ungh: <https://github.com/microsoft/WSL/issues/4456>
         fn utf16_to_utf8(bytes: &[u8]) -> anyhow::Result<String> {
-            if bytes.len() % 2 != 0 {
+            if !bytes.len().is_multiple_of(2) {
                 anyhow::bail!("input data has odd length, cannot be utf16");
             }
 
             // This is "safe" because we checked that the length seems reasonable,
             // and our new slice is within those same bounds.
             let wide: &[u16] = unsafe {
-                std::slice::from_raw_parts(bytes.as_ptr() as *const u16, bytes.len() / 2)
+                std::slice::from_raw_parts(bytes.as_ptr().cast::<u16>(), bytes.len() / 2)
             };
 
             String::from_utf16(wide).map_err(|_| anyhow!("wsl -l -v output is not valid utf16"))
@@ -128,7 +128,7 @@ fn parse_wsl_distro_list(output: &str) -> Vec<WslDistro> {
 
         while let Some(start_idx) = iter.next() {
             let end_idx = iter.peek().copied();
-            let label = field_slice(&lines[0], start_idx, end_idx).trim();
+            let label = field_slice(lines[0], start_idx, end_idx).trim();
             field_map.insert(label, (start_idx, end_idx));
         }
     }
@@ -141,10 +141,10 @@ fn parse_wsl_distro_list(output: &str) -> Vec<WslDistro> {
             continue;
         }
 
-        let is_default = line.starts_with("*");
+        let is_default = line.starts_with('*');
 
         let mut fields = HashMap::new();
-        for (label, (start_idx, end_idx)) in field_map.iter() {
+        for (label, (start_idx, end_idx)) in &field_map {
             if let Some(value) = opt_field_slice(line, *start_idx, *end_idx) {
                 fields.insert(*label, value.trim().to_string());
             } else {

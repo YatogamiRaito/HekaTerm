@@ -34,7 +34,7 @@ impl TerminfoRenderer {
     }
 
     fn get_capability<'a, T: TermInfoCapability<'a>>(&'a self) -> Option<T> {
-        self.caps.terminfo_db().and_then(|db| db.get::<T>())
+        self.caps.terminfo_db().and_then(terminfo::Database::get::<T>)
     }
 
     fn attr_apply<F: FnOnce(&mut CellAttributes)>(&mut self, func: F) {
@@ -227,11 +227,11 @@ impl TerminfoRenderer {
             if self.caps.hyperlinks() {
                 if let Some(link) = attr.hyperlink() {
                     let osc = OperatingSystemCommand::SetHyperlink(Some((**link).clone()));
-                    write!(out, "{}", osc)?;
+                    write!(out, "{osc}")?;
                 } else if self.current_attr.hyperlink().is_some() {
                     // Close out the old hyperlink
                     let osc = OperatingSystemCommand::SetHyperlink(None);
-                    write!(out, "{}", osc)?;
+                    write!(out, "{osc}")?;
                 }
             }
 
@@ -307,12 +307,11 @@ impl TerminfoRenderer {
         y: u32,
         out: &mut W,
     ) -> Result<()> {
-        if x == 0 && y == 0 {
-            if let Some(attr) = self.get_capability::<cap::CursorHome>() {
+        if x == 0 && y == 0
+            && let Some(attr) = self.get_capability::<cap::CursorHome>() {
                 attr.expand().to(out.by_ref())?;
                 return Ok(());
             }
-        }
 
         if let Some(attr) = self.get_capability::<cap::CursorAddress>() {
             // terminfo expansion automatically converts coordinates to 1-based,
@@ -333,7 +332,7 @@ impl TerminfoRenderer {
         Ok(())
     }
 
-    #[allow(clippy::cyclomatic_complexity, clippy::cognitive_complexity)]
+    #[allow(clippy::cognitive_complexity, clippy::cognitive_complexity)]
     pub fn render_to<W: RenderTty + Write>(
         &mut self,
         changes: &[Change],
@@ -592,7 +591,7 @@ impl TerminfoRenderer {
                             // The whole image is requested, so we can send the
                             // original image bytes over
                             match &*image.image.data() {
-                                ImageDataType::EncodedFile(data) => data.to_vec(),
+                                ImageDataType::EncodedFile(data) => data.clone(),
                                 ImageDataType::EncodedLease(lease) => lease.get_data()?,
                                 ImageDataType::AnimRgba8 { .. } | ImageDataType::Rgba8 { .. } => {
                                     unimplemented!()
@@ -619,7 +618,7 @@ impl TerminfoRenderer {
                             Box::new(file),
                         ));
 
-                        write!(out, "{}", osc)?;
+                        write!(out, "{osc}")?;
 
                     // TODO: } else if self.caps.sixel() {
                     } else {
@@ -642,8 +641,8 @@ impl TerminfoRenderer {
                     region_size,
                     scroll_count,
                 } => {
-                    if *region_size > 0 {
-                        if let Some(csr) = self.get_capability::<cap::ChangeScrollRegion>() {
+                    if *region_size > 0
+                        && let Some(csr) = self.get_capability::<cap::ChangeScrollRegion>() {
                             let top = *first_row as u32;
                             let bottom = (*first_row + *region_size - 1) as u32;
                             let scroll_count = *scroll_count as u32;
@@ -665,15 +664,14 @@ impl TerminfoRenderer {
                                 }
                             }
                         }
-                    }
                 }
                 Change::ScrollRegionDown {
                     first_row,
                     region_size,
                     scroll_count,
                 } => {
-                    if *region_size > 0 {
-                        if let Some(csr) = self.get_capability::<cap::ChangeScrollRegion>() {
+                    if *region_size > 0
+                        && let Some(csr) = self.get_capability::<cap::ChangeScrollRegion>() {
                             let top = *first_row as u32;
                             let bottom = (*first_row + *region_size - 1) as u32;
                             let scroll_count = *scroll_count as u32;
@@ -695,12 +693,11 @@ impl TerminfoRenderer {
                                 }
                             }
                         }
-                    }
                 }
 
                 Change::Title(text) => {
-                    let osc = OperatingSystemCommand::SetWindowTitle(text.to_string());
-                    write!(out, "{}", osc)?;
+                    let osc = OperatingSystemCommand::SetWindowTitle(text.clone());
+                    write!(out, "{osc}")?;
                 }
 
                 Change::LineAttribute(attr) => {
@@ -737,7 +734,7 @@ mod test {
     use crate::terminal::unix::{Purge, SetAttributeWhen, UnixTty};
     use crate::terminal::{cast, ScreenSize, Terminal, TerminalWaker};
     use libc::winsize;
-    use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Write};
+    use std::io::{Error as IoError, Read, Result as IoResult, Write};
     use std::mem;
     use std::time::Duration;
     use terminfo;
@@ -793,17 +790,17 @@ mod test {
 
     impl UnixTty for FakeTty {
         fn get_size(&mut self) -> Result<winsize> {
-            Ok(self.size.clone())
+            Ok(self.size)
         }
         fn set_size(&mut self, size: winsize) -> Result<()> {
-            self.size = size.clone();
+            self.size = size;
             Ok(())
         }
         fn get_termios(&mut self) -> Result<Termios> {
-            Ok(self.termios.clone())
+            Ok(self.termios)
         }
         fn set_termios(&mut self, termios: &Termios, _when: SetAttributeWhen) -> Result<()> {
-            self.termios = termios.clone();
+            self.termios = *termios;
             Ok(())
         }
         /// Waits until all written data has been transmitted.
@@ -817,7 +814,7 @@ mod test {
 
     impl Read for FakeTty {
         fn read(&mut self, _buf: &mut [u8]) -> std::result::Result<usize, IoError> {
-            Err(IoError::new(ErrorKind::Other, "not implemented"))
+            Err(IoError::other("not implemented"))
         }
     }
     impl Write for FakeTty {
@@ -1265,7 +1262,7 @@ mod test {
             result,
             vec![
                 Action::CSI(CSI::Sgr(Sgr::Foreground(
-                    ColorSpec::TrueColor((255, 128, 64).into()).into(),
+                    ColorSpec::TrueColor((255, 128, 64).into()),
                 ))),
                 Action::Print('A'),
             ]
@@ -1288,7 +1285,7 @@ mod test {
             result,
             vec![
                 Action::CSI(CSI::Sgr(Sgr::Foreground(
-                    ColorSpec::TrueColor((255, 128, 64).into()).into(),
+                    ColorSpec::TrueColor((255, 128, 64).into()),
                 ))),
                 Action::Print('A'),
             ]

@@ -31,7 +31,7 @@ impl DataDeviceHandler for WaylandState {
         let data = match self.data_device {
             Some(ref dv) if dv.inner() == data_device => dv.data(),
             _ => {
-                log::warn!("No existing device manager for {:?}", data_device);
+                log::warn!("No existing device manager for {data_device:?}");
                 return;
             }
         };
@@ -40,9 +40,7 @@ impl DataDeviceHandler for WaylandState {
 
         offer.with_mime_types(|mime_types| {
             log::trace!(
-                "Data offer entered: {:?}, mime_types: {:?}",
-                offer,
-                mime_types
+                "Data offer entered: {offer:?}, mime_types: {mime_types:?}"
             );
 
             if let Some(mime) = mime_types.iter().find(|s| *s == URI_MIME_TYPE) {

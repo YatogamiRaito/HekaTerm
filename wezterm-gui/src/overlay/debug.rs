@@ -11,13 +11,11 @@ use std::sync::Mutex;
 use termwiz::cell::{AttributeChange, CellAttributes, Intensity};
 use termwiz::color::AnsiColor;
 use termwiz::input::{InputEvent, KeyCode, KeyEvent};
-use termwiz::lineedit::*;
+use termwiz::lineedit::{BasicHistory, History, LineEditorHost, LineEditor, Action, OutputElement};
 use termwiz::surface::Change;
 use termwiz::terminal::Terminal;
 
-lazy_static::lazy_static! {
-    static ref LATEST_LOG_ENTRY: Mutex<Option<DateTime<Local>>> = Mutex::new(None);
-}
+static LATEST_LOG_ENTRY: std::sync::LazyLock<Mutex<Option<DateTime<Local>>>> = std::sync::LazyLock::new(|| Mutex::new(None));
 
 struct LuaReplHost {
     history: BasicHistory,
@@ -44,19 +42,18 @@ impl LuaReplHost {
             return;
         }
 
-        if let Some(last) = self.history.last() {
-            if self.history.get(last).as_deref() == Some(line) {
+        if let Some(last) = self.history.last()
+            && self.history.get(last).as_deref() == Some(line) {
                 // Don't add duplicate lines
                 return;
             }
-        }
         self.history.add(line);
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .append(true)
             .create(true)
             .open(history_file_name())
         {
-            writeln!(file, "{}", line).ok();
+            writeln!(file, "{line}").ok();
         }
     }
 }
@@ -67,26 +64,23 @@ fn format_lua_err(err: mlua::Error) -> String {
             incomplete_input: true,
             ..
         } => "...".to_string(),
-        _ => format!("{:#}", err),
+        _ => format!("{err:#}"),
     }
 }
 
 fn fragment_to_expr_or_statement(lua: &mlua::Lua, text: &str) -> Result<String, String> {
-    let expr = format!("return {};", text);
+    let expr = format!("return {text};");
 
     let chunk = lua.load(&expr).set_name("=repl");
-    match chunk.into_function() {
-        Ok(_) => {
-            // It's an expression
-            Ok(text.to_string())
-        }
-        Err(_) => {
-            // Try instead as a statement
-            let chunk = lua.load(text).set_name("=repl");
-            match chunk.into_function() {
-                Ok(_) => Ok(text.to_string()),
-                Err(err) => Err(format_lua_err(err)),
-            }
+    if chunk.into_function().is_ok() {
+        // It's an expression
+        Ok(text.to_string())
+    } else {
+        // Try instead as a statement
+        let chunk = lua.load(text).set_name("=repl");
+        match chunk.into_function() {
+            Ok(_) => Ok(text.to_string()),
+            Err(err) => Err(format_lua_err(err)),
         }
     }
 }
@@ -121,7 +115,7 @@ impl LineEditorHost for LuaReplHost {
         let mut preview = vec![];
 
         if let Err(err) = fragment_to_expr_or_statement(&self.lua, line) {
-            preview.push(OutputElement::Text(err))
+            preview.push(OutputElement::Text(err));
         }
 
         preview
@@ -159,12 +153,11 @@ pub fn show_debug_overlay(
         let entries = env_bootstrap::ringlog::get_entries();
         let mut changes = vec![];
         for entry in entries {
-            if let Some(latest) = LATEST_LOG_ENTRY.lock().unwrap().as_ref() {
-                if entry.then <= *latest {
+            if let Some(latest) = LATEST_LOG_ENTRY.lock().unwrap().as_ref()
+                && entry.then <= *latest {
                     // already seen this one
                     continue;
                 }
-            }
             LATEST_LOG_ENTRY.lock().unwrap().replace(entry.then);
 
             changes.push(Change::AllAttributes(CellAttributes::default()));
@@ -187,7 +180,7 @@ pub fn show_debug_overlay(
             changes.push(Change::AllAttributes(CellAttributes::default()));
             changes.push(Change::Text(format!(
                 " > {}\r\n",
-                entry.msg.replace("\n", "\r\n")
+                entry.msg.replace('\n', "\r\n")
             )));
         }
         term.render(&changes)
@@ -223,14 +216,14 @@ pub fn show_debug_overlay(
                     evaluate_trampoline(passed_host, line)
                         .recv()
                         .await
-                        .map_err(|e| mlua::Error::external(format!("{:#}", e)))
+                        .map_err(|e| mlua::Error::external(format!("{e:#}")))
                         .expect("returning result not to fail")
                 }));
 
             host.replace(host_res);
 
             if text != "nil" {
-                term.render(&[Change::Text(format!("{}\r\n", text.replace("\n", "\r\n")))])?;
+                term.render(&[Change::Text(format!("{}\r\n", text.replace('\n', "\r\n")))])?;
             }
         } else {
             return Ok(());
@@ -263,18 +256,18 @@ async fn evaluate(host: LuaReplHost, expr: String) -> (LuaReplHost, String) {
         };
         let chunk = host.lua.load(&code).set_name("repl");
 
-        let result = chunk
+        
+
+        chunk
             .eval_async::<Value>()
             .map(|result| match result {
                 Ok(result) => {
                     let value = ValuePrinter(result);
-                    format!("{:#?}", value)
+                    format!("{value:#?}")
                 }
                 Err(err) => format_lua_err(err),
             })
-            .await;
-
-        result
+            .await
     }
 
     let result = do_it(&host, &expr).await;

@@ -19,7 +19,7 @@ fn gen_class() -> anyhow::Result<()> {
     impl Entry {
         fn parse(line: &str) -> anyhow::Result<Option<Self>> {
             let line = line.trim();
-            if line.starts_with("#") || line.is_empty() {
+            if line.starts_with('#') || line.is_empty() {
                 return Ok(None);
             }
             let fields: Vec<&str> = line.split(';').collect();
@@ -36,7 +36,7 @@ fn gen_class() -> anyhow::Result<()> {
             let bidi_class = fields[0].trim().to_string();
             let comment = fields[1].trim().to_string();
 
-            Ok(Some(Entry {
+            Ok(Some(Self {
                 start,
                 end,
                 bidi_class,
@@ -97,7 +97,7 @@ pub enum BidiClass {{
         f,
         "pub const BIDI_CLASS: &'static [(char, char, BidiClass)] = &["
     )?;
-    for entry in entries.into_iter() {
+    for entry in entries {
         writeln!(
             f,
             "  ('{}', '{}', {}), // {}",
@@ -127,7 +127,7 @@ pub enum BidiClass {{
                 "RLO" => "BidiClass::RightToLeftOverride",
                 "S" => "BidiClass::SegmentSeparator",
                 "WS" => "BidiClass::WhiteSpace",
-                bad => panic!("invalid BidiClass {}", bad),
+                bad => panic!("invalid BidiClass {bad}"),
             },
             entry.comment
         )?;
@@ -152,7 +152,7 @@ fn gen_brackets() -> anyhow::Result<()> {
     impl Entry {
         fn parse(line: &str) -> anyhow::Result<Option<Self>> {
             let line = line.trim();
-            if line.starts_with("#") || line.is_empty() {
+            if line.starts_with('#') || line.is_empty() {
                 return Ok(None);
             }
             let fields: Vec<&str> = line.split(';').collect();
@@ -167,7 +167,7 @@ fn gen_brackets() -> anyhow::Result<()> {
                 .with_context(|| fields[0].to_string())?;
             let comment = fields[1].trim().to_string();
 
-            Ok(Some(Entry {
+            Ok(Some(Self {
                 code_point,
                 bidi_paired_bracket,
                 bidi_paired_bracket_type,
@@ -200,7 +200,7 @@ fn gen_brackets() -> anyhow::Result<()> {
         f,
         "pub const BIDI_BRACKETS: &'static [(char, char, BracketType)] = &["
     )?;
-    for entry in entries.into_iter() {
+    for entry in entries {
         writeln!(
             f,
             "  ('{}', '{}', {}), // {}",
@@ -211,7 +211,7 @@ fn gen_brackets() -> anyhow::Result<()> {
             match entry.bidi_paired_bracket_type {
                 'o' => "BracketType::Open",
                 'c' => "BracketType::Close",
-                bad => panic!("invalid BracketType {}", bad),
+                bad => panic!("invalid BracketType {bad}"),
             },
             entry.comment
         )?;

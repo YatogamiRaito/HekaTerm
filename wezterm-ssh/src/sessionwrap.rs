@@ -3,18 +3,18 @@ use crate::sftpwrap::SftpWrap;
 use filedescriptor::{AsRawSocketDescriptor, SocketDescriptor, POLLIN, POLLOUT};
 
 #[cfg(feature = "ssh2")]
-pub(crate) struct Ssh2Session {
+pub struct Ssh2Session {
     pub sess: ssh2::Session,
     pub sftp: Option<SftpWrap>,
 }
 
 #[cfg(feature = "libssh-rs")]
-pub(crate) struct LibSshSession {
+pub struct LibSshSession {
     pub sess: libssh_rs::Session,
     pub sftp: Option<SftpWrap>,
 }
 
-pub(crate) enum SessionWrap {
+pub enum SessionWrap {
     #[cfg(feature = "ssh2")]
     Ssh2(Ssh2Session),
 
@@ -24,12 +24,12 @@ pub(crate) enum SessionWrap {
 
 impl SessionWrap {
     #[cfg(feature = "ssh2")]
-    pub fn with_ssh2(sess: ssh2::Session) -> Self {
+    pub const fn with_ssh2(sess: ssh2::Session) -> Self {
         Self::Ssh2(Ssh2Session { sess, sftp: None })
     }
 
     #[cfg(feature = "libssh-rs")]
-    pub fn with_libssh(sess: libssh_rs::Session) -> Self {
+    pub const fn with_libssh(sess: libssh_rs::Session) -> Self {
         Self::LibSsh(LibSshSession { sess, sftp: None })
     }
 

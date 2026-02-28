@@ -96,11 +96,10 @@ impl Compose {
                     // for the next keypress
 
                     self.state.feed(xsym);
-                    if self.state.status() == ComposeStatus::Composed {
-                        if let Some(s) = self.state.utf8() {
+                    if self.state.status() == ComposeStatus::Composed
+                        && let Some(s) = self.state.utf8() {
                             self.composition = s;
                         }
-                    }
 
                     self.state.reset();
                     self.state.feed(xsym);
@@ -320,8 +319,7 @@ impl KeyboardWithFallback {
             match selected_feed {
                 FeedResult::Composing(composition) => {
                     log::trace!(
-                        "process_key_event: RawKeyEvent FeedResult::Composing: {:?}",
-                        composition
+                        "process_key_event: RawKeyEvent FeedResult::Composing: {composition:?}"
                     );
                     events.dispatch(WindowEvent::AdviseDeadKeyStatus(DeadKeyStatus::Composing(
                         composition,
@@ -426,13 +424,9 @@ impl KeyboardWithFallback {
 
         let kc = match kc {
             Some(kc) => kc,
-            None => match keysym_to_keycode(ksym.into()).or_else(|| keysym_to_keycode(xsym.into()))
-            {
-                Some(kc) => kc,
-                None => {
-                    log::trace!("keysym_to_keycode for {:?} and {:?} -> None", ksym, xsym);
-                    return None;
-                }
+            None => if let Some(kc) = keysym_to_keycode(ksym.into()).or_else(|| keysym_to_keycode(xsym.into())) { kc } else {
+                log::trace!("keysym_to_keycode for {ksym:?} and {xsym:?} -> None");
+                return None;
             },
         };
 
@@ -506,7 +500,7 @@ impl KeyboardWithFallback {
         connection: &xcb::Connection,
         event: &xcb::Event,
     ) -> anyhow::Result<Option<(Modifiers, KeyboardLedStatus)>> {
-        let before = self.selected.mods_leds.borrow().clone();
+        let before = *self.selected.mods_leds.borrow();
 
         match event {
             xcb::Event::Xkb(xcb::xkb::Event::StateNotify(e)) => {
@@ -521,11 +515,11 @@ impl KeyboardWithFallback {
         }
 
         let after = (self.get_key_modifiers(), self.get_led_status());
-        if after != before {
-            *self.selected.mods_leds.borrow_mut() = after.clone();
-            Ok(Some(after))
-        } else {
+        if after == before {
             Ok(None)
+        } else {
+            *self.selected.mods_leds.borrow_mut() = after;
+            Ok(Some(after))
         }
     }
 
@@ -573,7 +567,7 @@ impl Keyboard {
 
         let table =
             xkb::compose::Table::new_from_locale(&context, locale, xkb::compose::COMPILE_NO_FLAGS)
-                .map_err(|_| anyhow!("Failed to acquire compose table from locale"))?;
+                .map_err(|()| anyhow!("Failed to acquire compose table from locale"))?;
         let compose_state = xkb::compose::State::new(&table, xkb::compose::STATE_NO_FLAGS);
 
         let phys_code_map = build_physkeycode_map(&keymap);
@@ -611,7 +605,7 @@ impl Keyboard {
 
         let table =
             xkb::compose::Table::new_from_locale(&context, locale, xkb::compose::COMPILE_NO_FLAGS)
-                .map_err(|_| anyhow!("Failed to acquire compose table from locale"))?;
+                .map_err(|()| anyhow!("Failed to acquire compose table from locale"))?;
         let compose_state = xkb::compose::State::new(&table, xkb::compose::STATE_NO_FLAGS);
 
         let phys_code_map = build_physkeycode_map(&keymap);
@@ -634,18 +628,18 @@ impl Keyboard {
         })
     }
 
-    pub fn new(connection: &xcb::Connection) -> anyhow::Result<(Keyboard, u8)> {
+    pub fn new(connection: &xcb::Connection) -> anyhow::Result<(Self, u8)> {
         let first_ev = xcb::xkb::get_extension_data(connection)
             .ok_or_else(|| anyhow!("could not get xkb extension data"))?
             .first_event;
 
         let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
-        let device_id = xkb::x11::get_core_keyboard_device_id(&connection);
+        let device_id = xkb::x11::get_core_keyboard_device_id(connection);
         ensure!(device_id != -1, "Couldn't find core keyboard device");
 
         let keymap = xkb::x11::keymap_new_from_device(
             &context,
-            &connection,
+            connection,
             device_id,
             xkb::KEYMAP_COMPILE_NO_FLAGS,
         );
@@ -656,7 +650,7 @@ impl Keyboard {
 
         let table =
             xkb::compose::Table::new_from_locale(&context, locale, xkb::compose::COMPILE_NO_FLAGS)
-                .map_err(|_| anyhow!("Failed to acquire compose table from locale"))?;
+                .map_err(|()| anyhow!("Failed to acquire compose table from locale"))?;
         let compose_state = xkb::compose::State::new(&table, xkb::compose::STATE_NO_FLAGS);
 
         {
@@ -687,7 +681,7 @@ impl Keyboard {
         let phys_code_map = build_physkeycode_map(&keymap);
         let label = "selected";
 
-        let kbd = Keyboard {
+        let kbd = Self {
             context,
             device_id,
             keymap: RefCell::new(keymap),
@@ -713,7 +707,7 @@ impl Keyboard {
             .key_repeats(xkb::Keycode::new(code + 8))
     }
 
-    pub fn get_device_id(&self) -> i32 {
+    pub const fn get_device_id(&self) -> i32 {
         self.device_id
     }
 
@@ -768,7 +762,7 @@ impl Keyboard {
     }
 
     pub fn merge_current_xcb_modifiers(&self, mods: ModMask) {
-        let state = self.last_xcb_state.borrow().clone();
+        let state = *self.last_xcb_state.borrow();
         log::trace!(
             "merge_current_xcb_modifiers({}); state before={state:?}, mods={mods:?}",
             self.label
@@ -784,7 +778,7 @@ impl Keyboard {
     }
 
     pub fn reapply_last_xcb_state(&self) {
-        let state = self.last_xcb_state.borrow().clone();
+        let state = *self.last_xcb_state.borrow();
         self.state.borrow_mut().update_mask(
             state.depressed_mods,
             state.latched_mods,
@@ -800,7 +794,7 @@ impl Keyboard {
 
         let new_keymap = xkb::x11::keymap_new_from_device(
             &self.context,
-            &connection,
+            connection,
             self.get_device_id(),
             xkb::KEYMAP_COMPILE_NO_FLAGS,
         );

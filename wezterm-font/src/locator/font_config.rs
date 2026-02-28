@@ -80,8 +80,7 @@ impl FontLocator for FontConfigFontLocator {
                 index,
                 variation,
                 origin: match_name
-                    .map(FontOrigin::FontConfigMatch)
-                    .unwrap_or(FontOrigin::FontConfig),
+                    .map_or(FontOrigin::FontConfig, FontOrigin::FontConfigMatch),
                 coverage: pat.get_charset().ok().map(|c| c.to_range_set()),
             })
         }
@@ -107,7 +106,7 @@ impl FontLocator for FontConfigFontLocator {
                             }
                         }
                     }
-                    Err(err) => log::trace!("while searching for {:?}: {:#}", attr, err),
+                    Err(err) => log::trace!("while searching for {attr:?}: {err:#}"),
                 }
             }
 
@@ -164,7 +163,7 @@ impl FontLocator for FontConfigFontLocator {
         &self,
         codepoints: &[char],
     ) -> anyhow::Result<Vec<ParsedFont>> {
-        log::trace!("locate_fallback_for_codepoints: {:?}", codepoints);
+        log::trace!("locate_fallback_for_codepoints: {codepoints:?}");
         let mut fonts: Vec<ParsedFont> = vec![];
 
         // In <https://github.com/wezterm/wezterm/issues/4310> we discover
@@ -221,7 +220,7 @@ impl FontLocator for FontConfigFontLocator {
                         pattern.add_integer("spacing", spacing)?;
                         lists.push(
                             pattern.list().with_context(|| {
-                                format!("pattern.list with spacing={}", spacing)
+                                format!("pattern.list with spacing={spacing}")
                             })?,
                         );
                     }
@@ -232,8 +231,7 @@ impl FontLocator for FontConfigFontLocator {
                         let num = pat.charset_intersect_count(&charset)?;
                         if num == 0 {
                             log::error!(
-                                "Skipping bogus font-config result {:?} because it doesn't overlap",
-                                pat
+                                "Skipping bogus font-config result {pat:?} because it doesn't overlap"
                             );
                             continue;
                         }
@@ -290,7 +288,7 @@ impl FontLocator for FontConfigFontLocator {
                 &mut fonts,
                 FontOrigin::FontConfig,
             ) {
-                log::warn!("While parsing: {:?}: {:#}", source, err);
+                log::warn!("While parsing: {source:?}: {err:#}");
             }
         }
         fonts.sort();

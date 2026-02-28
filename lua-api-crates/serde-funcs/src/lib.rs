@@ -80,7 +80,7 @@ fn toml_decode(lua: &Lua, text: String) -> mlua::Result<LuaValue<'_>> {
     json_value_to_lua_value(lua, value)
 }
 
-fn json_value_to_lua_value<'lua>(lua: &'lua Lua, value: JValue) -> mlua::Result<LuaValue<'lua>> {
+fn json_value_to_lua_value(lua: &Lua, value: JValue) -> mlua::Result<LuaValue<'_>> {
     Ok(match value {
         JValue::Null => LuaValue::Nil,
         JValue::Bool(b) => LuaValue::Boolean(b),
@@ -97,15 +97,15 @@ fn json_value_to_lua_value<'lua>(lua: &'lua Lua, value: JValue) -> mlua::Result<
         },
         JValue::String(s) => s.into_lua(lua)?,
         JValue::Array(arr) => {
-            let tbl = lua.create_table_with_capacity(arr.len() as usize, 0)?;
+            let tbl = lua.create_table_with_capacity(arr.len(), 0)?;
             for (idx, value) in arr.into_iter().enumerate() {
                 tbl.set(idx + 1, json_value_to_lua_value(lua, value)?)?;
             }
             LuaValue::Table(tbl)
         }
         JValue::Object(map) => {
-            let tbl = lua.create_table_with_capacity(0, map.len() as usize)?;
-            for (key, value) in map.into_iter() {
+            let tbl = lua.create_table_with_capacity(0, map.len())?;
+            for (key, value) in map {
                 let key = key.into_lua(lua)?;
                 let value = json_value_to_lua_value(lua, value)?;
                 tbl.set(key, value)?;
@@ -189,13 +189,12 @@ fn lua_value_to_json_value(value: LuaValue, visited: &mut HashSet<usize>) -> mlu
                             })
                         }
                     }
-                } else {
-                    return Err(mlua::Error::FromLuaConversionError {
-                        from: "userdata",
-                        to: "wezterm_dynamic::Value",
-                        message: Some(format!("no __wezterm_to_dynamic metadata")),
-                    });
                 }
+                return Err(mlua::Error::FromLuaConversionError {
+                    from: "userdata",
+                    to: "wezterm_dynamic::Value",
+                    message: Some("no __wezterm_to_dynamic metadata".to_string()),
+                });
             }
             Err(err) => {
                 return Err(mlua::Error::FromLuaConversionError {
@@ -230,7 +229,7 @@ fn lua_value_to_json_value(value: LuaValue, visited: &mut HashSet<usize>) -> mlu
         }
         LuaValue::Error(e) => return Err(e),
         LuaValue::Table(table) => {
-            if let Ok(true) = table.contains_key(1) {
+            if matches!(table.contains_key(1), Ok(true)) {
                 let mut array = vec![];
                 let pairs = table.clone();
                 for value in table.sequence_values() {
@@ -257,7 +256,7 @@ fn lua_value_to_json_value(value: LuaValue, visited: &mut HashSet<usize>) -> mlu
                     }
                 }
 
-                JValue::Array(array.into())
+                JValue::Array(array)
             } else {
                 let mut obj = Map::default();
                 for pair in table.pairs::<LuaValue, LuaValue>() {
@@ -283,7 +282,7 @@ fn lua_value_to_json_value(value: LuaValue, visited: &mut HashSet<usize>) -> mlu
                     })?;
                     obj.insert(key, value);
                 }
-                JValue::Object(obj.into())
+                JValue::Object(obj)
             }
         }
     })

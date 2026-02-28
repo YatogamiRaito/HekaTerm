@@ -4,7 +4,7 @@ use anyhow::{ensure, Result as Fallible};
 use guillotiere::{SimpleAtlasAllocator, Size as AtlasSize};
 use std::convert::TryInto;
 use std::rc::Rc;
-use thiserror::*;
+use thiserror::Error;
 
 const PADDING: i32 = 1;
 
@@ -16,7 +16,7 @@ pub struct OutOfTextureSpace {
 }
 
 /// Atlases are bitmaps of srgba data that are sized as a power of 2.
-/// We allocate sprites out of the available space, using AtlasAllocator
+/// We allocate sprites out of the available space, using `AtlasAllocator`
 /// to manage the available rectangles.
 pub struct Atlas {
     texture: Rc<dyn Texture2d>,
@@ -50,6 +50,7 @@ impl Atlas {
     }
 
     #[inline]
+    #[must_use] 
     pub fn texture(&self) -> Rc<dyn Texture2d> {
         Rc::clone(&self.texture)
     }
@@ -126,7 +127,8 @@ impl Atlas {
         res
     }
 
-    pub fn size(&self) -> usize {
+    #[must_use] 
+    pub const fn size(&self) -> usize {
         self.side
     }
 
@@ -166,6 +168,7 @@ impl Clone for Sprite {
 
 impl Sprite {
     /// Returns the texture coordinates of the sprite
+    #[must_use] 
     pub fn texture_coords(&self) -> TextureRect {
         self.texture.to_texture_coords(self.coords)
     }

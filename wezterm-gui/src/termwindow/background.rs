@@ -16,10 +16,8 @@ use std::time::SystemTime;
 use termwiz::image::{ImageData, ImageDataType};
 use wezterm_term::StableRowIndex;
 
-lazy_static::lazy_static! {
-    static ref IMAGE_CACHE: Mutex<HashMap<String, CachedImage>> = Mutex::new(HashMap::new());
-    static ref GRADIENT_CACHE: Mutex<Vec<CachedGradient>> = Mutex::new(vec![]);
-}
+static IMAGE_CACHE: std::sync::LazyLock<Mutex<HashMap<String, CachedImage>>> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+static GRADIENT_CACHE: std::sync::LazyLock<Mutex<Vec<CachedGradient>>> = std::sync::LazyLock::new(|| Mutex::new(vec![]));
 
 struct CachedGradient {
     g: Gradient,
@@ -33,11 +31,11 @@ impl CachedGradient {
     fn compute(g: &Gradient, width: u32, height: u32) -> anyhow::Result<Arc<ImageData>> {
         let grad = g
             .build()
-            .with_context(|| format!("building gradient {:?}", g))?;
+            .with_context(|| format!("building gradient {g:?}"))?;
 
         let mut imgbuf = image::RgbaImage::new(width, height);
-        let fw = width as f64;
-        let fh = height as f64;
+        let fw = f64::from(width);
+        let fh = f64::from(height);
 
         fn to_pixel(c: colorgrad::Color) -> image::Rgba<u8> {
             image::Rgba(c.to_rgba8())
@@ -45,7 +43,7 @@ impl CachedGradient {
 
         // Map t which is in range [a, b] to range [c, d]
         fn remap(t: f64, a: f64, b: f64, c: f64, d: f64) -> f64 {
-            (t - a) * ((d - c) / (b - a)) + c
+            (t - a).mul_add((d - c) / (b - a), c)
         }
 
         let (dmin, dmax) = grad.domain();
@@ -57,7 +55,7 @@ impl CachedGradient {
         // visible color banding.  The default 64 was selected
         // because it it was the smallest value on my mac where
         // the banding wasn't obvious.
-        let noise_amount = g.noise.unwrap_or_else(|| {
+        let noise_amount = g.noise.unwrap_or({
             if matches!(g.orientation, GradientOrientation::Radial { .. }) {
                 16
             } else {
@@ -69,7 +67,7 @@ impl CachedGradient {
             if noise_amount == 0 {
                 0.
             } else {
-                rng.usize(0..noise_amount) as f64 * -1.
+                -(rng.usize(0..noise_amount) as f64)
             }
         }
 
@@ -77,7 +75,7 @@ impl CachedGradient {
             GradientOrientation::Horizontal => {
                 for (x, _, pixel) in imgbuf.enumerate_pixels_mut() {
                     *pixel = to_pixel(grad.at(remap(
-                        x as f64 + noise(&mut rng, noise_amount),
+                        f64::from(x) + noise(&mut rng, noise_amount),
                         0.0,
                         fw,
                         dmin,
@@ -88,7 +86,7 @@ impl CachedGradient {
             GradientOrientation::Vertical => {
                 for (_, y, pixel) in imgbuf.enumerate_pixels_mut() {
                     *pixel = to_pixel(grad.at(remap(
-                        y as f64 + noise(&mut rng, noise_amount),
+                        f64::from(y) + noise(&mut rng, noise_amount),
                         0.0,
                         fh,
                         dmin,
@@ -99,9 +97,9 @@ impl CachedGradient {
             GradientOrientation::Linear { angle } => {
                 let angle = angle.unwrap_or(0.0).to_radians();
                 for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
-                    let (x, y) = (x as f64, y as f64);
+                    let (x, y) = (f64::from(x), f64::from(y));
                     let (x, y) = (x - fw / 2., y - fh / 2.);
-                    let t = x * f64::cos(angle) - y * f64::sin(angle);
+                    let t = x.mul_add(f64::cos(angle), -(y * f64::sin(angle)));
                     *pixel = to_pixel(grad.at(remap(
                         t + noise(&mut rng, noise_amount),
                         -fw / 2.,
@@ -117,8 +115,8 @@ impl CachedGradient {
                 let cy = fh * cy.unwrap_or(0.5);
 
                 for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
-                    let x = x as f64;
-                    let y = y as f64;
+                    let x = f64::from(x);
+                    let y = f64::from(y);
 
                     // If we are close to the center, stop applying noise,
                     // as the noise can wrap around and start using the
@@ -134,7 +132,7 @@ impl CachedGradient {
                         noise(&mut rng, noise_amount)
                     };
 
-                    let t = (nx + (x - cx).powi(2) + (ny + y - cy).powi(2)).sqrt() / radius;
+                    let t = (ny + y - cy).mul_add(ny + y - cy, (x - cx).mul_add(x - cx, nx)).sqrt() / radius;
                     *pixel = to_pixel(grad.at(t));
                 }
             }
@@ -195,18 +193,17 @@ impl CachedImage {
     fn load(path: &str, speed: f32) -> anyhow::Result<Arc<ImageData>> {
         let modified = std::fs::metadata(path)
             .and_then(|m| m.modified())
-            .with_context(|| format!("getting metadata for {}", path))?;
+            .with_context(|| format!("getting metadata for {path}"))?;
         let mut cache = IMAGE_CACHE.lock().unwrap();
-        if let Some(cached) = cache.get_mut(path) {
-            if cached.modified == modified && cached.speed == speed {
+        if let Some(cached) = cache.get_mut(path)
+            && cached.modified == modified && cached.speed == speed {
                 cached.marked = false;
                 return Ok(Arc::clone(&cached.image));
             }
-        }
 
         let data = std::fs::read(path)
-            .with_context(|| format!("Failed to load window_background_image {}", path))?;
-        log::trace!("loaded {}", path);
+            .with_context(|| format!("Failed to load window_background_image {path}"))?;
+        log::trace!("loaded {path}");
         let mut data = ImageDataType::EncodedFile(data);
         data.adjust_speed(speed);
         let image = Arc::new(ImageData::with_data(data));
@@ -235,7 +232,7 @@ impl CachedImage {
         let mut cache = IMAGE_CACHE.lock().unwrap();
         cache.retain(|k, entry| {
             if entry.marked {
-                log::trace!("Unloading {} from cache", k);
+                log::trace!("Unloading {k} from cache");
             }
             !entry.marked
         });
@@ -350,7 +347,7 @@ pub fn load_background_image(
                 layers.push(layer);
             }
             Err(err) => {
-                log::error!("Failed to load background: {:#}", err);
+                log::error!("Failed to load background: {err:#}");
             }
         }
     }
@@ -402,7 +399,7 @@ impl crate::TermWindow {
         let gl_state = self.render_state.as_ref().unwrap();
         let mut layer_idx = -127;
         let mut loaded_any = false;
-        for layer in self.window_background.iter() {
+        for layer in &self.window_background {
             if self.render_background(gl_state, bg_color, layer, layer_idx, top)? {
                 loaded_any = true;
                 layer_idx = layer_idx.saturating_add(1);
@@ -441,8 +438,8 @@ impl crate::TermWindow {
         let tex_width = sprite.coords.width() as f32;
         let tex_height = sprite.coords.height() as f32;
 
-        let scale_width = pixel_width / tex_width as f32;
-        let scale_height = pixel_height / tex_height as f32;
+        let scale_width = pixel_width / tex_width;
+        let scale_height = pixel_height / tex_height;
 
         let h_context = DimensionContext {
             dpi: self.dimensions.dpi as f32,
@@ -469,14 +466,14 @@ impl crate::TermWindow {
         };
 
         let width = match layer.def.width {
-            BackgroundSize::Contain => min_aspect_width as f32,
-            BackgroundSize::Cover => max_aspect_width as f32,
+            BackgroundSize::Contain => min_aspect_width,
+            BackgroundSize::Cover => max_aspect_width,
             BackgroundSize::Dimension(n) => n.evaluate_as_pixels(h_context),
         };
 
         let height = match layer.def.height {
-            BackgroundSize::Contain => min_aspect_height as f32,
-            BackgroundSize::Cover => max_aspect_height as f32,
+            BackgroundSize::Contain => min_aspect_height,
+            BackgroundSize::Cover => max_aspect_height,
             BackgroundSize::Dimension(n) => n.evaluate_as_pixels(v_context),
         };
 
@@ -506,27 +503,23 @@ impl crate::TermWindow {
         let vertical_offset = layer
             .def
             .vertical_offset
-            .map(|d| d.evaluate_as_pixels(v_context))
-            .unwrap_or(0.);
+            .map_or(0., |d| d.evaluate_as_pixels(v_context));
         origin_y += vertical_offset;
 
         let horizontal_offset = layer
             .def
             .horizontal_offset
-            .map(|d| d.evaluate_as_pixels(h_context))
-            .unwrap_or(0.);
+            .map_or(0., |d| d.evaluate_as_pixels(h_context));
         origin_x += horizontal_offset;
 
         let repeat_x = layer
             .def
             .repeat_x_size
-            .map(|size| size.evaluate_as_pixels(h_context))
-            .unwrap_or(width);
+            .map_or(width, |size| size.evaluate_as_pixels(h_context));
         let repeat_y = layer
             .def
             .repeat_y_size
-            .map(|size| size.evaluate_as_pixels(v_context))
-            .unwrap_or(height);
+            .map_or(height, |size| size.evaluate_as_pixels(v_context));
 
         // log::info!("computed {width}x{height}");
 

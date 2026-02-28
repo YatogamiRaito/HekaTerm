@@ -47,7 +47,7 @@ impl super::TermWindow {
         }
     }
 
-    fn enter_ui_item(&mut self, item: &UIItem) {
+    const fn enter_ui_item(&mut self, item: &UIItem) {
         match item.item_type {
             UIItemType::TabBar(_) => {}
             UIItemType::CloseTab(_)
@@ -59,7 +59,7 @@ impl super::TermWindow {
     }
 
     pub fn mouse_event_impl(&mut self, event: MouseEvent, context: &dyn WindowOps) {
-        log::trace!("{:?}", event);
+        log::trace!("{event:?}");
         let pane = match self.get_active_pane_or_overlay() {
             Some(pane) => pane,
             None => return,
@@ -91,12 +91,12 @@ impl super::TermWindow {
             .sub((padding_left + border.left.get() as f32) as isize)
             .max(0) as f32)
             / self.render_metrics.cell_size.width as f32;
-        let x = if !pane.is_mouse_grabbed() {
+        let x = if pane.is_mouse_grabbed() {
+            x
+        } else {
             // Round the x coordinate so that we're a bit more forgiving of
             // the horizontal position when selecting cells
             x.round()
-        } else {
-            x
         }
         .trunc() as usize;
 
@@ -349,7 +349,7 @@ impl super::TermWindow {
                 self.drag_scroll_thumb(item, start_event, event, context);
             }
             _ => {
-                log::error!("drag not implemented for {:?}", item);
+                log::error!("drag not implemented for {item:?}");
             }
         }
     }
@@ -391,12 +391,9 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        match event.kind {
-            WMEK::Press(MousePress::Left) => {
-                log::debug!("Should close tab {}", idx);
-                self.close_specific_tab(idx, true);
-            }
-            _ => {}
+        if event.kind == WMEK::Press(MousePress::Left) {
+            log::debug!("Should close tab {idx}");
+            self.close_specific_tab(idx, true);
         }
         context.set_cursor(Some(MouseCursor::Arrow));
     }
@@ -430,7 +427,7 @@ impl super::TermWindow {
                     config::lua::emit_event(&lua, ("new-tab-button-click".to_string(), args))
                         .await
                         .map_err(|e| {
-                            log::error!("while processing new-tab-button-click event: {:#}", e);
+                            log::error!("while processing new-tab-button-click event: {e:#}");
                             e
                         })?
                 }
@@ -464,29 +461,26 @@ impl super::TermWindow {
                 TabBarItem::Tab { tab_idx, .. } => {
                     self.activate_tab(tab_idx as isize).ok();
                 }
-                TabBarItem::NewTabButton { .. } => {
+                TabBarItem::NewTabButton => {
                     self.do_new_tab_button_click(MousePress::Left);
                 }
                 TabBarItem::None | TabBarItem::LeftStatus | TabBarItem::RightStatus => {
                     let maximized = self
                         .window_state
                         .intersects(WindowState::MAXIMIZED | WindowState::FULL_SCREEN);
-                    if let Some(ref window) = self.window {
-                        if self.config.window_decorations
+                    if let Some(ref window) = self.window
+                        && self.config.window_decorations
                             == WindowDecorations::INTEGRATED_BUTTONS | WindowDecorations::RESIZE
-                        {
-                            if self.last_mouse_click.as_ref().map(|c| c.streak) == Some(2) {
+                            && self.last_mouse_click.as_ref().map(|c| c.streak) == Some(2) {
                                 if maximized {
                                     window.restore();
                                 } else {
                                     window.maximize();
                                 }
                             }
-                        }
-                    }
                     // Potentially starting a drag by the tab bar
                     if !maximized {
-                        self.window_drag_position.replace(event.clone());
+                        self.window_drag_position.replace(event);
                     }
                     context.request_drag_move();
                 }
@@ -514,7 +508,7 @@ impl super::TermWindow {
                 TabBarItem::Tab { tab_idx, .. } => {
                     self.close_specific_tab(tab_idx, true);
                 }
-                TabBarItem::NewTabButton { .. } => {
+                TabBarItem::NewTabButton => {
                     self.do_new_tab_button_click(MousePress::Middle);
                 }
                 TabBarItem::None
@@ -526,7 +520,7 @@ impl super::TermWindow {
                 TabBarItem::Tab { .. } => {
                     self.show_tab_navigator();
                 }
-                TabBarItem::NewTabButton { .. } => {
+                TabBarItem::NewTabButton => {
                     self.do_new_tab_button_click(MousePress::Right);
                 }
                 TabBarItem::None
@@ -541,8 +535,8 @@ impl super::TermWindow {
                 TabBarItem::WindowButton(window::IntegratedTitleButton::Maximize) => {
                     let item = self.last_ui_item.clone().unwrap();
                     let bounds: ::window::ScreenRect = euclid::rect(
-                        item.x as isize - (event.coords.x as isize - event.screen_coords.x),
-                        item.y as isize - (event.coords.y as isize - event.screen_coords.y),
+                        item.x as isize - (event.coords.x - event.screen_coords.x),
+                        item.y as isize - (event.coords.y - event.screen_coords.y),
                         item.width as isize,
                         item.height as isize,
                     );
@@ -550,7 +544,7 @@ impl super::TermWindow {
                 }
                 TabBarItem::WindowButton(_)
                 | TabBarItem::Tab { .. }
-                | TabBarItem::NewTabButton { .. } => {}
+                | TabBarItem::NewTabButton => {}
             },
             WMEK::VertWheel(n) => {
                 if self.config.mouse_wheel_scrolls_tabs {
@@ -570,7 +564,7 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        if let WMEK::Press(MousePress::Left) = event.kind {
+        if event.kind == WMEK::Press(MousePress::Left) {
             let dims = pane.get_dimensions();
             let current_viewport = self.get_viewport(pane.pane_id());
             // Page up
@@ -595,7 +589,7 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        if let WMEK::Press(MousePress::Left) = event.kind {
+        if event.kind == WMEK::Press(MousePress::Left) {
             let dims = pane.get_dimensions();
             let current_viewport = self.get_viewport(pane.pane_id());
             // Page down
@@ -620,7 +614,7 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        if let WMEK::Press(MousePress::Left) = event.kind {
+        if event.kind == WMEK::Press(MousePress::Left) {
             // Start a scroll drag
             // self.scroll_drag_start = Some(from_top);
             self.dragging = Some((item, event));
@@ -679,8 +673,7 @@ impl super::TermWindow {
                     match &event.kind {
                         WMEK::Press(_) => {
                             let mux = Mux::get();
-                            mux.get_active_tab_for_window(self.mux_window_id)
-                                .map(|tab| tab.set_active_idx(pos.index));
+                            if let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) { tab.set_active_idx(pos.index) }
 
                             pane = Arc::clone(&pos.pane);
                             is_click_to_focus_pane = true;
@@ -688,8 +681,7 @@ impl super::TermWindow {
                         WMEK::Move => {
                             if self.config.pane_focus_follows_mouse {
                                 let mux = Mux::get();
-                                mux.get_active_tab_for_window(self.mux_window_id)
-                                    .map(|tab| tab.set_active_idx(pos.index));
+                                if let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) { tab.set_active_idx(pos.index) }
 
                                 pane = Arc::clone(&pos.pane);
                                 context.invalidate();
@@ -735,8 +727,8 @@ impl super::TermWindow {
             false
         };
 
-        if self.focused.is_some() && !is_focused {
-            if matches!(&event.kind, WMEK::Press(_))
+        if self.focused.is_some() && !is_focused
+            && matches!(&event.kind, WMEK::Press(_))
                 && self.config.swallow_mouse_click_on_window_focus
             {
                 // Entering click to focus state
@@ -745,7 +737,6 @@ impl super::TermWindow {
                 log::trace!("enter click to focus");
                 return;
             }
-        }
         if self.is_click_to_focus_window && matches!(&event.kind, WMEK::Release(_)) {
             // Exiting click to focus state
             self.is_click_to_focus_window = false;
@@ -761,10 +752,7 @@ impl super::TermWindow {
         };
 
         log::trace!(
-            "is_focused={} allow_action={} event={:?}",
-            is_focused,
-            allow_action,
-            event
+            "is_focused={is_focused} allow_action={allow_action} event={event:?}"
         );
 
         let dims = pane.get_dimensions();
@@ -795,13 +783,11 @@ impl super::TermWindow {
 
         impl WithPaneLines for FindCurrentLink {
             fn with_lines_mut(&mut self, stable_top: StableRowIndex, lines: &mut [&mut Line]) {
-                if stable_top == self.stable_row {
-                    if let Some(line) = lines.get(0) {
-                        if let Some(cell) = line.get_cell(self.column) {
+                if stable_top == self.stable_row
+                    && let Some(line) = lines.first()
+                        && let Some(cell) = line.get_cell(self.column) {
                             self.current = cell.attrs().hyperlink().cloned();
                         }
-                    }
-                }
             }
         }
 
@@ -814,7 +800,7 @@ impl super::TermWindow {
         let new_highlight = find_link.current;
 
         match (self.current_highlight.as_ref(), new_highlight) {
-            (Some(old_link), Some(new_link)) if Arc::ptr_eq(&old_link, &new_link) => {
+            (Some(old_link), Some(new_link)) if Arc::ptr_eq(old_link, &new_link) => {
                 // Unchanged
             }
             (None, None) => {
@@ -826,7 +812,7 @@ impl super::TermWindow {
                 self.current_highlight = rhs;
                 context.invalidate();
             }
-        };
+        }
 
         let outside_window = event.coords.x < 0
             || event.coords.x as usize > self.dimensions.pixel_width
@@ -869,20 +855,18 @@ impl super::TermWindow {
                 }
             }
             WMEK::Move => {
-                if !self.current_mouse_buttons.is_empty() {
-                    if let Some(LastMouseClick { streak, button, .. }) =
-                        self.last_mouse_click.as_ref()
+                if self.current_mouse_buttons.is_empty() {
+                    None
+                } else if let Some(LastMouseClick { streak, button, .. }) =
+                    self.last_mouse_click.as_ref()
+                {
+                    if Some(*button)
+                        == self.current_mouse_buttons.last().map(mouse_press_to_tmb)
                     {
-                        if Some(*button)
-                            == self.current_mouse_buttons.last().map(mouse_press_to_tmb)
-                        {
-                            Some(MouseEventTrigger::Drag {
-                                streak: *streak,
-                                button: *button,
-                            })
-                        } else {
-                            None
-                        }
+                        Some(MouseEventTrigger::Drag {
+                            streak: *streak,
+                            button: *button,
+                        })
                     } else {
                         None
                     }
@@ -914,20 +898,19 @@ impl super::TermWindow {
             }),
         };
 
-        if allow_action {
-            if let Some(mut event_trigger_type) = event_trigger_type {
+        if allow_action
+            && let Some(mut event_trigger_type) = event_trigger_type {
                 self.current_event = Some(event_trigger_type.to_dynamic());
                 let mut modifiers = event.modifiers;
 
                 // Since we use shift to force assessing the mouse bindings, pretend
                 // that shift is not one of the mods when the mouse is grabbed.
                 let mut mouse_reporting = pane.is_mouse_grabbed();
-                if mouse_reporting {
-                    if modifiers.contains(self.config.bypass_mouse_reporting_modifiers) {
+                if mouse_reporting
+                    && modifiers.contains(self.config.bypass_mouse_reporting_modifiers) {
                         modifiers.remove(self.config.bypass_mouse_reporting_modifiers);
                         mouse_reporting = false;
                     }
-                }
 
                 if mouse_reporting {
                     // If they were scrolled back prior to launching an
@@ -969,7 +952,7 @@ impl super::TermWindow {
                         *delta = 1;
                     }
                     _ => {}
-                };
+                }
 
                 let mouse_mods = config::MouseEventTriggerMods {
                     mods: modifiers,
@@ -986,7 +969,6 @@ impl super::TermWindow {
                     return;
                 }
             }
-        }
 
         let mouse_event = wezterm_term::MouseEvent {
             kind: match event.kind {
@@ -1044,7 +1026,7 @@ impl super::TermWindow {
     }
 }
 
-fn mouse_press_to_tmb(press: &MousePress) -> TMB {
+const fn mouse_press_to_tmb(press: &MousePress) -> TMB {
     match press {
         MousePress::Left => TMB::Left,
         MousePress::Right => TMB::Right,

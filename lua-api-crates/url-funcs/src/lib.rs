@@ -39,7 +39,7 @@ impl std::ops::DerefMut for Url {
 
 impl UserData for Url {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| {
+        methods.add_meta_method(MetaMethod::ToString, |_, this, (): ()| {
             Ok(this.url.as_str().to_string())
         });
     }
@@ -48,13 +48,13 @@ impl UserData for Url {
         fields.add_field_method_get("scheme", |_, this| Ok(this.scheme().to_string()));
         fields.add_field_method_get("username", |_, this| Ok(this.username().to_string()));
         fields.add_field_method_get("password", |_, this| {
-            Ok(this.password().map(|s| s.to_string()))
+            Ok(this.password().map(std::string::ToString::to_string))
         });
-        fields.add_field_method_get("host", |_, this| Ok(this.host_str().map(|s| s.to_string())));
+        fields.add_field_method_get("host", |_, this| Ok(this.host_str().map(std::string::ToString::to_string)));
         fields.add_field_method_get("port", |_, this| Ok(this.port()));
-        fields.add_field_method_get("query", |_, this| Ok(this.query().map(|s| s.to_string())));
+        fields.add_field_method_get("query", |_, this| Ok(this.query().map(std::string::ToString::to_string)));
         fields.add_field_method_get("fragment", |_, this| {
-            Ok(this.fragment().map(|s| s.to_string()))
+            Ok(this.fragment().map(std::string::ToString::to_string))
         });
         fields.add_field_method_get("path", |_, this| Ok(this.path().to_string()));
         fields.add_field_method_get("file_path", |lua, this| {

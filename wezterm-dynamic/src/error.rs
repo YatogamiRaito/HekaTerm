@@ -27,13 +27,13 @@ thread_local! {
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    #[error("`{}` is not a valid {} variant. {}", .variant_name, .type_name, Self::possible_matches(.variant_name, &.possible))]
+    #[error("`{}` is not a valid {} variant. {}", .variant_name, .type_name, Self::possible_matches(.variant_name, possible))]
     InvalidVariantForType {
         variant_name: String,
         type_name: &'static str,
         possible: &'static [&'static str],
     },
-    #[error("`{}` is not a valid {} field. {}", .field_name, .type_name, Self::possible_matches(.field_name, &.possible))]
+    #[error("`{}` is not a valid {} field. {}", .field_name, .type_name, Self::possible_matches(.field_name, possible))]
     UnknownFieldForStruct {
         field_name: String,
         type_name: &'static str,
@@ -149,7 +149,7 @@ impl Error {
                 Value::String(s) => {
                     if !possible.contains(&s.as_str()) {
                         errors.push(Self::UnknownFieldForStruct {
-                            field_name: s.to_string(),
+                            field_name: s.clone(),
                             type_name,
                             possible,
                         });
@@ -186,7 +186,7 @@ impl Error {
             UnknownFieldAction::Deny => Err(err),
             UnknownFieldAction::Warn => {
                 #[cfg(feature = "std")]
-                Self::warn(format!("{:#}", err));
+                Self::warn(format!("{err:#}"));
                 Ok(())
             }
             UnknownFieldAction::Ignore => unreachable!(),
@@ -215,13 +215,13 @@ impl Error {
 
             if show_warning {
                 for err in &errors {
-                    Self::warn(format!("{:#}", err));
+                    Self::warn(format!("{err:#}"));
                 }
             }
         }
 
         if options.unknown_fields == UnknownFieldAction::Deny {
-            for err in errors {
+            if let Some(err) = errors.into_iter().next() {
                 return Err(err);
             }
         }
@@ -300,6 +300,7 @@ impl Error {
         message
     }
 
+    #[must_use] 
     pub fn field_context(
         self,
         type_name: &'static str,
@@ -313,11 +314,11 @@ impl Error {
                 // However, some objects, like the main config, are very large and
                 // it isn't helpful to show that, so only include it when the context
                 // is more reasonable.
-                let obj_str = format!("{:#?}", obj);
+                let obj_str = format!("{obj:#?}");
                 if obj_str.len() > 128 || obj_str.lines().count() > 10 {
                     message
                 } else {
-                    format!("{}.\n{}", message, obj_str)
+                    format!("{message}.\n{obj_str}")
                 }
             } else {
                 message
@@ -328,7 +329,7 @@ impl Error {
             Self::NoConversion { source_type, .. } if source_type == "Null" => Self::ErrorInField {
                 type_name,
                 field_name,
-                error: add_obj_context(is_leaf, obj, format!("missing field `{}`", field_name)),
+                error: add_obj_context(is_leaf, obj, format!("missing field `{field_name}`")),
             },
             Self::ErrorInField {
                 type_name: child_type,
@@ -357,14 +358,14 @@ impl Error {
             _ => Self::ErrorInField {
                 type_name,
                 field_name,
-                error: add_obj_context(is_leaf, obj, format!("{:#}", self)),
+                error: add_obj_context(is_leaf, obj, format!("{self:#}")),
             },
         }
     }
 }
 
 impl From<String> for Error {
-    fn from(s: String) -> Error {
-        Error::Message(s)
+    fn from(s: String) -> Self {
+        Self::Message(s)
     }
 }

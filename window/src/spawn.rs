@@ -12,16 +12,14 @@ use {
     std::os::unix::io::AsRawFd,
 };
 
-lazy_static::lazy_static! {
-    pub(crate) static ref SPAWN_QUEUE: Arc<SpawnQueue> = Arc::new(SpawnQueue::new().expect("failed to create SpawnQueue"));
-}
+pub static SPAWN_QUEUE: std::sync::LazyLock<Arc<SpawnQueue>> = std::sync::LazyLock::new(|| Arc::new(SpawnQueue::new().expect("failed to create SpawnQueue")));
 
 struct InstrumentedSpawnFunc {
     func: SpawnFunc,
     at: Instant,
 }
 
-pub(crate) struct SpawnQueue {
+pub struct SpawnQueue {
     spawned_funcs: Mutex<VecDeque<InstrumentedSpawnFunc>>,
     spawned_funcs_low_pri: Mutex<VecDeque<InstrumentedSpawnFunc>>,
 
@@ -156,7 +154,7 @@ impl SpawnQueue {
             if err.kind() == std::io::ErrorKind::Interrupted {
                 continue;
             }
-            log::warn!("Failed to signal spawn queue pipe: {:#}", err);
+            log::warn!("Failed to signal spawn queue pipe: {err:#}");
             break;
         }
     }
@@ -178,7 +176,7 @@ impl SpawnQueue {
         // iteration.
         let mut byte = [0u8; 64];
         use std::io::Read;
-        self.read.lock().unwrap().read(&mut byte).ok();
+        let _ = self.read.lock().unwrap().read(&mut byte).ok();
 
         self.has_any_queued()
     }

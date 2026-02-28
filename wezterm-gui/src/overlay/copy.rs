@@ -10,7 +10,7 @@ use mux::pane::{
     CachePolicy, ForEachPaneLogicalLine, LogicalLine, Pane, PaneId, Pattern, PatternType,
     PerformAssignmentResult, SearchResult, WithPaneLines,
 };
-use mux::renderable::*;
+use mux::renderable::{StableCursorPosition, RenderableDimensions};
 use mux::tab::TabId;
 use ordered_float::NotNan;
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
@@ -23,7 +23,7 @@ use termwiz::cell::{Cell, CellAttributes};
 use termwiz::color::AnsiColor;
 use termwiz::lineedit::{LineEditBuffer, Movement};
 use termwiz::surface::{CursorVisibility, SequenceNo, SEQ_ZERO};
-use unicode_segmentation::*;
+use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
 use wezterm_term::color::ColorPalette;
 use wezterm_term::{
@@ -32,9 +32,7 @@ use wezterm_term::{
 };
 use window::{KeyCode as WKeyCode, Modifiers, WindowOps};
 
-lazy_static::lazy_static! {
-    static ref SAVED_PATTERN: Mutex<HashMap<TabId, Pattern>> = Mutex::new(HashMap::new());
-}
+static SAVED_PATTERN: std::sync::LazyLock<Mutex<HashMap<TabId, Pattern>>> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 const SEARCH_CHUNK_SIZE: StableRowIndex = 1000;
 
@@ -131,8 +129,7 @@ impl CopyOverlay {
         let pattern = if params.pattern.is_empty() {
             SAVED_PATTERN
                 .lock()
-                .get(&tab_id)
-                .map(|p| p.clone())
+                .get(&tab_id).cloned()
                 .unwrap_or(params.pattern)
         } else {
             params.pattern
@@ -173,7 +170,7 @@ impl CopyOverlay {
             render: Arc::clone(&shared_render),
         };
 
-        Ok(Arc::new(CopyOverlay {
+        Ok(Arc::new(Self {
             delegate: Arc::clone(pane),
             render: shared_render,
             writer: Mutex::new(writer),
@@ -219,9 +216,9 @@ impl CopyOverlay {
 impl CopyRenderable {
     fn compute_search_row(&self) -> StableRowIndex {
         let dims = self.delegate.get_dimensions();
-        let top = self.viewport.unwrap_or_else(|| dims.physical_top);
-        let bottom = (top + dims.viewport_rows as StableRowIndex).saturating_sub(1);
-        bottom
+        let top = self.viewport.unwrap_or(dims.physical_top);
+        
+        (top + dims.viewport_rows as StableRowIndex).saturating_sub(1)
     }
 
     fn check_for_resize(&mut self) {
@@ -263,7 +260,7 @@ impl CopyRenderable {
                     result_index,
                 };
 
-                let matches = self.by_line.entry(idx).or_insert_with(|| vec![]);
+                let matches = self.by_line.entry(idx).or_default();
                 matches.push(result);
 
                 self.dirty_results.add(idx);
@@ -283,14 +280,13 @@ impl CopyRenderable {
             smol::Timer::after(Duration::from_millis(350)).await;
             window.notify(TermWindowNotif::Apply(Box::new(move |term_window| {
                 let state = term_window.pane_state(pane_id);
-                if let Some(overlay) = state.overlay.as_ref() {
-                    if let Some(copy_overlay) = overlay.pane.downcast_ref::<CopyOverlay>() {
+                if let Some(overlay) = state.overlay.as_ref()
+                    && let Some(copy_overlay) = overlay.pane.downcast_ref::<CopyOverlay>() {
                         let mut r = copy_overlay.render.lock();
                         if cookie == r.typing_cookie {
                             r.update_search();
                         }
                     }
-                }
             })));
             anyhow::Result::<()>::Ok(())
         })
@@ -316,7 +312,10 @@ impl CopyRenderable {
         self.last_result_seqno = self.delegate.get_current_seqno();
 
         let pattern = self.get_pattern();
-        if !pattern.is_empty() {
+        if pattern.is_empty() {
+            self.searching.take();
+            self.clear_selection();
+        } else {
             let pane: Arc<dyn Pane> = self.delegate.clone();
             let window = self.window.clone();
             let dims = pane.get_dimensions();
@@ -339,20 +338,16 @@ impl CopyRenderable {
                 let mut results = Some(results);
                 window.notify(TermWindowNotif::Apply(Box::new(move |term_window| {
                     let state = term_window.pane_state(pane_id);
-                    if let Some(overlay) = state.overlay.as_ref() {
-                        if let Some(copy_overlay) = overlay.pane.downcast_ref::<CopyOverlay>() {
+                    if let Some(overlay) = state.overlay.as_ref()
+                        && let Some(copy_overlay) = overlay.pane.downcast_ref::<CopyOverlay>() {
                             let mut r = copy_overlay.render.lock();
                             r.processed_search_chunk(pattern, results.take().unwrap(), range);
                         }
-                    }
                 })));
 
                 anyhow::Result::<()>::Ok(())
             })
             .detach();
-        } else {
-            self.searching.take();
-            self.clear_selection();
         }
         self.window.invalidate();
     }
@@ -371,11 +366,11 @@ impl CopyRenderable {
         self.incrementally_recompute_results(results);
 
         if is_first {
-            if !self.results.is_empty() {
-                self.activate_match_number(0);
-            } else {
+            if self.results.is_empty() {
                 self.set_viewport(None);
                 self.clear_selection();
+            } else {
+                self.activate_match_number(0);
             }
         }
 
@@ -406,12 +401,11 @@ impl CopyRenderable {
             let mut results = Some(results);
             window.notify(TermWindowNotif::Apply(Box::new(move |term_window| {
                 let state = term_window.pane_state(pane_id);
-                if let Some(overlay) = state.overlay.as_ref() {
-                    if let Some(copy_overlay) = overlay.pane.downcast_ref::<CopyOverlay>() {
+                if let Some(overlay) = state.overlay.as_ref()
+                    && let Some(copy_overlay) = overlay.pane.downcast_ref::<CopyOverlay>() {
                         let mut r = copy_overlay.render.lock();
                         r.processed_search_chunk(pattern, results.take().unwrap(), range);
                     }
-                }
             })));
 
             anyhow::Result::<()>::Ok(())
@@ -431,7 +425,7 @@ impl CopyRenderable {
 
     fn activate_match_number(&mut self, n: usize) {
         self.result_pos.replace(n);
-        let result = self.results[n].clone();
+        let result = self.results[n];
         self.cursor.y = result.end_y;
         self.cursor.x = result.end_x.saturating_sub(1);
 
@@ -467,7 +461,7 @@ impl CopyRenderable {
 
                     let start = SelectionCoordinate::x_y(
                         if cursor_is_above_start {
-                            usize::max_value()
+                            usize::MAX
                         } else {
                             0
                         },
@@ -477,7 +471,7 @@ impl CopyRenderable {
                         if cursor_is_above_start {
                             0
                         } else {
-                            usize::max_value()
+                            usize::MAX
                         },
                         self.cursor.y,
                     );
@@ -492,10 +486,7 @@ impl CopyRenderable {
                     (range.start, range.end)
                 }
                 _ => {
-                    let start = SelectionCoordinate {
-                        x: sel_start.x,
-                        y: sel_start.y,
-                    };
+                    let start = sel_start;
                     let end = cursor;
                     (start, end)
                 }
@@ -531,11 +522,11 @@ impl CopyRenderable {
         } else {
             VERTICAL_GAP
         };
-        let top = self.viewport.unwrap_or_else(|| dims.physical_top);
+        let top = self.viewport.unwrap_or(dims.physical_top);
         Dimensions {
             vertical_gap,
-            top,
             dims,
+            top,
         }
     }
 
@@ -670,8 +661,8 @@ impl CopyRenderable {
 
         window.notify(TermWindowNotif::Apply(Box::new(move |term_window| {
             let mut state = term_window.pane_state(pane_id);
-            if let Some(overlay) = state.overlay.as_mut() {
-                if let Some(copy_overlay) = overlay.pane.downcast_ref::<CopyOverlay>() {
+            if let Some(overlay) = state.overlay.as_mut()
+                && let Some(copy_overlay) = overlay.pane.downcast_ref::<CopyOverlay>() {
                     let editing_search = copy_overlay.render.lock().editing_search;
 
                     overlay.key_table_state.activate(KeyTableArgs {
@@ -687,7 +678,6 @@ impl CopyRenderable {
                         prevent_fallback: false,
                     });
                 }
-            }
         })));
     }
 
@@ -757,14 +747,14 @@ impl CopyRenderable {
 
     fn move_to_bottom(&mut self) {
         // This will get fixed up by clamp_cursor_to_scrollback
-        self.cursor.y = isize::max_value();
+        self.cursor.y = isize::MAX;
         self.select_to_cursor_pos();
     }
 
     fn move_to_end_of_line_content(&mut self) {
         let y = self.cursor.y;
         let (top, lines) = self.delegate.get_lines(y..y + 1);
-        if let Some(line) = lines.get(0) {
+        if let Some(line) = lines.first() {
             self.cursor.y = top;
             self.cursor.x = 0;
             for cell in line.visible_cells() {
@@ -779,7 +769,7 @@ impl CopyRenderable {
     fn move_to_start_of_line_content(&mut self) {
         let y = self.cursor.y;
         let (top, lines) = self.delegate.get_lines(y..y + 1);
-        if let Some(line) = lines.get(0) {
+        if let Some(line) = lines.first() {
             self.cursor.y = top;
             self.cursor.x = 0;
             for cell in line.visible_cells() {
@@ -824,16 +814,16 @@ impl CopyRenderable {
 
     fn move_backward_one_word(&mut self) {
         let y = if self.cursor.x == 0 && self.cursor.y > 0 {
-            self.cursor.x = usize::max_value();
+            self.cursor.x = usize::MAX;
             self.cursor.y.saturating_sub(1)
         } else {
             self.cursor.y
         };
 
         let (top, lines) = self.delegate.get_lines(y..y + 1);
-        if let Some(line) = lines.get(0) {
+        if let Some(line) = lines.first() {
             self.cursor.y = top;
-            if self.cursor.x == usize::max_value() {
+            if self.cursor.x == usize::MAX {
                 self.cursor.x = line.len().saturating_sub(1);
             }
             let s = line.columns_as_str(0..self.cursor.x.saturating_add(1));
@@ -869,7 +859,7 @@ impl CopyRenderable {
 
             if last_was_whitespace && self.cursor.y > 0 {
                 // The line begins with whitespace
-                self.cursor.x = usize::max_value();
+                self.cursor.x = usize::MAX;
                 self.cursor.y -= 1;
                 return self.move_backward_one_word();
             }
@@ -880,7 +870,7 @@ impl CopyRenderable {
     fn move_forward_one_word(&mut self) {
         let y = self.cursor.y;
         let (top, lines) = self.delegate.get_lines(y..y + 1);
-        if let Some(line) = lines.get(0) {
+        if let Some(line) = lines.first() {
             self.cursor.y = top;
             let width = line.len();
             let s = line.columns_as_str(self.cursor.x..width + 1);
@@ -888,13 +878,11 @@ impl CopyRenderable {
 
             if let Some(word) = words.next() {
                 self.cursor.x += unicode_column_width(word, None);
-                if !is_whitespace_word(word) {
-                    if let Some(word) = words.next() {
-                        if is_whitespace_word(word) {
+                if !is_whitespace_word(word)
+                    && let Some(word) = words.next()
+                        && is_whitespace_word(word) {
                             self.cursor.x += unicode_column_width(word, None);
                         }
-                    }
-                }
             }
 
             if self.cursor.x >= width {
@@ -912,7 +900,7 @@ impl CopyRenderable {
     fn move_to_end_of_word(&mut self) {
         let y = self.cursor.y;
         let (top, lines) = self.delegate.get_lines(y..y + 1);
-        if let Some(line) = lines.get(0) {
+        if let Some(line) = lines.first() {
             self.cursor.y = top;
             let width = line.len();
             let s = line.columns_as_str(self.cursor.x..width + 1);
@@ -930,22 +918,20 @@ impl CopyRenderable {
 
             if let Some(word) = words.next() {
                 let mut word_end = self.cursor.x + unicode_column_width(word, None);
-                if !is_whitespace_word(word) {
-                    if self.cursor.x == word_end - 1 {
-                        while let Some(next_word) = words.next() {
+                if !is_whitespace_word(word)
+                    && self.cursor.x == word_end - 1 {
+                        for next_word in words.by_ref() {
                             word_end += unicode_column_width(next_word, None);
                             if !is_whitespace_word(next_word) {
                                 break;
                             }
                         }
                     }
-                }
-                while let Some(next_word) = words.next() {
-                    if !is_whitespace_word(next_word) {
-                        word_end += unicode_column_width(next_word, None);
-                    } else {
+                for next_word in words {
+                    if is_whitespace_word(next_word) {
                         break;
                     }
+                    word_end += unicode_column_width(next_word, None);
                 }
                 self.cursor.x = word_end - 1;
             }
@@ -992,11 +978,10 @@ impl CopyRenderable {
                 Some(z) => z,
                 None => return,
             };
-            if let Some(zone_type) = &zone_type {
-                if zone.semantic_type != *zone_type {
+            if let Some(zone_type) = &zone_type
+                && zone.semantic_type != *zone_type {
                     continue;
                 }
-            }
             delta = delta.saturating_sub(step);
 
             self.cursor.x = zone.start_x;
@@ -1009,12 +994,12 @@ impl CopyRenderable {
         let y = self.cursor.y;
         let (_top, lines) = self.delegate.get_lines(y..y + 1);
         let target_str = jump.target.to_string();
-        if let Some(line) = lines.get(0) {
+        if let Some(line) = lines.first() {
             // Find the indices of cells with a matching target
             let mut candidates: Vec<usize> = line
                 .visible_cells()
                 .filter_map(|cell| {
-                    if cell.str() == &target_str {
+                    if cell.str() == target_str {
                         Some(cell.cell_index())
                     } else {
                         None
@@ -1061,7 +1046,7 @@ impl CopyRenderable {
         }
     }
 
-    fn jump(&mut self, forward: bool, prev_char: bool) {
+    const fn jump(&mut self, forward: bool, prev_char: bool) {
         self.pending_jump
             .replace(PendingJump { forward, prev_char });
     }
@@ -1141,8 +1126,7 @@ impl Pane for CopyOverlay {
         let mods = mods.remove_positional_mods();
         if let Some(jump) = render.pending_jump.take() {
             match (key, mods) {
-                (KeyCode::Char(c), KeyModifiers::NONE)
-                | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+                (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
                     let jump = Jump {
                         forward: jump.forward,
                         prev_char: jump.prev_char,
@@ -1163,8 +1147,7 @@ impl Pane for CopyOverlay {
 
         if render.editing_search {
             match (key, mods) {
-                (KeyCode::Char(c), KeyModifiers::NONE)
-                | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+                (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
                     // Type to add to the pattern
                     render.search_line.insert_char(c);
 
@@ -1207,22 +1190,18 @@ impl Pane for CopyOverlay {
 
                     render.schedule_update_search();
                 }
-                (KeyCode::Char('B'), KeyModifiers::CTRL)
-                | (KeyCode::ApplicationLeftArrow, KeyModifiers::NONE)
-                | (KeyCode::LeftArrow, KeyModifiers::NONE) => {
+                (KeyCode::Char('B'), KeyModifiers::CTRL) |
+(KeyCode::ApplicationLeftArrow | KeyCode::LeftArrow, KeyModifiers::NONE) => {
                     render.search_line.exec_movement(Movement::BackwardChar(1));
                 }
-                (KeyCode::Char('F'), KeyModifiers::CTRL)
-                | (KeyCode::ApplicationRightArrow, KeyModifiers::NONE)
-                | (KeyCode::RightArrow, KeyModifiers::NONE) => {
+                (KeyCode::Char('F'), KeyModifiers::CTRL) |
+(KeyCode::ApplicationRightArrow | KeyCode::RightArrow, KeyModifiers::NONE) => {
                     render.search_line.exec_movement(Movement::ForwardChar(1));
                 }
-                (KeyCode::ApplicationLeftArrow, KeyModifiers::CTRL)
-                | (KeyCode::LeftArrow, KeyModifiers::CTRL) => {
+                (KeyCode::ApplicationLeftArrow | KeyCode::LeftArrow, KeyModifiers::CTRL) => {
                     render.search_line.exec_movement(Movement::BackwardWord(1));
                 }
-                (KeyCode::ApplicationRightArrow, KeyModifiers::CTRL)
-                | (KeyCode::RightArrow, KeyModifiers::CTRL) => {
+                (KeyCode::ApplicationRightArrow | KeyCode::RightArrow, KeyModifiers::CTRL) => {
                     render.search_line.exec_movement(Movement::ForwardWord(1));
                 }
                 (KeyCode::Char('A'), KeyModifiers::CTRL) | (KeyCode::Home, KeyModifiers::NONE) => {
@@ -1239,7 +1218,7 @@ impl Pane for CopyOverlay {
     }
 
     fn perform_assignment(&self, assignment: &KeyAssignment) -> PerformAssignmentResult {
-        use CopyModeAssignment::*;
+        use CopyModeAssignment::{MoveToViewportBottom, MoveToViewportTop, MoveToViewportMiddle, MoveToScrollbackTop, MoveToScrollbackBottom, MoveToStartOfLineContent, MoveToEndOfLineContent, MoveToStartOfLine, MoveToStartOfNextLine, MoveToSelectionOtherEnd, MoveToSelectionOtherEndHoriz, MoveBackwardWord, MoveForwardWord, MoveForwardWordEnd, MoveRight, MoveLeft, MoveUp, MoveDown, MoveByPage, PageUp, PageDown, Close, PriorMatch, NextMatch, PriorMatchPage, NextMatchPage, CycleMatchType, ClearPattern, EditPattern, AcceptPattern, SetSelectionMode, ClearSelectionMode, MoveBackwardSemanticZone, MoveForwardSemanticZone, MoveBackwardZoneOfType, MoveForwardZoneOfType, JumpForward, JumpBackward, JumpAgain, JumpReverse};
         let mut render = self.render.lock();
         if render.pending_jump.is_some() {
             // Block key assignments until key_down is called
@@ -1301,7 +1280,7 @@ impl Pane for CopyOverlay {
     }
 
     fn perform_actions(&self, actions: Vec<termwiz::escape::Action>) {
-        self.delegate.perform_actions(actions)
+        self.delegate.perform_actions(actions);
     }
 
     fn is_dead(&self) -> bool {
@@ -1317,7 +1296,7 @@ impl Pane for CopyOverlay {
     }
 
     fn erase_scrollback(&self, erase_mode: ScrollbackEraseMode) {
-        self.delegate.erase_scrollback(erase_mode)
+        self.delegate.erase_scrollback(erase_mode);
     }
 
     fn is_mouse_grabbed(&self) -> bool {
@@ -1330,7 +1309,7 @@ impl Pane for CopyOverlay {
     }
 
     fn set_clipboard(&self, clipboard: &Arc<dyn Clipboard>) {
-        self.delegate.set_clipboard(clipboard)
+        self.delegate.set_clipboard(clipboard);
     }
 
     fn get_current_working_dir(&self, policy: CachePolicy) -> Option<Url> {
@@ -1408,11 +1387,11 @@ impl Pane for CopyOverlay {
                 with_lines,
                 dims,
                 search_row,
-                renderer: &mut *renderer,
+                renderer: &mut renderer,
             },
         );
 
-        impl<'a> WithPaneLines for OverlayLines<'a> {
+        impl WithPaneLines for OverlayLines<'_> {
             fn with_lines_mut(&mut self, first_row: StableRowIndex, lines: &mut [&mut Line]) {
                 let mut overlay_lines = vec![];
                 let config = config::configuration();
@@ -1448,7 +1427,7 @@ impl Pane for CopyOverlay {
                             &format!(
                                 "Search: {} ({}/{} matches. {}{remain})",
                                 *pattern,
-                                self.renderer.result_pos.map(|x| x + 1).unwrap_or(0),
+                                self.renderer.result_pos.map_or(0, |x| x + 1),
                                 self.renderer.results.len(),
                                 mode
                             ),
@@ -1541,7 +1520,7 @@ impl Pane for CopyOverlay {
                     &format!(
                         "Search: {} ({}/{} matches. {})",
                         *pattern,
-                        renderer.result_pos.map(|x| x + 1).unwrap_or(0),
+                        renderer.result_pos.map_or(0, |x| x + 1),
                         renderer.results.len(),
                         mode
                     ),
@@ -1604,7 +1583,7 @@ impl std::io::Write for SearchOverlayPatternWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let mut render = self.render.lock();
         let s = std::str::from_utf8(buf).map_err(|err| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("invalid UTF-8: {err:#}"))
+            std::io::Error::other(format!("invalid UTF-8: {err:#}"))
         })?;
         render.search_line.insert_text(s);
         render.schedule_update_search();

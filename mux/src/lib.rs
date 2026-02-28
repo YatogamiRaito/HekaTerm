@@ -1,3 +1,8 @@
+
+
+
+
+
 use crate::client::{ClientId, ClientInfo};
 use crate::pane::{CachePolicy, Pane, PaneId};
 use crate::ssh_agent::AgentProxy;
@@ -28,7 +33,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use termwiz::escape::csi::{DecPrivateMode, DecPrivateModeCode, Device, Mode};
 use termwiz::escape::{Action, CSI};
-use thiserror::*;
+use thiserror::Error;
 use wezterm_term::{Clipboard, ClipboardSelection, DownloadHandler, TerminalSize};
 #[cfg(windows)]
 use winapi::um::winsock2::{SOL_SOCKET, SO_RCVBUF, SO_SNDBUF};
@@ -97,6 +102,8 @@ pub enum MuxNotification {
     },
 }
 
+pub type Subscriber = Box<dyn Fn(MuxNotification) -> bool + Send + Sync>;
+
 static SUB_ID: AtomicUsize = AtomicUsize::new(0);
 
 pub struct Mux {
@@ -106,7 +113,7 @@ pub struct Mux {
     default_domain: RwLock<Option<Arc<dyn Domain>>>,
     domains: RwLock<HashMap<DomainId, Arc<dyn Domain>>>,
     domains_by_name: RwLock<HashMap<String, Arc<dyn Domain>>>,
-    subscribers: RwLock<HashMap<usize, Box<dyn Fn(MuxNotification) -> bool + Send + Sync>>>,
+    subscribers: RwLock<HashMap<usize, Subscriber>>,
     banner: RwLock<Option<String>>,
     clients: RwLock<HashMap<ClientId, ClientInfo>>,
     identity: RwLock<Option<Arc<ClientId>>>,
@@ -148,7 +155,7 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
 
     loop {
         match rx.read(&mut buf) {
-            Ok(size) if size == 0 => {
+            Ok(0) => {
                 dead.store(true, Ordering::Relaxed);
                 break;
             }
@@ -167,7 +174,7 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
 
                             // Flush prior actions
                             if !actions.is_empty() {
-                                send_actions_to_mux(&pane, &dead, std::mem::take(&mut actions));
+                                send_actions_to_mux(&pane, dead, std::mem::take(&mut actions));
                                 action_size = 0;
                             }
                         }
@@ -182,11 +189,11 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
                             flush = true;
                         }
                         _ => {}
-                    };
+                    }
                     action.append_to(&mut actions);
 
                     if flush && !actions.is_empty() {
-                        send_actions_to_mux(&pane, &dead, std::mem::take(&mut actions));
+                        send_actions_to_mux(&pane, dead, std::mem::take(&mut actions));
                         action_size = 0;
                     }
                 });
@@ -210,7 +217,7 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
                                 events: POLLIN,
                                 revents: 0,
                             }];
-                            if let Ok(1) = poll(&mut pfd, poll_delay) {
+                            if matches!(poll(&mut pfd, poll_delay), Ok(1)) {
                                 // We can read now without blocking, so accumulate
                                 // more data into actions
                                 continue;
@@ -221,7 +228,7 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
                         }
                     }
 
-                    send_actions_to_mux(&pane, &dead, std::mem::take(&mut actions));
+                    send_actions_to_mux(&pane, dead, std::mem::take(&mut actions));
                     deadline = None;
                     action_size = 0;
                 }
@@ -238,7 +245,7 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
     // for very short lived commands so that we don't forget to
     // display what they displayed.
     if !actions.is_empty() {
-        send_actions_to_mux(&pane, &dead, std::mem::take(&mut actions));
+        send_actions_to_mux(&pane, dead, std::mem::take(&mut actions));
     }
 }
 
@@ -250,7 +257,7 @@ fn set_socket_buffer(fd: &mut FileDescriptor, option: i32, size: usize) -> anyho
             fd.as_socket_descriptor(),
             SOL_SOCKET,
             option,
-            &size as *const c_int as *const _,
+            (&raw const size).cast(),
             socklen as _,
         );
         if res == 0 {
@@ -318,12 +325,12 @@ fn read_from_pane_pty(
 
     while !dead.load(Ordering::Relaxed) {
         match reader.read(&mut buf) {
-            Ok(size) if size == 0 => {
-                log::trace!("read_pty EOF: pane_id {}", pane_id);
+            Ok(0) => {
+                log::trace!("read_pty EOF: pane_id {pane_id}");
                 break;
             }
             Err(err) => {
-                error!("read_pty failed: pane {} {:?}", pane_id, err);
+                error!("read_pty failed: pane {pane_id} {err:?}");
                 break;
             }
             Ok(size) => {
@@ -331,8 +338,7 @@ fn read_from_pane_pty(
                 log::trace!("read_pty pane {pane_id} read {size} bytes");
                 if let Err(err) = tx.write_all(&buf[..size]) {
                     error!(
-                        "read_pty failed to write to parser: pane {} {:?}",
-                        pane_id, err
+                        "read_pty failed to write to parser: pane {pane_id} {err:?}"
                     );
                     break;
                 }
@@ -346,7 +352,7 @@ fn read_from_pane_pty(
             // this pane right now, so don't!
             promise::spawn::spawn_into_main_thread(async move {
                 let mux = Mux::get();
-                log::trace!("checking for dead windows after EOF on pane {}", pane_id);
+                log::trace!("checking for dead windows after EOF on pane {pane_id}");
                 mux.prune_dead_windows();
             })
             .detach();
@@ -363,9 +369,7 @@ fn read_from_pane_pty(
     dead.store(true, Ordering::Relaxed);
 }
 
-lazy_static::lazy_static! {
-    static ref MUX: Mutex<Option<Arc<Mux>>> = Mutex::new(None);
-}
+static MUX: std::sync::LazyLock<Mutex<Option<Arc<Mux>>>> = std::sync::LazyLock::new(|| Mutex::new(None));
 
 pub struct MuxWindowBuilder {
     window_id: WindowId,
@@ -413,6 +417,18 @@ impl std::ops::Deref for MuxWindowBuilder {
     fn deref(&self) -> &WindowId {
         &self.window_id
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct SpawnTabOrWindow {
+    pub window_id: Option<WindowId>,
+    pub domain: SpawnTabDomain,
+    pub command: Option<CommandBuilder>,
+    pub command_dir: Option<String>,
+    pub size: TerminalSize,
+    pub current_pane_id: Option<PaneId>,
+    pub workspace_for_new_window: String,
+    pub window_position: Option<GuiPosition>,
 }
 
 impl Mux {
@@ -522,17 +538,16 @@ impl Mux {
             return;
         }
         // Synthesize focus events
-        if let Some(prior_id) = prior {
-            if let Some(pane) = self.get_pane(prior_id) {
+        if let Some(prior_id) = prior
+            && let Some(pane) = self.get_pane(prior_id) {
                 pane.focus_changed(false);
             }
-        }
         if let Some(pane) = self.get_pane(pane_id) {
             pane.focus_changed(true);
         }
     }
 
-    /// Called by PaneFocused event handlers to reconcile a remote
+    /// Called by `PaneFocused` event handlers to reconcile a remote
     /// pane focus event and apply its effects locally
     pub fn focus_pane_and_containing_tab(&self, pane_id: PaneId) -> anyhow::Result<()> {
         let pane = self
@@ -573,8 +588,7 @@ impl Mux {
     pub fn iter_clients(&self) -> Vec<ClientInfo> {
         self.clients
             .read()
-            .values()
-            .map(|info| info.clone())
+            .values().cloned()
             .collect()
     }
 
@@ -611,7 +625,7 @@ impl Mux {
             .and_then(|ident| {
                 self.clients
                     .read()
-                    .get(&ident)
+                    .get(ident)
                     .and_then(|info| info.active_workspace.clone())
             })
             .unwrap_or_else(|| self.get_default_workspace())
@@ -621,14 +635,14 @@ impl Mux {
     pub fn active_workspace_for_client(&self, ident: &Arc<ClientId>) -> String {
         self.clients
             .read()
-            .get(&ident)
+            .get(ident)
             .and_then(|info| info.active_workspace.clone())
             .unwrap_or_else(|| self.get_default_workspace())
     }
 
     pub fn set_active_workspace_for_client(&self, ident: &Arc<ClientId>, workspace: &str) {
         let mut clients = self.clients.write();
-        if let Some(info) = clients.get_mut(&ident) {
+        if let Some(info) = clients.get_mut(ident) {
             info.active_workspace.replace(workspace.to_string());
             self.notify(MuxNotification::ActiveWorkspaceChanged(ident.clone()));
         }
@@ -705,14 +719,13 @@ impl Mux {
     }
 
     pub fn notify_from_any_thread(notification: MuxNotification) {
-        if let Some(mux) = Mux::try_get() {
-            if mux.is_main_thread() {
+        if let Some(mux) = Self::try_get()
+            && mux.is_main_thread() {
                 mux.notify(notification);
                 return;
             }
-        }
         promise::spawn::spawn_into_main_thread(async {
-            if let Some(mux) = Mux::try_get() {
+            if let Some(mux) = Self::try_get() {
                 mux.notify(notification);
             }
         })
@@ -747,7 +760,7 @@ impl Mux {
             .insert(domain.domain_name().to_string(), Arc::clone(domain));
     }
 
-    pub fn set_mux(mux: &Arc<Mux>) {
+    pub fn set_mux(mux: &Arc<Self>) {
         MUX.lock().replace(Arc::clone(mux));
     }
 
@@ -755,11 +768,11 @@ impl Mux {
         MUX.lock().take();
     }
 
-    pub fn get() -> Arc<Mux> {
+    pub fn get() -> Arc<Self> {
         Self::try_get().unwrap()
     }
 
-    pub fn try_get() -> Option<Arc<Mux>> {
+    pub fn try_get() -> Option<Arc<Self>> {
         MUX.lock().as_ref().map(Arc::clone)
     }
 
@@ -810,10 +823,10 @@ impl Mux {
     }
 
     fn remove_pane_internal(&self, pane_id: PaneId) {
-        log::debug!("removing pane {}", pane_id);
+        log::debug!("removing pane {pane_id}");
         let mut changed = false;
         if let Some(pane) = self.panes.write().remove(&pane_id).clone() {
-            log::debug!("killing pane {}", pane_id);
+            log::debug!("killing pane {pane_id}");
             pane.kill();
             self.notify(MuxNotification::PaneRemoved(pane_id));
             changed = true;
@@ -825,7 +838,7 @@ impl Mux {
     }
 
     fn remove_tab_internal(&self, tab_id: TabId) -> Option<Arc<Tab>> {
-        log::debug!("remove_tab_internal tab {}", tab_id);
+        log::debug!("remove_tab_internal tab {tab_id}");
 
         let tab = self.tabs.write().remove(&tab_id)?;
 
@@ -849,7 +862,7 @@ impl Mux {
     }
 
     fn remove_window_internal(&self, window_id: WindowId) {
-        log::debug!("remove_window_internal {}", window_id);
+        log::debug!("remove_window_internal {window_id}");
 
         let window = self.windows.write().remove(&window_id);
         if let Some(window) = window {
@@ -862,8 +875,8 @@ impl Mux {
             }
 
             for domain_id in domains_of_window {
-                if let Some(domain) = self.get_domain(domain_id) {
-                    if domain.detachable() {
+                if let Some(domain) = self.get_domain(domain_id)
+                    && domain.detachable() {
                         log::info!("detaching domain");
                         if let Err(err) = domain.detach() {
                             log::error!(
@@ -872,7 +885,6 @@ impl Mux {
                             );
                         }
                     }
-                }
             }
 
             for tab in window.iter() {
@@ -899,18 +911,15 @@ impl Mux {
             log::trace!("prune_dead_windows: Activity::count={}", Activity::count());
             return;
         }
-        let live_tab_ids: Vec<TabId> = self.tabs.read().keys().cloned().collect();
+        let live_tab_ids: Vec<TabId> = self.tabs.read().keys().copied().collect();
         let mut dead_windows = vec![];
         let dead_tab_ids: Vec<TabId>;
 
         {
-            let mut windows = match self.windows.try_write() {
-                Some(w) => w,
-                None => {
-                    // It's ok if our caller already locked it; we can prune later.
-                    log::trace!("prune_dead_windows: self.windows already borrowed");
-                    return;
-                }
+            let mut windows = if let Some(w) = self.windows.try_write() { w } else {
+                // It's ok if our caller already locked it; we can prune later.
+                log::trace!("prune_dead_windows: self.windows already borrowed");
+                return;
             };
             for (window_id, win) in windows.iter_mut() {
                 win.prune_dead_tabs(&live_tab_ids);
@@ -929,12 +938,12 @@ impl Mux {
         }
 
         for tab_id in dead_tab_ids {
-            log::trace!("tab {} is dead", tab_id);
+            log::trace!("tab {tab_id} is dead");
             self.remove_tab_internal(tab_id);
         }
 
         for window_id in dead_windows {
-            log::trace!("window {} is dead", window_id);
+            log::trace!("window {window_id} is dead");
             self.remove_window_internal(window_id);
         }
 
@@ -997,7 +1006,7 @@ impl Mux {
         {
             let mut window = self
                 .get_window_mut(window_id)
-                .ok_or_else(|| anyhow!("add_tab_to_window: no such window_id {}", window_id))?;
+                .ok_or_else(|| anyhow!("add_tab_to_window: no such window_id {window_id}"))?;
             window.push(tab);
         }
         self.recompute_pane_count();
@@ -1036,9 +1045,7 @@ impl Mux {
 
     pub fn iter_panes(&self) -> Vec<Arc<dyn Pane>> {
         self.panes
-            .read()
-            .iter()
-            .map(|(_, v)| Arc::clone(v))
+            .read().values().map(Arc::clone)
             .collect()
     }
 
@@ -1054,14 +1061,14 @@ impl Mux {
                     None
                 }
             })
-            .cloned()
+            .copied()
             .collect();
-        windows.sort();
+        windows.sort_unstable();
         windows
     }
 
     pub fn iter_windows(&self) -> Vec<WindowId> {
-        self.windows.read().keys().cloned().collect()
+        self.windows.read().keys().copied().collect()
     }
 
     pub fn iter_domains(&self) -> Vec<Arc<dyn Domain>> {
@@ -1100,7 +1107,7 @@ impl Mux {
             }
         }
 
-        log::info!("domain detached panes: {:?}", dead_panes);
+        log::info!("domain detached panes: {dead_panes:?}");
         for pane_id in dead_panes {
             self.remove_pane_internal(pane_id);
         }
@@ -1124,7 +1131,7 @@ impl Mux {
                 Some(pane_id) => {
                     let (pane_domain_id, _window_id, _tab_id) = self
                         .resolve_pane_id(pane_id)
-                        .ok_or_else(|| anyhow!("pane_id {} invalid", pane_id))?;
+                        .ok_or_else(|| anyhow!("pane_id {pane_id} invalid"))?;
                     self.get_domain(pane_domain_id)
                         .expect("resolve_pane_id to give valid domain_id")
                 }
@@ -1132,9 +1139,9 @@ impl Mux {
             },
             SpawnTabDomain::DomainId(domain_id) => self
                 .get_domain(*domain_id)
-                .ok_or_else(|| anyhow!("domain id {} is invalid", domain_id))?,
+                .ok_or_else(|| anyhow!("domain id {domain_id} is invalid"))?,
             SpawnTabDomain::DomainName(name) => {
-                self.get_domain_by_name(&name).ok_or_else(|| {
+                self.get_domain_by_name(name).ok_or_else(|| {
                     let names: Vec<String> = self
                         .domains_by_name
                         .read()
@@ -1166,7 +1173,7 @@ impl Mux {
                         percent_decode_str(url.path())
                             .decode_utf8()
                             .ok()
-                            .map(|path| path.into_owned())
+                            .map(std::borrow::Cow::into_owned)
                     })
                     .map(|path| {
                         // On Windows the file URI can produce a path like:
@@ -1194,7 +1201,7 @@ impl Mux {
     ) -> anyhow::Result<(Arc<dyn Pane>, TerminalSize)> {
         let (_pane_domain_id, window_id, tab_id) = self
             .resolve_pane_id(pane_id)
-            .ok_or_else(|| anyhow!("pane_id {} invalid", pane_id))?;
+            .ok_or_else(|| anyhow!("pane_id {pane_id} invalid"))?;
 
         let domain = self
             .resolve_spawn_tab_domain(Some(pane_id), &domain)
@@ -1206,7 +1213,7 @@ impl Mux {
 
         let current_pane = self
             .get_pane(pane_id)
-            .ok_or_else(|| anyhow!("pane_id {} is invalid", pane_id))?;
+            .ok_or_else(|| anyhow!("pane_id {pane_id} is invalid"))?;
         let term_config = current_pane.get_config();
 
         let source = match source {
@@ -1253,7 +1260,7 @@ impl Mux {
     ) -> anyhow::Result<(Arc<Tab>, WindowId)> {
         let (domain_id, _src_window, src_tab) = self
             .resolve_pane_id(pane_id)
-            .ok_or_else(|| anyhow::anyhow!("pane {} not found", pane_id))?;
+            .ok_or_else(|| anyhow::anyhow!("pane {pane_id} not found"))?;
 
         let domain = self
             .get_domain(domain_id)
@@ -1268,17 +1275,17 @@ impl Mux {
 
         let src_tab = match self.get_tab(src_tab) {
             Some(t) => t,
-            None => anyhow::bail!("Invalid tab id {}", src_tab),
+            None => anyhow::bail!("Invalid tab id {src_tab}"),
         };
 
         let window_builder;
         let (window_id, size) = if let Some(window_id) = window_id {
             let window = self
                 .get_window_mut(window_id)
-                .ok_or_else(|| anyhow!("window_id {} not found on this server", window_id))?;
+                .ok_or_else(|| anyhow!("window_id {window_id} not found on this server"))?;
             let tab = window
                 .get_active()
-                .ok_or_else(|| anyhow!("window {} has no tabs", window_id))?;
+                .ok_or_else(|| anyhow!("window {window_id} has no tabs"))?;
             let size = tab.get_size();
 
             (window_id, size)
@@ -1289,7 +1296,7 @@ impl Mux {
 
         let pane = src_tab
             .remove_pane(pane_id)
-            .ok_or_else(|| anyhow::anyhow!("pane {} wasn't in its containing tab!?", pane_id))?;
+            .ok_or_else(|| anyhow::anyhow!("pane {pane_id} wasn't in its containing tab!?"))?;
 
         let tab = Arc::new(Tab::new(&size));
         tab.assign_pane(&pane);
@@ -1304,17 +1311,23 @@ impl Mux {
         Ok((tab, window_id))
     }
 
+
+
     pub async fn spawn_tab_or_window(
         &self,
-        window_id: Option<WindowId>,
-        domain: SpawnTabDomain,
-        command: Option<CommandBuilder>,
-        command_dir: Option<String>,
-        size: TerminalSize,
-        current_pane_id: Option<PaneId>,
-        workspace_for_new_window: String,
-        window_position: Option<GuiPosition>,
+        params: SpawnTabOrWindow,
     ) -> anyhow::Result<(Arc<Tab>, Arc<dyn Pane>, WindowId)> {
+        let SpawnTabOrWindow {
+            window_id,
+            domain,
+            command,
+            command_dir,
+            size,
+            current_pane_id,
+            workspace_for_new_window,
+            window_position,
+        } = params;
+
         let domain = self
             .resolve_spawn_tab_domain(current_pane_id, &domain)
             .context("resolve_spawn_tab_domain")?;
@@ -1325,13 +1338,13 @@ impl Mux {
         let (window_id, size) = if let Some(window_id) = window_id {
             let window = self
                 .get_window_mut(window_id)
-                .ok_or_else(|| anyhow!("window_id {} not found on this server", window_id))?;
+                .ok_or_else(|| anyhow!("window_id {window_id} not found on this server"))?;
             let tab = window
                 .get_active()
-                .ok_or_else(|| anyhow!("window {} has no tabs", window_id))?;
+                .ok_or_else(|| anyhow!("window {window_id} has no tabs"))?;
             let pane = tab
                 .get_active_pane()
-                .ok_or_else(|| anyhow!("active tab in window {} has no panes", window_id))?;
+                .ok_or_else(|| anyhow!("active tab in window {window_id} has no panes"))?;
             term_config = pane.get_config();
 
             let size = tab.get_size();
@@ -1355,7 +1368,7 @@ impl Mux {
                     // is the same as the one we are spawning into
                     let (current_domain_id, _, _) = self
                         .resolve_pane_id(id)
-                        .ok_or_else(|| anyhow!("pane_id {} invalid", id))?;
+                        .ok_or_else(|| anyhow!("pane_id {id} invalid"))?;
                     if current_domain_id == domain.domain_id() {
                         self.get_pane(id)
                     } else {

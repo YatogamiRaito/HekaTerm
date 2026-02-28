@@ -47,24 +47,20 @@ impl OpenSSLNetListener {
 
         if wanted_unix_name == cn_str {
             log::trace!(
-                "Peer certificate CN `{}` == $USER `{}`",
-                cn_str,
-                wanted_unix_name
+                "Peer certificate CN `{cn_str}` == $USER `{wanted_unix_name}`"
             );
             Ok(())
         } else {
             // Some environments that are used by the author of this
             // program encode the CN in the form `user:unixname/DATA`
-            let maybe_encoded = format!("user:{}/", wanted_unix_name);
+            let maybe_encoded = format!("user:{wanted_unix_name}/");
             if cn_str.starts_with(&maybe_encoded) {
                 log::trace!(
-                    "Peer certificate CN `{}` matches $USER `{}`",
-                    cn_str,
-                    wanted_unix_name
+                    "Peer certificate CN `{cn_str}` matches $USER `{wanted_unix_name}`"
                 );
                 Ok(())
             } else {
-                anyhow::bail!("CN `{}` did not match $USER `{}`", cn_str, wanted_unix_name);
+                anyhow::bail!("CN `{cn_str}` did not match $USER `{wanted_unix_name}`");
             }
         }
     }
@@ -79,7 +75,7 @@ impl OpenSSLNetListener {
                     match acceptor.accept(stream) {
                         Ok(stream) => {
                             if let Err(err) = Self::verify_peer_cert(&stream) {
-                                log::error!("problem with peer cert: {}", err);
+                                log::error!("problem with peer cert: {err}");
                                 break;
                             }
                             spawn_into_main_thread(async move {
@@ -89,19 +85,19 @@ impl OpenSSLNetListener {
                                 ))
                                 .await
                                 .map_err(|e| {
-                                    log::error!("process: {:?}", e);
+                                    log::error!("process: {e:?}");
                                     e
                                 })
                             })
                             .detach();
                         }
                         Err(e) => {
-                            log::error!("failed TlsAcceptor: {}", e);
+                            log::error!("failed TlsAcceptor: {e}");
                         }
                     }
                 }
                 Err(err) => {
-                    log::error!("accept failed: {}", err);
+                    log::error!("accept failed: {err}");
                     return;
                 }
             }
@@ -127,7 +123,7 @@ pub fn spawn_tls_listener(tls_server: &TlsDomainServer) -> Result<(), Error> {
 
     if let Some(chain_file) = tls_server.pem_ca.as_ref() {
         acceptor
-            .set_certificate_chain_file(&chain_file)
+            .set_certificate_chain_file(chain_file)
             .context(format!(
                 "set_certificate_chain_file to {} for TLS listener",
                 chain_file.display()

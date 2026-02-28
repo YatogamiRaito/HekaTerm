@@ -2,7 +2,7 @@ use anyhow::{anyhow, bail, ensure, Error};
 use std::ffi::c_void;
 use std::rc::Rc;
 
-#[allow(non_camel_case_types, clippy::unreadable_literal)]
+#[allow(non_camel_case_types, clippy::unreadable_literal, unsafe_op_in_unsafe_fn, unused_unsafe)]
 pub mod ffi {
     // gl_generator emits these weird cyclical and redundant type references;
     // the types appear to have to be in a module and need to reference super,
@@ -119,7 +119,7 @@ impl EglWrapper {
             }
             unsafe { get_proc_address(sym_name.as_ptr()) }
         });
-        log::trace!("load_egl: {:?}", lib);
+        log::trace!("load_egl: {lib:?}");
         Ok(Self { _lib: lib, egl })
     }
 
@@ -151,9 +151,9 @@ impl EglWrapper {
             ffi::BAD_NATIVE_WINDOW => "BAD_NATIVE_WINDOW".into(),
             ffi::CONTEXT_LOST => "CONTEXT_LOST".into(),
             ffi::SUCCESS => "Failed but with error code: SUCCESS".into(),
-            err => format!("EGL Error code: {}", err),
+            err => format!("EGL Error code: {err}"),
         };
-        anyhow!("{}: {}", context, label)
+        anyhow!("{context}: {label}")
     }
 
     pub fn initialize_and_get_version(
@@ -163,7 +163,7 @@ impl EglWrapper {
         let mut major = 0;
         let mut minor = 0;
         unsafe {
-            if self.egl.Initialize(display, &mut major, &mut minor) != 0 {
+            if self.egl.Initialize(display, &raw mut major, &raw mut minor) != 0 {
                 Ok((major, minor))
             } else {
                 Err(self.error("egl Initialize"))
@@ -180,7 +180,7 @@ impl EglWrapper {
         let mut value = 0;
         let res = unsafe {
             self.egl
-                .GetConfigAttrib(display, config, attribute as ffi::EGLint, &mut value)
+                .GetConfigAttrib(display, config, attribute as ffi::EGLint, &raw mut value)
         };
         if res == 1 {
             Some(value)
@@ -257,7 +257,7 @@ impl EglWrapper {
                 .map(surface_bits),
         };
 
-        log::trace!("{:x?}", info);
+        log::trace!("{info:x?}");
     }
 
     pub fn choose_config(
@@ -273,7 +273,7 @@ impl EglWrapper {
         let mut num_configs = 0;
         if unsafe {
             self.egl
-                .GetConfigs(display, std::ptr::null_mut(), 0, &mut num_configs)
+                .GetConfigs(display, std::ptr::null_mut(), 0, &raw mut num_configs)
         } != 1
         {
             return Err(self.error("egl GetConfigs to count possible number of configurations"));
@@ -283,7 +283,7 @@ impl EglWrapper {
 
         if unsafe {
             self.egl
-                .GetConfigs(display, configs.as_mut_ptr(), num_configs, &mut num_configs)
+                .GetConfigs(display, configs.as_mut_ptr(), num_configs, &raw mut num_configs)
         } != 1
         {
             return Err(self.error("egl GetConfigs to enumerate configurations"));
@@ -297,10 +297,10 @@ impl EglWrapper {
         if unsafe {
             self.egl.ChooseConfig(
                 display,
-                attributes.as_ptr() as *const ffi::EGLint,
+                attributes.as_ptr().cast::<ffi::EGLint>(),
                 configs.as_mut_ptr(),
                 configs.len() as ffi::EGLint,
-                &mut num_configs,
+                &raw mut num_configs,
             )
         } != 1
         {
@@ -383,7 +383,7 @@ impl EglWrapper {
                 display,
                 config,
                 share_context,
-                attributes.as_ptr() as *const i32,
+                attributes.as_ptr().cast::<i32>(),
             )
         };
         if context.is_null() {
@@ -396,7 +396,7 @@ impl EglWrapper {
 
 impl GlState {
     #[cfg_attr(any(windows, target_os = "macos"), allow(unused))]
-    pub fn get_connection(&self) -> &Rc<GlConnection> {
+    pub const fn get_connection(&self) -> &Rc<GlConnection> {
         &self.connection
     }
 
@@ -437,7 +437,9 @@ impl GlState {
             if prefer_swrast {
                 // Assuming that we're using Mesa, set an environment
                 // variable that should select CPU based rendering.
-                std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "true");
+                unsafe {
+                    std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "true");
+                }
             }
             for path in &paths {
                 match unsafe { libloading::Library::new(path) } {
@@ -497,7 +499,7 @@ impl GlState {
             let egl_display = egl.get_display(display)?;
 
             let (major, minor) = egl.initialize_and_get_version(egl_display)?;
-            log::trace!("initialized EGL version {}.{}", major, minor);
+            log::trace!("initialized EGL version {major}.{minor}");
 
             let is_opengl = unsafe {
                 if egl.egl.BindAPI(ffi::OPENGL_API) != 0 {
@@ -518,7 +520,7 @@ impl GlState {
                 let cstr = unsafe { std::ffi::CStr::from_ptr(extensions) };
                 String::from_utf8_lossy(cstr.to_bytes()).to_string()
             };
-            log::trace!("EGL extensions: {}", extensions);
+            log::trace!("EGL extensions: {extensions}");
 
             let connection = Rc::new(GlConnection {
                 display: egl_display,
@@ -543,7 +545,7 @@ impl GlState {
     pub fn create_with_existing_connection(
         connection: &Rc<GlConnection>,
         window: ffi::EGLNativeWindowType,
-    ) -> anyhow::Result<GlState> {
+    ) -> anyhow::Result<Self> {
         let configs = connection.egl.choose_config(
             connection.display,
             &[
@@ -604,7 +606,7 @@ impl GlState {
                 {
                     Ok(s) => s,
                     Err(e) => {
-                        errors.push_str(&format!("{:#} {:x?}\n", e, config));
+                        errors.push_str(&format!("{e:#} {config:x?}\n"));
                         continue;
                     }
                 };
@@ -632,7 +634,7 @@ impl GlState {
             ) {
                 Ok(c) => c,
                 Err(e) => {
-                    errors.push_str(&format!("{:#} {:x?}\n", e, config));
+                    errors.push_str(&format!("{e:#} {config:x?}\n"));
                     continue;
                 }
             };
@@ -667,19 +669,19 @@ unsafe impl glium::backend::Backend for GlState {
             self.connection
                 .SwapBuffers(self.connection.display, self.surface)
         };
-        if res != 1 {
+        if res == 1 {
+            Ok(())
+        } else {
             Err(match unsafe { self.connection.GetError() } as u32 {
                 ffi::CONTEXT_LOST => glium::SwapBuffersError::ContextLost,
                 _ => glium::SwapBuffersError::AlreadySwapped,
             })
-        } else {
-            Ok(())
         }
     }
 
     unsafe fn get_proc_address(&self, symbol: &str) -> *const c_void {
         let sym_name = std::ffi::CString::new(symbol).expect("symbol to be cstring compatible");
-        self.connection.GetProcAddress(sym_name.as_ptr()) as *const c_void
+        unsafe { self.connection.GetProcAddress(sym_name.as_ptr()) as *const c_void }
     }
 
     fn get_framebuffer_dimensions(&self) -> (u32, u32) {
@@ -691,7 +693,7 @@ unsafe impl glium::backend::Backend for GlState {
                 self.connection.display,
                 self.surface,
                 ffi::WIDTH as i32,
-                &mut width,
+                &raw mut width,
             );
         }
         unsafe {
@@ -699,7 +701,7 @@ unsafe impl glium::backend::Backend for GlState {
                 self.connection.display,
                 self.surface,
                 ffi::HEIGHT as i32,
-                &mut height,
+                &raw mut height,
             );
         }
         (width as u32, height as u32)
@@ -710,15 +712,15 @@ unsafe impl glium::backend::Backend for GlState {
     }
 
     unsafe fn make_current(&self) {
-        if self.connection.MakeCurrent(
+        if unsafe { self.connection.MakeCurrent(
             self.connection.display,
             self.surface,
             self.surface,
             self.context,
-        ) == 0
+        ) } == 0
         {
             let err = self.connection.egl.error("MakeCurrent");
-            log::error!("make_current failed {:?} {:?}", self, err);
+            log::error!("make_current failed {self:?} {err:?}");
         }
     }
 }

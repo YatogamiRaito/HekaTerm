@@ -30,10 +30,10 @@ impl ProxyCommand {
         let target = unix_dom.target();
         let mut stream = unix_connect_with_retry(&target, false, None)?;
 
-        let pdu = Pdu::SetClientId(SetClientId {
+        let pdu = Pdu::SetClientId(Box::new(SetClientId {
             client_id: ClientId::new(),
             is_proxy: true,
-        });
+        }));
         let serial = 1;
         pdu.encode(&mut stream, serial)?;
         Pdu::decode(&mut stream)?;

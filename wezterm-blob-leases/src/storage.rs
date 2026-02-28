@@ -9,27 +9,27 @@ pub type BoxedReader = Box<dyn BufSeekRead + Send + Sync>;
 
 /// Implements the actual storage mechanism for blobs
 pub trait BlobStorage {
-    /// Store data with the provided content_id.
-    /// lease_id is provided by the caller to identify this store.
+    /// Store data with the provided `content_id`.
+    /// `lease_id` is provided by the caller to identify this store.
     /// The underlying store is expected to dedup storing data with the same
-    /// content_id.
+    /// `content_id`.
     fn store(&self, content_id: ContentId, data: &[u8], lease_id: LeaseId) -> Result<(), Error>;
 
-    /// Resolve the data associated with content_id.
-    /// If found, establish a lease with the given lease_id.
-    /// If not found, returns Err(Error::ContentNotFound)
+    /// Resolve the data associated with `content_id`.
+    /// If found, establish a lease with the given `lease_id`.
+    /// If not found, returns `Err(Error::ContentNotFound)`
     fn lease_by_content(&self, content_id: ContentId, lease_id: LeaseId) -> Result<(), Error>;
 
-    /// Retrieves the data identified by content_id.
-    /// lease_id is provided in order to advise the storage system
+    /// Retrieves the data identified by `content_id`.
+    /// `lease_id` is provided in order to advise the storage system
     /// which lease fetched it, so that it can choose to record that
     /// information to track the liveness of a lease
     fn get_data(&self, content_id: ContentId, lease_id: LeaseId) -> Result<Vec<u8>, Error>;
 
-    /// Retrieves the data identified by content_id as a readable+seekable
+    /// Retrieves the data identified by `content_id` as a readable+seekable
     /// buffered handle.
     ///
-    /// lease_id is provided in order to advise the storage system
+    /// `lease_id` is provided in order to advise the storage system
     /// which lease fetched it, so that it can choose to record that
     /// information to track the liveness of a lease.
     ///
@@ -62,8 +62,8 @@ pub fn get_storage() -> Result<Arc<dyn BlobStorage + Send + Sync + 'static>, Err
         .lock()
         .unwrap()
         .as_ref()
-        .map(|s| s.clone())
-        .ok_or_else(|| Error::StorageNotInit)
+        .map(std::clone::Clone::clone)
+        .ok_or(Error::StorageNotInit)
 }
 
 pub fn clear_storage() {

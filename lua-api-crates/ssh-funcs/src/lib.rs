@@ -15,8 +15,8 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn enumerate_ssh_hosts<'lua>(
-    lua: &'lua Lua,
+fn enumerate_ssh_hosts(
+    lua: &Lua,
     config_files: Variadic<String>,
 ) -> mlua::Result<HashMap<String, wezterm_ssh::ConfigMap>> {
     let mut config = wezterm_ssh::Config::new();
@@ -29,7 +29,7 @@ fn enumerate_ssh_hosts<'lua>(
     let files: Variadic<String> = config
         .loaded_config_files()
         .into_iter()
-        .filter_map(|p| p.to_str().map(|s| s.to_string()))
+        .filter_map(|p| p.to_str().map(std::string::ToString::to_string))
         .collect();
     config::lua::add_to_config_reload_watch_list(lua, files)?;
 

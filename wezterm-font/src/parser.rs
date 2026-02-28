@@ -212,7 +212,7 @@ fn names_from_table(
 }
 
 impl Names {
-    pub fn from_ft_face(face: &crate::ftwrap::Face) -> Names {
+    pub fn from_ft_face(face: &crate::ftwrap::Face) -> Self {
         // We don't simply use the freetype functions to retrieve names,
         // as freetype has a limited set of encodings that it supports.
         // We process the name table for ourselves to increase our chances
@@ -243,9 +243,9 @@ impl Names {
             .unwrap_or_else(|| face.postscript_name());
 
         let full_name = if sub_family.is_empty() {
-            family.to_string()
+            family.clone()
         } else {
-            format!("{} {}", family, sub_family)
+            format!("{family} {sub_family}")
         };
 
         let mut aliases = names_from_table(
@@ -257,7 +257,7 @@ impl Names {
         );
         aliases.retain(|n| *n != full_name && *n != family);
 
-        Names {
+        Self {
             full_name,
             family,
             sub_family: Some(sub_family),
@@ -313,7 +313,7 @@ impl ParsedFont {
                     let mut info = format!(
                         "  -- Palette: {} {}",
                         pal.palette_index,
-                        pal.name.to_string()
+                        pal.name
                     );
                     if pal.usable_with_light_bg {
                         info.push_str(" (with light bg)");
@@ -326,7 +326,7 @@ impl ParsedFont {
                 }
             }
             for aka in &p.names.aliases {
-                code.push_str(&format!("  -- AKA: \"{}\"\n", aka));
+                code.push_str(&format!("  -- AKA: \"{aka}\"\n"));
             }
 
             if p.weight == FontWeight::REGULAR
@@ -351,16 +351,16 @@ impl ParsedFont {
                     code.push_str(&format!(", style=\"{}\"", p.style));
                 }
                 if let Some(scale) = p.scale {
-                    code.push_str(&format!(", scale={}", scale));
+                    code.push_str(&format!(", scale={scale}"));
                 }
                 if let Some(item) = p.freetype_load_flags {
-                    code.push_str(&format!(", freetype_load_flags=\"{}\"", item.to_string()));
+                    code.push_str(&format!(", freetype_load_flags=\"{item}\""));
                 }
                 if let Some(item) = p.freetype_load_target {
-                    code.push_str(&format!(", freetype_load_target=\"{:?}\"", item));
+                    code.push_str(&format!(", freetype_load_target=\"{item:?}\""));
                 }
                 if let Some(item) = p.freetype_render_target {
-                    code.push_str(&format!(", freetype_render_target=\"{:?}\"", item));
+                    code.push_str(&format!(", freetype_render_target=\"{item:?}\""));
                 }
                 if let Some(feat) = &p.harfbuzz_features {
                     code.push_str(", harfbuzz_features={");
@@ -376,7 +376,7 @@ impl ParsedFont {
                 }
                 code.push_str("},\n")
             }
-            code.push_str("\n");
+            code.push('\n');
         }
         code.push_str("})");
         code
@@ -399,7 +399,7 @@ impl ParsedFont {
                 .palettes
                 .iter()
                 .map(|p| FontPaletteInfo {
-                    name: p.name.to_string(),
+                    name: p.name.clone(),
                     palette_index: p.palette_index,
                     usable_with_light_bg: (p.flags
                         & crate::ftwrap::FT_PALETTE_FOR_LIGHT_BACKGROUND as u16)
@@ -413,21 +413,20 @@ impl ParsedFont {
         };
 
         let has_svg = unsafe {
-            (((*face.face).face_flags as u32) & (crate::ftwrap::FT_FACE_FLAG_SVG as u32)) != 0
+            (((*face.face).face_flags as u32) & crate::ftwrap::FT_FACE_FLAG_SVG) != 0
         };
 
-        if has_svg {
-            if config::configuration().ignore_svg_fonts {
+        if has_svg
+            && config::configuration().ignore_svg_fonts {
                 anyhow::bail!("skipping svg font because ignore_svg_fonts=true");
             }
-        }
 
         let has_color = unsafe {
-            (((*face.face).face_flags as u32) & (crate::ftwrap::FT_FACE_FLAG_COLOR as u32)) != 0
+            (((*face.face).face_flags as u32) & crate::ftwrap::FT_FACE_FLAG_COLOR) != 0
         };
         let assume_emoji_presentation = has_color;
 
-        let names = Names::from_ft_face(&face);
+        let names = Names::from_ft_face(face);
         // Objectively gross, but freetype's italic property is very coarse grained.
         // fontconfig resorts to name matching, so we do too :-/
         let style = match style {
@@ -555,19 +554,19 @@ impl ParsedFont {
         Ok(wanted.intersection(&cov))
     }
 
-    pub fn names(&self) -> &Names {
+    pub const fn names(&self) -> &Names {
         &self.names
     }
 
-    pub fn weight(&self) -> FontWeight {
+    pub const fn weight(&self) -> FontWeight {
         self.weight
     }
 
-    pub fn stretch(&self) -> FontStretch {
+    pub const fn stretch(&self) -> FontStretch {
         self.stretch
     }
 
-    pub fn style(&self) -> FontStyle {
+    pub const fn style(&self) -> FontStyle {
         self.style
     }
 
@@ -903,7 +902,7 @@ pub(crate) fn parse_and_collect_font_info(
     origin: FontOrigin,
 ) -> anyhow::Result<()> {
     let lib = crate::ftwrap::Library::new()?;
-    let num_faces = lib.query_num_faces(&source)?;
+    let num_faces = lib.query_num_faces(source)?;
 
     fn load_one(
         lib: &crate::ftwrap::Library,
@@ -933,8 +932,8 @@ pub(crate) fn parse_and_collect_font_info(
     }
 
     for index in 0..num_faces {
-        if let Err(err) = load_one(&lib, &source, index, font_info, &origin) {
-            log::trace!("error while parsing {:?} index {}: {}", source, index, err);
+        if let Err(err) = load_one(&lib, source, index, font_info, &origin) {
+            log::trace!("error while parsing {source:?} index {index}: {err}");
         }
     }
 

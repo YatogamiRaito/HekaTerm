@@ -51,7 +51,7 @@ fn derive_struct(input: &DeriveInput, fields: &FieldsNamed) -> Result<TokenStrea
     };
 
     if info.debug {
-        eprintln!("{}", tokens);
+        eprintln!("{tokens}");
     }
     Ok(tokens)
 }

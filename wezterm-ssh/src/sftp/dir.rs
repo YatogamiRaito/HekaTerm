@@ -3,7 +3,7 @@ use camino::Utf8PathBuf;
 use smol::channel::{bounded, Sender};
 use std::fmt;
 
-pub(crate) type DirId = usize;
+pub type DirId = usize;
 
 /// A file handle to an SFTP connection.
 pub struct Dir {
@@ -18,7 +18,7 @@ impl fmt::Debug for Dir {
 }
 
 #[derive(Debug)]
-pub(crate) enum DirRequest {
+pub enum DirRequest {
     Close(DirId, Sender<SftpChannelResult<()>>),
     ReadDir(DirId, Sender<SftpChannelResult<(Utf8PathBuf, Metadata)>>),
 }
@@ -37,7 +37,7 @@ impl Drop for Dir {
 }
 
 impl Dir {
-    pub(crate) fn new(dir_id: DirId) -> Self {
+    pub(crate) const fn new(dir_id: DirId) -> Self {
         Self { dir_id, tx: None }
     }
 

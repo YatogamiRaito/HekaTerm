@@ -30,17 +30,14 @@ impl FromDynamic for ImageFileSourceWrap {
         value: &Value,
         options: FromDynamicOptions,
     ) -> Result<Self, wezterm_dynamic::Error> {
-        match value {
-            Value::String(path) => Ok(Self {
-                inner: ImageFileSource {
-                    path: path.to_string(),
-                    speed: 1.0,
-                },
-            }),
-            _ => {
-                let inner = ImageFileSource::from_dynamic(value, options)?;
-                Ok(Self { inner })
-            }
+        if let Value::String(path) = value { Ok(Self {
+            inner: ImageFileSource {
+                path: path.clone(),
+                speed: 1.0,
+            },
+        }) } else {
+            let inner = ImageFileSource::from_dynamic(value, options)?;
+            Ok(Self { inner })
         }
     }
 }
@@ -99,6 +96,7 @@ pub struct BackgroundLayer {
 }
 
 impl BackgroundLayer {
+    #[must_use] 
     pub fn with_legacy(cfg: &Config) -> Option<Self> {
         let source = if let Some(gradient) = &cfg.window_background_gradient {
             BackgroundSource::Gradient(gradient.clone())
@@ -112,7 +110,7 @@ impl BackgroundLayer {
         } else {
             return None;
         };
-        Some(BackgroundLayer {
+        Some(Self {
             source,
             opacity: cfg.window_background_opacity,
             hsb: cfg.window_background_image_hsb.unwrap_or_default(),
@@ -134,15 +132,17 @@ impl BackgroundLayer {
 
 /// <https://developer.mozilla.org/en-US/docs/Web/CSS/background-size>
 #[derive(Debug, Copy, Clone)]
+#[derive(Default)]
 pub enum BackgroundSize {
     /// Scales image as large as possible without cropping or stretching.
     /// If the container is larger than the image, tiles the image unless
-    /// the correspond `repeat` is NoRepeat.
+    /// the correspond `repeat` is `NoRepeat`.
     Contain,
     /// Scale the image (preserving aspect ratio) to the smallest possible
     /// size to the fill the container leaving no empty space.
     /// If the aspect ratio differs from the background, the image is
     /// cropped.
+    #[default]
     Cover,
     /// Stretches the image to the specified length in pixels
     Dimension(Dimension),
@@ -153,14 +153,11 @@ impl FromDynamic for BackgroundSize {
         value: &Value,
         options: FromDynamicOptions,
     ) -> Result<Self, wezterm_dynamic::Error> {
-        match value {
-            Value::String(label) => match label.as_str() {
-                "Contain" => return Ok(Self::Contain),
-                "Cover" => return Ok(Self::Cover),
-                _ => {}
-            },
+        if let Value::String(label) = value { match label.as_str() {
+            "Contain" => return Ok(Self::Contain),
+            "Cover" => return Ok(Self::Cover),
             _ => {}
-        }
+        } }
         match PixelUnit::from_dynamic(value, options) {
             Ok(pix) => Ok(Self::Dimension(pix.into())),
             Err(_) => Err(wezterm_dynamic::Error::Message(format!(
@@ -186,42 +183,33 @@ impl ToDynamic for BackgroundSize {
     }
 }
 
-impl Default for BackgroundSize {
-    fn default() -> Self {
-        Self::Cover
-    }
-}
 
 #[derive(Debug, Copy, Clone, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum BackgroundHorizontalAlignment {
+    #[default]
     Left,
     Center,
     Right,
 }
 
-impl Default for BackgroundHorizontalAlignment {
-    fn default() -> Self {
-        Self::Left
-    }
-}
 
 #[derive(Debug, Copy, Clone, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum BackgroundVerticalAlignment {
+    #[default]
     Top,
     Middle,
     Bottom,
 }
 
-impl Default for BackgroundVerticalAlignment {
-    fn default() -> Self {
-        Self::Top
-    }
-}
 
 #[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Eq)]
+#[derive(Default)]
 pub enum BackgroundRepeat {
     /// Repeat as much as possible to cover the area.
     /// The last image will be clipped if it doesn't fit.
+    #[default]
     Repeat,
     /// Like Repeat, except that the image is alternately
     /// mirrored. Helpful when the image doesn't seamlessly
@@ -250,21 +238,19 @@ pub enum BackgroundRepeat {
     NoRepeat,
 }
 
-impl Default for BackgroundRepeat {
-    fn default() -> Self {
-        Self::Repeat
-    }
-}
 
 #[derive(Debug, Copy, Clone, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum BackgroundAttachment {
+    #[default]
     Fixed,
     Scroll,
     Parallax(f32),
 }
 
 impl BackgroundAttachment {
-    pub fn scroll_factor(&self) -> Option<f32> {
+    #[must_use] 
+    pub const fn scroll_factor(&self) -> Option<f32> {
         match self {
             Self::Fixed => None,
             Self::Scroll => Some(1.0),
@@ -273,25 +259,17 @@ impl BackgroundAttachment {
     }
 }
 
-impl Default for BackgroundAttachment {
-    fn default() -> Self {
-        Self::Fixed
-    }
-}
 
 #[derive(Debug, Copy, Clone, FromDynamic, ToDynamic)]
+#[derive(Default)]
 pub enum BackgroundOrigin {
+    #[default]
     BorderBox,
     PaddingBox,
 }
 
-impl Default for BackgroundOrigin {
-    fn default() -> Self {
-        Self::BorderBox
-    }
-}
 
-#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Eq, Default)]
 pub enum SystemBackdrop {
     #[default]
     Auto,
@@ -301,11 +279,12 @@ pub enum SystemBackdrop {
     Tabbed,
 }
 
+#[must_use] 
 pub fn default_win32_acrylic_accent_color() -> RgbaColor {
     SrgbaTuple(0.156863, 0.156863, 0.156863, 0.003922).into()
 }
 
-#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Eq, Default)]
 pub enum Interpolation {
     #[default]
     Linear,
@@ -313,7 +292,7 @@ pub enum Interpolation {
     CatmullRom,
 }
 
-#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Eq, Default)]
 pub enum BlendMode {
     #[default]
     Rgb,
@@ -323,7 +302,9 @@ pub enum BlendMode {
 }
 
 #[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq)]
+#[derive(Default)]
 pub enum GradientOrientation {
+    #[default]
     Horizontal,
     Vertical,
     Linear {
@@ -336,13 +317,8 @@ pub enum GradientOrientation {
     },
 }
 
-impl Default for GradientOrientation {
-    fn default() -> Self {
-        Self::Horizontal
-    }
-}
 
-#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq)]
+#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Eq)]
 pub enum GradientPreset {
     Blues,
     BrBg,
@@ -460,25 +436,22 @@ impl_lua_conversion_dynamic!(Gradient);
 impl Gradient {
     pub fn build(&self) -> anyhow::Result<colorgrad::Gradient> {
         use colorgrad::{BlendMode as CGMode, Interpolation as CGInterp};
-        let g = match &self.preset {
-            Some(p) => p.build(),
-            None => {
-                let colors: Vec<&str> = self.colors.iter().map(|s| s.as_str()).collect();
-                let mut g = colorgrad::CustomGradient::new();
-                g.html_colors(&colors);
-                g.mode(match self.blend {
-                    BlendMode::Rgb => CGMode::Rgb,
-                    BlendMode::LinearRgb => CGMode::LinearRgb,
-                    BlendMode::Hsv => CGMode::Hsv,
-                    BlendMode::Oklab => CGMode::Oklab,
-                });
-                g.interpolation(match self.interpolation {
-                    Interpolation::Linear => CGInterp::Linear,
-                    Interpolation::Basis => CGInterp::Basis,
-                    Interpolation::CatmullRom => CGInterp::CatmullRom,
-                });
-                g.build()?
-            }
+        let g = if let Some(p) = &self.preset { p.build() } else {
+            let colors: Vec<&str> = self.colors.iter().map(std::string::String::as_str).collect();
+            let mut g = colorgrad::CustomGradient::new();
+            g.html_colors(&colors);
+            g.mode(match self.blend {
+                BlendMode::Rgb => CGMode::Rgb,
+                BlendMode::LinearRgb => CGMode::LinearRgb,
+                BlendMode::Hsv => CGMode::Hsv,
+                BlendMode::Oklab => CGMode::Oklab,
+            });
+            g.interpolation(match self.interpolation {
+                Interpolation::Linear => CGInterp::Linear,
+                Interpolation::Basis => CGInterp::Basis,
+                Interpolation::CatmullRom => CGInterp::CatmullRom,
+            });
+            g.build()?
         };
         match (self.segment_size, self.segment_smoothness) {
             (Some(size), Some(smoothness)) => Ok(g.sharp(size, smoothness)),

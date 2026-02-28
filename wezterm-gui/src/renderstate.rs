@@ -1,5 +1,5 @@
 use super::glyphcache::GlyphCache;
-use super::quad::*;
+use super::quad::{Vertex, VERTICES_PER_CELL, QuadAllocator, QuadImpl, Quad, QuadTrait, TripleLayerQuadAllocator, V_TOP_LEFT, V_TOP_RIGHT, V_BOT_LEFT, V_BOT_RIGHT, TripleLayerQuadAllocatorTrait};
 use super::utilsprites::{RenderMetrics, UtilSprites};
 use crate::termwindow::webgpu::{adapter_info_to_gpu_info, WebGpuState, WebGpuTexture};
 use ::window::bitmaps::atlas::OutOfTextureSpace;
@@ -9,7 +9,7 @@ use ::window::glium::buffer::{BufferMutSlice, Mapping};
 use ::window::glium::{
     CapabilitiesSource, IndexBuffer as GliumIndexBuffer, VertexBuffer as GliumVertexBuffer,
 };
-use ::window::*;
+use ::window::glium;
 use anyhow::Context;
 use std::cell::{Ref, RefCell, RefMut};
 use std::convert::TryInto;
@@ -33,11 +33,11 @@ pub enum RenderFrame<'a> {
 impl RenderContext {
     pub fn allocate_index_buffer(&self, indices: &[u32]) -> anyhow::Result<IndexBuffer> {
         match self {
-            Self::Glium(context) => Ok(IndexBuffer::Glium(GliumIndexBuffer::new(
+            Self::Glium(context) => Ok(IndexBuffer::Glium(Box::new(GliumIndexBuffer::new(
                 context,
                 glium::index::PrimitiveType::TrianglesList,
                 indices,
-            )?)),
+            )?))),
             Self::WebGpu(state) => Ok(IndexBuffer::WebGpu(WebGpuIndexBuffer::new(indices, state))),
         }
     }
@@ -57,10 +57,10 @@ impl RenderContext {
         initializer: &[Vertex],
     ) -> anyhow::Result<VertexBuffer> {
         match self {
-            Self::Glium(context) => Ok(VertexBuffer::Glium(GliumVertexBuffer::dynamic(
+            Self::Glium(context) => Ok(VertexBuffer::Glium(Box::new(GliumVertexBuffer::dynamic(
                 context,
                 initializer,
-            )?)),
+            )?))),
             Self::WebGpu(state) => Ok(VertexBuffer::WebGpu(WebGpuVertexBuffer::new(
                 num_quads * VERTICES_PER_CELL,
                 state,
@@ -115,14 +115,14 @@ impl RenderContext {
             ),
             Self::WebGpu(state) => {
                 let info = adapter_info_to_gpu_info(state.adapter_info.clone());
-                format!("WebGPU: {}", info.to_string())
+                format!("WebGPU: {info}")
             }
         }
     }
 }
 
 pub enum IndexBuffer {
-    Glium(GliumIndexBuffer<u32>),
+    Glium(Box<GliumIndexBuffer<u32>>),
     WebGpu(WebGpuIndexBuffer),
 }
 
@@ -142,7 +142,7 @@ impl IndexBuffer {
 }
 
 pub enum VertexBuffer {
-    Glium(GliumVertexBuffer<Vertex>),
+    Glium(Box<GliumVertexBuffer<Vertex>>),
     WebGpu(WebGpuVertexBuffer),
 }
 
@@ -274,7 +274,7 @@ impl WebGpuIndexBuffer {
 
 /// This is a self-referential struct, but since those are not possible
 /// to create safely in unstable rust, we transmute the lifetimes away
-/// to static and store the owner (RefMut) and the derived Mapping object
+/// to static and store the owner (`RefMut`) and the derived Mapping object
 /// in this struct
 pub struct GliumMappedVertexBuffer {
     mapping: Mapping<'static, [Vertex]>,
@@ -282,8 +282,8 @@ pub struct GliumMappedVertexBuffer {
     _owner: RefMut<'static, VertexBuffer>,
 }
 
-impl<'a> QuadAllocator for MappedQuads<'a> {
-    fn allocate<'b>(&'b mut self) -> anyhow::Result<QuadImpl<'b>> {
+impl QuadAllocator for MappedQuads<'_> {
+    fn allocate(&mut self) -> anyhow::Result<QuadImpl<'_>> {
         let idx = *self.next;
         *self.next += 1;
         let idx = if idx >= self.capacity {
@@ -336,47 +336,55 @@ pub struct TripleVertexBuffer {
 /// A trait to avoid broadly-scoped transmutes; we only want to
 /// transmute to extend a lifetime to static, and not to change
 /// the underlying type.
-/// These ExtendStatic trait impls constrain the transmutes in that way,
+/// These `ExtendStatic` trait impls constrain the transmutes in that way,
 /// so that the type checker can still catch issues.
+/// # Safety
+///
+/// The implementor must ensure that the lifetime extension is sound for the
+/// specific type and its usage context. In particular, the underlying data
+/// must remain valid for the duration of its use after being transmuted.
 unsafe trait ExtendStatic {
     type T;
+    /// # Safety
+    ///
+    /// The caller must ensure that the lifetime extension is sound.
     unsafe fn extend_lifetime(self) -> Self::T;
 }
 
-unsafe impl<'a, T: 'static> ExtendStatic for Ref<'a, T> {
+unsafe impl<T: 'static> ExtendStatic for Ref<'_, T> {
     type T = Ref<'static, T>;
     unsafe fn extend_lifetime(self) -> Self::T {
-        std::mem::transmute(self)
+        unsafe { std::mem::transmute(self) }
     }
 }
 
-unsafe impl<'a, T: 'static> ExtendStatic for RefMut<'a, T> {
+unsafe impl<T: 'static> ExtendStatic for RefMut<'_, T> {
     type T = RefMut<'static, T>;
     unsafe fn extend_lifetime(self) -> Self::T {
-        std::mem::transmute(self)
+        unsafe { std::mem::transmute(self) }
     }
 }
 
-unsafe impl<'a> ExtendStatic for wgpu::BufferSlice<'a> {
+unsafe impl ExtendStatic for wgpu::BufferSlice<'_> {
     type T = wgpu::BufferSlice<'static>;
     unsafe fn extend_lifetime(self) -> Self::T {
-        std::mem::transmute(self)
+        unsafe { std::mem::transmute(self) }
     }
 }
 
-unsafe impl<'a> ExtendStatic for MappedQuads<'a> {
+unsafe impl ExtendStatic for MappedQuads<'_> {
     type T = MappedQuads<'static>;
     unsafe fn extend_lifetime(self) -> Self::T {
-        std::mem::transmute(self)
+        unsafe { std::mem::transmute(self) }
     }
 }
 
-unsafe impl<'a, T: ?Sized + ::window::glium::buffer::Content + 'static> ExtendStatic
-    for BufferMutSlice<'a, T>
+unsafe impl<T: ?Sized + ::window::glium::buffer::Content + 'static> ExtendStatic
+    for BufferMutSlice<'_, T>
 {
     type T = BufferMutSlice<'static, T>;
     unsafe fn extend_lifetime(self) -> Self::T {
-        std::mem::transmute(self)
+        unsafe { std::mem::transmute(self) }
     }
 }
 
@@ -488,10 +496,10 @@ impl RenderLayer {
             let layer0 = vbs[0].map().extend_lifetime();
             let layer1 = vbs[1].map().extend_lifetime();
             let layer2 = vbs[2].map().extend_lifetime();
-            TripleLayerQuadAllocator::Gpu(BorrowedLayers {
+            TripleLayerQuadAllocator::Gpu(Box::new(BorrowedLayers {
                 layers: [layer0, layer1, layer2],
                 _owner: vbs,
-            })
+            }))
         }
     }
 
@@ -521,8 +529,7 @@ impl RenderLayer {
             num_quads,
             verts.len() * std::mem::size_of::<Vertex>()
         );
-        let mut indices = vec![];
-        indices.reserve(num_quads * INDICES_PER_CELL);
+        let mut indices = Vec::with_capacity(num_quads * INDICES_PER_CELL);
 
         for q in 0..num_quads {
             let idx = (q * VERTICES_PER_CELL) as u32;
@@ -566,7 +573,7 @@ impl TripleLayerQuadAllocatorTrait for BorrowedLayers {
     }
 
     fn extend_with(&mut self, layer_num: usize, vertices: &[Vertex]) {
-        self.layers[layer_num].extend_with(vertices)
+        self.layers[layer_num].extend_with(vertices);
     }
 }
 
@@ -587,12 +594,12 @@ impl RenderState {
     ) -> anyhow::Result<Self> {
         loop {
             let glyph_cache = RefCell::new(GlyphCache::new_gl(&context, fonts, atlas_size)?);
-            let result = UtilSprites::new(&mut *glyph_cache.borrow_mut(), metrics);
+            let result = UtilSprites::new(&mut glyph_cache.borrow_mut(), metrics);
             match result {
                 Ok(util_sprites) => {
                     let glyph_prog = match &context {
                         RenderContext::Glium(context) => {
-                            Some(Self::compile_prog(&context, Self::glyph_shader)?)
+                            Some(Self::compile_prog(context, Self::glyph_shader)?)
                         }
                         RenderContext::WebGpu(_) => None,
                     };
@@ -615,7 +622,7 @@ impl RenderState {
                 Err(OutOfTextureSpace { size: None, .. }) => {
                     anyhow::bail!("requested texture size is impossible!?")
                 }
-            };
+            }
         }
     }
 
@@ -656,11 +663,10 @@ impl RenderState {
                     let num_quads = (need_quads + 127) & !127;
                     layer.reallocate_quads(vb_idx, num_quads).with_context(|| {
                         format!(
-                            "Failed to allocate {} quads (needed {})",
-                            num_quads, need_quads,
+                            "Failed to allocate {num_quads} quads (needed {need_quads})",
                         )
                     })?;
-                    log::trace!("Allocated {} quads (needed {})", num_quads, need_quads);
+                    log::trace!("Allocated {num_quads} quads (needed {need_quads})");
                     allocated = true;
                 }
             }
@@ -694,8 +700,8 @@ impl RenderState {
                 Ok(prog) => {
                     return Ok(prog);
                 }
-                Err(err) => errors.push(format!("shader version: {}: {:#}", version, err)),
-            };
+                Err(err) => errors.push(format!("shader version: {version}: {err:#}")),
+            }
         }
 
         anyhow::bail!("Failed to compile shaders: {}", errors.join("\n"))
@@ -732,7 +738,7 @@ impl RenderState {
         let mut attempt = 10;
         loop {
             match self.recreate_texture_atlas_impl(fonts, metrics, size) {
-                Ok(_) => return Ok(()),
+                Ok(()) => return Ok(()),
                 Err(err) => {
                     attempt -= 1;
                     if attempt == 0 {

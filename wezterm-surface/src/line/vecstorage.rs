@@ -9,28 +9,39 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct VecStorage {
+#[derive(Debug, Clone)]
+pub struct VecStorage {
     cells: Vec<Cell>,
 }
 
+impl PartialEq for VecStorage {
+    fn eq(&self, other: &Self) -> bool {
+        if self.cells.len() != other.cells.len() {
+            return false;
+        }
+        let bytes_len = self.cells.len() * core::mem::size_of::<Cell>();
+        let a = unsafe { core::slice::from_raw_parts(self.cells.as_ptr().cast::<u8>(), bytes_len) };
+        let b = unsafe { core::slice::from_raw_parts(other.cells.as_ptr().cast::<u8>(), bytes_len) };
+        crate::line::simd::lines_equal(a, b)
+    }
+}
+
 impl VecStorage {
-    pub(crate) fn new(cells: Vec<Cell>) -> Self {
+    pub(crate) const fn new(cells: Vec<Cell>) -> Self {
         Self { cells }
     }
 
     #[cfg_attr(not(feature = "use_image"), allow(unused_mut, unused_variables))]
     pub(crate) fn set_cell(&mut self, idx: usize, mut cell: Cell, clear_image_placement: bool) {
         #[cfg(feature = "use_image")]
-        if !clear_image_placement {
-            if let Some(images) = self.cells[idx].attrs().images() {
+        if !clear_image_placement
+            && let Some(images) = self.cells[idx].attrs().images() {
                 for image in images {
                     if image.has_placement_id() {
                         cell.attrs_mut().attach_image(Box::new(image));
                     }
                 }
             }
-        }
         self.cells[idx] = cell;
     }
 
@@ -84,7 +95,7 @@ impl core::ops::DerefMut for VecStorage {
 }
 
 /// Iterates over a slice of Cell, yielding only visible cells
-pub(crate) struct VecStorageIter<'a> {
+pub struct VecStorageIter<'a> {
     pub cells: core::slice::Iter<'a, Cell>,
     pub idx: usize,
     pub skip_width: usize,

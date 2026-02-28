@@ -41,12 +41,13 @@ impl Drop for Array {
 
 fn take(array: Array) -> Vec<Value> {
     let array = core::mem::ManuallyDrop::new(array);
-    unsafe { core::ptr::read(&array.inner) }
+    unsafe { core::ptr::read(&raw const array.inner) }
 }
 
 impl Array {
-    pub fn new() -> Self {
-        Array { inner: Vec::new() }
+    #[must_use] 
+    pub const fn new() -> Self {
+        Self { inner: Vec::new() }
     }
 }
 
@@ -96,7 +97,7 @@ impl FromIterator<Value> for Array {
     where
         I: IntoIterator<Item = Value>,
     {
-        Array {
+        Self {
             inner: Vec::from_iter(iter),
         }
     }

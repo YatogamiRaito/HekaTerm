@@ -1,4 +1,4 @@
-use crate::os::x11::xcb_util::*;
+use crate::os::x11::xcb_util::XcbImage;
 use crate::x11::XConnection;
 use crate::MouseCursor;
 use anyhow::{ensure, Context};
@@ -45,57 +45,54 @@ pub struct CursorInfo {
 }
 
 fn icon_path() -> Vec<PathBuf> {
-    let path = match std::env::var_os("XCURSOR_PATH") {
-        Some(path) => {
-            log::trace!("Using $XCURSOR_PATH icon path: {:?}", path);
-            path
-        }
-        None => {
-            log::trace!("Constructing default icon path because $XCURSOR_PATH is not set");
+    let path = if let Some(path) = std::env::var_os("XCURSOR_PATH") {
+        log::trace!("Using $XCURSOR_PATH icon path: {path:?}");
+        path
+    } else {
+        log::trace!("Constructing default icon path because $XCURSOR_PATH is not set");
 
-            fn add_icons_dir(path: &OsStr, dest: &mut Vec<PathBuf>) {
-                for entry in std::env::split_paths(path) {
-                    dest.push(entry.join("icons"));
-                }
+        fn add_icons_dir(path: &OsStr, dest: &mut Vec<PathBuf>) {
+            for entry in std::env::split_paths(path) {
+                dest.push(entry.join("icons"));
             }
-
-            fn xdg_location(name: &str, def: &str, dest: &mut Vec<PathBuf>) {
-                if let Some(var) = std::env::var_os(name) {
-                    log::trace!("Using ${} location {:?}", name, var);
-                    add_icons_dir(&var, dest);
-                } else {
-                    log::trace!("Using {} because ${} is not set", def, name);
-                    add_icons_dir(OsStr::new(def), dest);
-                }
-            }
-
-            let mut path = vec![];
-            xdg_location("XDG_DATA_HOME", "~/.local/share", &mut path);
-            path.push("~/.icons".into());
-            xdg_location("XDG_DATA_DIRS", "/usr/local/share:/usr/share", &mut path);
-            path.push("/usr/share/pixmaps".into());
-            path.push("~/.cursors".into());
-            path.push("/usr/share/cursors/xorg-x11".into());
-            path.push("/usr/X11R6/lib/X11/icons".into());
-
-            std::env::join_paths(path).expect("failed to compose default xcursor path")
         }
+
+        fn xdg_location(name: &str, def: &str, dest: &mut Vec<PathBuf>) {
+            if let Some(var) = std::env::var_os(name) {
+                log::trace!("Using ${name} location {var:?}");
+                add_icons_dir(&var, dest);
+            } else {
+                log::trace!("Using {def} because ${name} is not set");
+                add_icons_dir(OsStr::new(def), dest);
+            }
+        }
+
+        let mut path = vec![];
+        xdg_location("XDG_DATA_HOME", "~/.local/share", &mut path);
+        path.push("~/.icons".into());
+        xdg_location("XDG_DATA_DIRS", "/usr/local/share:/usr/share", &mut path);
+        path.push("/usr/share/pixmaps".into());
+        path.push("~/.cursors".into());
+        path.push("/usr/share/cursors/xorg-x11".into());
+        path.push("/usr/X11R6/lib/X11/icons".into());
+
+        std::env::join_paths(path).expect("failed to compose default xcursor path")
     };
 
     fn tilde_expand(p: PathBuf) -> PathBuf {
         match p.to_str() {
             Some(s) => {
-                if s.starts_with("~/") {
+                if let Some(rest) = s.strip_prefix("~/") {
                     if let Some(home) = dirs_next::home_dir() {
-                        home.join(&s[2..])
+                        home.join(rest)
                     } else {
-                        p.into()
+                        p
                     }
                 } else {
-                    p.into()
+                    p
                 }
             }
-            None => p.into(),
+            None => p,
         }
     }
 
@@ -107,23 +104,20 @@ fn cursor_size(xcursor_size: &Option<u32>, map: &HashMap<String, String>) -> u32
         return *size;
     }
 
-    if let Ok(size) = std::env::var("XCURSOR_SIZE") {
-        if let Ok(size) = size.parse::<u32>() {
+    if let Ok(size) = std::env::var("XCURSOR_SIZE")
+        && let Ok(size) = size.parse::<u32>() {
             return size;
         }
-    }
 
-    if let Some(size) = map.get("Xcursor.size") {
-        if let Ok(size) = size.parse::<u32>() {
+    if let Some(size) = map.get("Xcursor.size")
+        && let Ok(size) = size.parse::<u32>() {
             return size;
         }
-    }
 
-    if let Some(dpi) = map.get("Xft.dpi") {
-        if let Ok(dpi) = dpi.parse::<u32>() {
+    if let Some(dpi) = map.get("Xft.dpi")
+        && let Ok(dpi) = dpi.parse::<u32>() {
             return dpi * 16 / 72;
         }
-    }
 
     // Probably a good default?
     24
@@ -139,18 +133,16 @@ impl CursorInfo {
         let has_render = conn
             .active_extensions()
             .any(|e| e == xcb::Extension::Render);
-        if has_render {
-            if let Ok(vers) = conn.send_and_wait_request(&xcb::render::QueryVersion {
+        if has_render
+            && let Ok(vers) = conn.send_and_wait_request(&xcb::render::QueryVersion {
                 client_major_version: xcb::render::MAJOR_VERSION,
                 client_minor_version: xcb::render::MINOR_VERSION,
             }) {
                 // 0.5 and later have the required support
                 if (vers.major_version(), vers.minor_version()) >= (0, 5) {
-                    size.replace(cursor_size(&config.xcursor_size, &*conn.xrm.borrow()));
+                    size.replace(cursor_size(&config.xcursor_size, &conn.xrm.borrow()));
                     theme = config
-                        .xcursor_theme
-                        .as_ref()
-                        .map(|s| s.to_string())
+                        .xcursor_theme.clone()
                         .or_else(|| conn.xrm.borrow().get("Xcursor.theme").cloned());
 
                     // Locate the Pictformat corresponding to ARGB32
@@ -173,9 +165,8 @@ impl CursorInfo {
                     }
                 }
             }
-        }
         let icon_path = icon_path();
-        log::trace!("icon_path is {:?}", icon_path);
+        log::trace!("icon_path is {icon_path:?}");
 
         Self {
             cursors: HashMap::new(),
@@ -225,16 +216,18 @@ impl CursorInfo {
     fn create_blank(&mut self, conn: &Rc<XConnection>) -> anyhow::Result<Cursor> {
         let mut pixels = [0u8; 4];
 
-        let image = XcbImage::create_native(
-            conn,
-            1,
-            1,
-            xcb::x::ImageFormat::ZPixmap as u32,
-            32,
-            std::ptr::null_mut(),
-            pixels.len() as u32,
-            pixels.as_mut_ptr(),
-        )?;
+        let image = unsafe {
+            XcbImage::create_native(
+                conn,
+                1,
+                1,
+                xcb::x::ImageFormat::ZPixmap as u32,
+                32,
+                std::ptr::null_mut(),
+                pixels.len() as u32,
+                pixels.as_mut_ptr(),
+            )
+        }?;
 
         let pixmap = conn.generate_id();
         conn.send_request_no_reply(&xcb::x::CreatePixmap {
@@ -254,7 +247,7 @@ impl CursorInfo {
         })
         .context("CreateGc")?;
 
-        image.put(conn, pixmap.resource_id(), gc.resource_id(), 0, 0, 0);
+        let _ = image.put(conn, pixmap.resource_id(), gc.resource_id(), 0, 0, 0);
 
         conn.send_request(&xcb::x::FreeGc { gc });
 
@@ -296,13 +289,13 @@ impl CursorInfo {
                         cursor,
                         XcbCursor {
                             id: cursor_id,
-                            conn: Rc::downgrade(&conn),
+                            conn: Rc::downgrade(conn),
                         },
                     );
                     return Some(cursor_id);
                 }
                 Err(err) => {
-                    log::error!("Failed to create blank cursor: {:#}", err);
+                    log::error!("Failed to create blank cursor: {err:#}");
                     return self.load_themed(conn, Some(MouseCursor::Arrow));
                 }
             }
@@ -334,9 +327,7 @@ impl CursorInfo {
                 for name in names {
                     let candidate = dir.join(&theme).join("cursors").join(name);
                     log::trace!(
-                        "candidate for theme={theme} {:?} is {:?}",
-                        cursor,
-                        candidate
+                        "candidate for theme={theme} {cursor:?} is {candidate:?}"
                     );
                     if let Ok(file) = std::fs::File::open(&candidate) {
                         match self.parse_cursor_file(conn, file) {
@@ -345,14 +336,14 @@ impl CursorInfo {
                                     cursor,
                                     XcbCursor {
                                         id: cursor_id,
-                                        conn: Rc::downgrade(&conn),
+                                        conn: Rc::downgrade(conn),
                                     },
                                 );
 
-                                log::trace!("{:?} resolved to {:?}", cursor, candidate);
+                                log::trace!("{cursor:?} resolved to {candidate:?}");
                                 return Some(cursor_id);
                             }
-                            Err(err) => log::error!("{:#}", err),
+                            Err(err) => log::error!("{err:#}"),
                         }
                     }
                 }
@@ -377,7 +368,7 @@ impl CursorInfo {
             MouseCursor::SizeUpDown => SB_V_DOUBLE_ARROW,
             MouseCursor::SizeLeftRight => SB_H_DOUBLE_ARROW,
         };
-        log::trace!("loading X11 basic cursor {} for {:?}", id_no, cursor);
+        log::trace!("loading X11 basic cursor {id_no} for {cursor:?}");
 
         let cursor_id: Cursor = conn.generate_id();
         conn.send_request_no_reply_log(&xcb::x::CreateGlyphCursor {
@@ -398,7 +389,7 @@ impl CursorInfo {
             cursor,
             XcbCursor {
                 id: cursor_id,
-                conn: Rc::downgrade(&conn),
+                conn: Rc::downgrade(conn),
             },
         );
 
@@ -545,7 +536,7 @@ impl CursorInfo {
 
         let num_pixels = (width as usize) * (height as usize);
         ensure!(
-            num_pixels < u32::max_value() as usize,
+            num_pixels < u32::MAX as usize,
             "cursor image is larger than fits in u32"
         );
 
@@ -561,16 +552,18 @@ impl CursorInfo {
             chunk.copy_from_slice(&data);
         }
 
-        let image = XcbImage::create_native(
-            conn,
-            width.try_into()?,
-            height.try_into()?,
-            xcb::x::ImageFormat::ZPixmap as u32,
-            32,
-            std::ptr::null_mut(),
-            pixels.len() as u32,
-            pixels.as_mut_ptr(),
-        )?;
+        let image = unsafe {
+            XcbImage::create_native(
+                conn,
+                width.try_into()?,
+                height.try_into()?,
+                xcb::x::ImageFormat::ZPixmap as u32,
+                32,
+                std::ptr::null_mut(),
+                pixels.len() as u32,
+                pixels.as_mut_ptr(),
+            )
+        }?;
 
         let pixmap = conn.generate_id();
         conn.send_request_no_reply(&xcb::x::CreatePixmap {
@@ -590,7 +583,7 @@ impl CursorInfo {
         })
         .context("CreateGc")?;
 
-        image.put(conn, pixmap.resource_id(), gc.resource_id(), 0, 0, 0);
+        let _ = image.put(conn, pixmap.resource_id(), gc.resource_id(), 0, 0, 0);
 
         conn.send_request_no_reply(&xcb::x::FreeGc { gc })?;
 
@@ -634,7 +627,7 @@ fn extract_inherited_theme_name(p: PathBuf) -> Option<String> {
         if fields.len() == 2 {
             let key = fields[0].trim();
             if key == "Inherits" {
-                fn separator(c: char) -> bool {
+                const fn separator(c: char) -> bool {
                     c.is_whitespace() || c == ';' || c == ','
                 }
 

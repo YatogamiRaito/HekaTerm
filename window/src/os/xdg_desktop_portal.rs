@@ -55,15 +55,13 @@ struct State {
     last_update: Instant,
 }
 
-lazy_static::lazy_static! {
-  static ref STATE: Mutex<State> = Mutex::new(
+static STATE: std::sync::LazyLock<Mutex<State>> = std::sync::LazyLock::new(|| Mutex::new(
           State {
               appearance: CachedAppearance::Unknown,
               subscribe_running: false,
               last_update: Instant::now(),
           }
-   );
-}
+   ));
 
 pub async fn read_setting(namespace: &str, key: &str) -> anyhow::Result<OwnedValue> {
     let connection = zbus::ConnectionBuilder::session()?.build().await?;
@@ -101,33 +99,37 @@ fn value_to_appearance(value: OwnedValue) -> anyhow::Result<Appearance> {
 }
 
 pub async fn get_appearance() -> anyhow::Result<Option<Appearance>> {
-    let mut state = STATE.lock().unwrap();
+    {
+        let state = STATE.lock().unwrap();
 
-    match &state.appearance {
-        CachedAppearance::Some(_)
-            if (state.subscribe_running || state.last_update.elapsed().as_secs() < 1) =>
-        {
-            // Known values are considered good while our subscription is running,
-            // or for 1 second since we last queried
-            return state.appearance.to_result();
-        }
-        CachedAppearance::None => {
-            // Permanently cache the error state
-            return Ok(None);
-        }
-        CachedAppearance::Some(_) | CachedAppearance::Unknown => {
-            // We'll need to query for these
+        match &state.appearance {
+            CachedAppearance::Some(_)
+                if (state.subscribe_running || state.last_update.elapsed().as_secs() < 1) =>
+            {
+                // Known values are considered good while our subscription is running,
+                // or for 1 second since we last queried
+                return state.appearance.to_result();
+            }
+            CachedAppearance::None => {
+                // Permanently cache the error state
+                return Ok(None);
+            }
+            CachedAppearance::Some(_) | CachedAppearance::Unknown => {
+                // We'll need to query for these
+            }
         }
     }
 
     match read_setting("org.freedesktop.appearance", "color-scheme").await {
         Ok(value) => {
+            let mut state = STATE.lock().unwrap();
             let appearance = value_to_appearance(value).context("value_to_appearance")?;
             state.appearance = CachedAppearance::Some(appearance);
             state.last_update = Instant::now();
             Ok(Some(appearance))
         }
         Err(err) => {
+            let mut state = STATE.lock().unwrap();
             // Cache that we didn't get any value, so we can avoid
             // repeating this query again later
             state.appearance = CachedAppearance::None;
@@ -156,8 +158,8 @@ pub async fn run_signal_loop(stream: &mut SettingChangedStream<'_>) -> Result<()
 
     while let Some(signal) = stream.next().await {
         let args = signal.args()?;
-        if args.namespace == "org.freedesktop.appearance" && args.key == "color-scheme" {
-            if let Ok(appearance) = value_to_appearance(args.value) {
+        if args.namespace == "org.freedesktop.appearance" && args.key == "color-scheme"
+            && let Ok(appearance) = value_to_appearance(args.value) {
                 let mut state = STATE.lock().unwrap();
                 state.appearance = CachedAppearance::Some(appearance);
                 state.last_update = Instant::now();
@@ -166,7 +168,6 @@ pub async fn run_signal_loop(stream: &mut SettingChangedStream<'_>) -> Result<()
                     Connection::get().ok_or_else(|| anyhow::anyhow!("connection is dead"))?;
                 conn.advise_of_appearance_change(appearance);
             }
-        }
     }
     Result::<(), anyhow::Error>::Ok(())
 }

@@ -27,11 +27,11 @@ pub enum FontOrigin {
 // 'FontConfigMatch("..")', so use Debug
 impl Display for FontOrigin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
-#[derive(Clone, Hash)]
+#[derive(Clone)]
 pub enum FontDataSource {
     OnDisk(PathBuf),
     BuiltIn {
@@ -68,7 +68,18 @@ impl FontDataSource {
                 Ok(Cow::Owned(data))
             }
             Self::BuiltIn { data, .. } => Ok(Cow::Borrowed(data)),
-            Self::Memory { data, .. } => Ok(Cow::Borrowed(&*data)),
+            Self::Memory { data, .. } => Ok(Cow::Borrowed(data)),
+        }
+    }
+}
+
+impl std::hash::Hash for FontDataSource {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        match self {
+            Self::OnDisk(path) => path.hash(state),
+            Self::BuiltIn { name, .. } => name.hash(state),
+            Self::Memory { name, .. } => name.hash(state),
         }
     }
 }
@@ -142,14 +153,10 @@ impl std::hash::Hash for FontDataHandle {
     }
 }
 
+
 impl PartialOrd for FontDataHandle {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        (&self.source, self.index, self.variation, &self.origin).partial_cmp(&(
-            &other.source,
-            other.index,
-            other.variation,
-            &other.origin,
-        ))
+        Some(self.cmp(other))
     }
 }
 
@@ -173,11 +180,11 @@ impl FontDataHandle {
         self.source.path_str()
     }
 
-    pub fn index(&self) -> u32 {
+    pub const fn index(&self) -> u32 {
         self.index
     }
 
-    pub fn set_index(&mut self, idx: u32) {
+    pub const fn set_index(&mut self, idx: u32) {
         self.index = idx;
     }
 

@@ -12,15 +12,23 @@ pub struct TermConfig {
     client_palette: Mutex<Option<ColorPalette>>,
 }
 
+impl Default for TermConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TermConfig {
-    pub fn new() -> Self {
+    #[must_use] 
+    pub const fn new() -> Self {
         Self {
             config: Mutex::new(None),
             client_palette: Mutex::new(None),
         }
     }
 
-    pub fn with_config(config: ConfigHandle) -> Self {
+    #[must_use] 
+    pub const fn with_config(config: ConfigHandle) -> Self {
         Self {
             config: Mutex::new(Some(config)),
             client_palette: Mutex::new(None),

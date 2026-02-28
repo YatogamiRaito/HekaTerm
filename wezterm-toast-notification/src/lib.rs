@@ -12,7 +12,7 @@ pub struct ToastNotification {
 
 impl ToastNotification {
     pub fn show(self) {
-        show(self)
+        show(self);
     }
 }
 
@@ -24,7 +24,7 @@ use dbus as backend;
 use macos as backend;
 
 mod nop {
-    use super::*;
+    use super::ToastNotification;
 
     #[allow(dead_code)]
     pub fn show_notif(_: ToastNotification) -> Result<(), Box<dyn std::error::Error>> {
@@ -34,7 +34,7 @@ mod nop {
 
 pub fn show(notif: ToastNotification) {
     if let Err(err) = backend::show_notif(notif) {
-        log::error!("Failed to show notification: {}", err);
+        log::error!("Failed to show notification: {err}");
     }
 }
 

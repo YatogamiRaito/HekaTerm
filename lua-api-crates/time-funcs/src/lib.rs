@@ -7,9 +7,7 @@ use config::ConfigSubscription;
 use std::rc::Rc;
 use std::sync::Mutex;
 
-lazy_static::lazy_static! {
-    static ref CONFIG_SUBSCRIPTION: Mutex<Option<ConfigSubscription>> = Mutex::new(None);
-}
+static CONFIG_SUBSCRIPTION: std::sync::LazyLock<Mutex<Option<ConfigSubscription>>> = std::sync::LazyLock::new(|| Mutex::new(None));
 
 /// We contrive to call this from the main thread in response to the
 /// config being reloaded.
@@ -43,7 +41,8 @@ fn schedule_trampoline() {
 
 /// Called by the config subsystem when the config is reloaded.
 /// We use it to schedule our setup function that will schedule
-/// the call_after functions from the main thread.
+/// the `call_after` functions from the main thread.
+#[must_use] 
 pub fn config_was_reloaded() -> bool {
     if promise::spawn::is_scheduler_configured() {
         promise::spawn::spawn_into_main_thread(async move {
@@ -100,7 +99,7 @@ impl ScheduledEvent {
         // changed.
         if config::configuration().generation() == generation {
             let args = lua.pack_multi(())?;
-            emit_event(&lua, (self.user_event_id, args)).await?;
+            emit_event(lua, (self.user_event_id, args)).await?;
         }
         Ok(())
     }
@@ -124,7 +123,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     time_mod.set(
         "now",
-        lua.create_function(|_, _: ()| Ok(Time { utc: Utc::now() }))?,
+        lua.create_function(|_, (): ()| Ok(Time { utc: Utc::now() }))?,
     )?;
 
     time_mod.set(
@@ -180,17 +179,17 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn strftime_utc<'lua>(_: &'lua Lua, format: String) -> mlua::Result<String> {
+fn strftime_utc(_: &Lua, format: String) -> mlua::Result<String> {
     let local: DateTime<Utc> = Utc::now();
     Ok(local.format(&format).to_string())
 }
 
-fn strftime<'lua>(_: &'lua Lua, format: String) -> mlua::Result<String> {
+fn strftime(_: &Lua, format: String) -> mlua::Result<String> {
     let local: DateTime<Local> = Local::now();
     Ok(local.format(&format).to_string())
 }
 
-async fn sleep_ms<'lua>(_: &'lua Lua, milliseconds: u64) -> mlua::Result<()> {
+async fn sleep_ms(_: &Lua, milliseconds: u64) -> mlua::Result<()> {
     let duration = std::time::Duration::from_millis(milliseconds);
     smol::Timer::after(duration).await;
     Ok(())
@@ -203,7 +202,7 @@ pub struct Time {
 
 impl UserData for Time {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| {
+        methods.add_meta_method(MetaMethod::ToString, |_, this, (): ()| {
             let utc = this.utc.to_rfc3339();
             Ok(format!("Time(utc: {utc})"))
         });
@@ -248,10 +247,10 @@ impl UserData for Time {
                         // time is after sunset
                         progression = (this.utc - set).num_minutes() as f64
                             / night_duration.num_minutes() as f64;
-                    };
+                    }
                     SunTimes {
-                        rise: Some(Time { utc: rise }),
-                        set: Some(Time { utc: set }),
+                        rise: Some(Self { utc: rise }),
+                        set: Some(Self { utc: set }),
                         up,
                         progression,
                     }

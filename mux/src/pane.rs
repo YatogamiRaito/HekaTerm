@@ -1,5 +1,5 @@
 use crate::domain::DomainId;
-use crate::renderable::*;
+use crate::renderable::{StableCursorPosition, RenderableDimensions};
 use crate::ExitBehavior;
 use async_trait::async_trait;
 use config::keyassignment::{KeyAssignment, ScrollbackEraseMode};
@@ -35,7 +35,7 @@ pub enum PerformAssignmentResult {
     /// Found handler and acted upon the action
     Handled,
     /// Do not perform assignment, but instead treat the key event
-    /// as though there was no assignment and run it as a key_down
+    /// as though there was no assignment and run it as a `key_down`
     /// event.
     BlockAssignmentAndRouteToKeyDown,
 }
@@ -62,7 +62,7 @@ pub enum Pattern {
 
 impl Default for Pattern {
     fn default() -> Self {
-        Self::CaseSensitiveString("".to_string())
+        Self::CaseSensitiveString(String::new())
     }
 }
 
@@ -70,9 +70,9 @@ impl std::ops::Deref for Pattern {
     type Target = String;
     fn deref(&self) -> &String {
         match self {
-            Pattern::CaseSensitiveString(s) => s,
-            Pattern::CaseInSensitiveString(s) => s,
-            Pattern::Regex(s) => s,
+            Self::CaseSensitiveString(s) => s,
+            Self::CaseInSensitiveString(s) => s,
+            Self::Regex(s) => s,
         }
     }
 }
@@ -80,9 +80,9 @@ impl std::ops::Deref for Pattern {
 impl std::ops::DerefMut for Pattern {
     fn deref_mut(&mut self) -> &mut String {
         match self {
-            Pattern::CaseSensitiveString(s) => s,
-            Pattern::CaseInSensitiveString(s) => s,
-            Pattern::Regex(s) => s,
+            Self::CaseSensitiveString(s) => s,
+            Self::CaseInSensitiveString(s) => s,
+            Self::Regex(s) => s,
         }
     }
 }
@@ -97,9 +97,9 @@ pub enum PatternType {
 impl From<&Pattern> for PatternType {
     fn from(value: &Pattern) -> Self {
         match value {
-            Pattern::CaseSensitiveString(_) => PatternType::CaseSensitiveString,
-            Pattern::CaseInSensitiveString(_) => PatternType::CaseInSensitiveString,
-            Pattern::Regex(_) => PatternType::Regex,
+            Pattern::CaseSensitiveString(_) => Self::CaseSensitiveString,
+            Pattern::CaseInSensitiveString(_) => Self::CaseInSensitiveString,
+            Pattern::Regex(_) => Self::Regex,
         }
     }
 }
@@ -123,7 +123,7 @@ pub struct LogicalLine {
 }
 
 impl LogicalLine {
-    pub fn contains_y(&self, y: StableRowIndex) -> bool {
+    pub const fn contains_y(&self, y: StableRowIndex) -> bool {
         y >= self.first_row && y < self.first_row + self.physical_lines.len() as StableRowIndex
     }
 
@@ -187,7 +187,7 @@ pub trait Pane: Downcast + Send + Sync {
     ) -> RangeSet<StableRowIndex>;
 
     /// Returns a set of lines from the scrollback or visible portion of
-    /// the display.  The lines are indexed using StableRowIndex, which
+    /// the display.  The lines are indexed using `StableRowIndex`, which
     /// can be invalidated if the scrollback is busy, or when switching
     /// to the alternate screen.
     /// To deal with this, this function will adjust the input so that
@@ -195,7 +195,7 @@ pub trait Pane: Downcast + Send + Sync {
     /// n rows of the scrollback (where n is the size of the input range),
     /// or the bottom n rows of the scrollback when switching to the alt
     /// screen and the index would go off the bottom.
-    /// Because of this, we also return the adjusted StableRowIndex for
+    /// Because of this, we also return the adjusted `StableRowIndex` for
     /// the first row in the range.
     fn get_lines(&self, lines: Range<StableRowIndex>) -> (StableRowIndex, Vec<Line>);
 
@@ -213,7 +213,7 @@ pub trait Pane: Downcast + Send + Sync {
         struct ApplyHyperLinks<'a> {
             rules: &'a [Rule],
         }
-        impl<'a> ForEachPaneLogicalLine for ApplyHyperLinks<'a> {
+        impl ForEachPaneLogicalLine for ApplyHyperLinks<'_> {
             fn with_logical_line_mut(
                 &mut self,
                 _: Range<StableRowIndex>,
@@ -282,11 +282,11 @@ pub trait Pane: Downcast + Send + Sync {
 
     /// Performs a search bounded to the specified range.
     /// If the result is empty then there are no matches.
-    /// Otherwise, if limit.is_none(), the result shall contain all possible
+    /// Otherwise, if `limit.is_none()`, the result shall contain all possible
     /// matches.
-    /// If limit.is_some(), then the maximum number of results that will be
+    /// If `limit.is_some()`, then the maximum number of results that will be
     /// returned is limited to the specified number, and the
-    /// SearchResult::start_y of the last item
+    /// `SearchResult::start_y` of the last item
     /// in the result can be used as the start of the next region to search.
     /// You can tell that you have reached the end of the results if the number
     /// of results is smaller than the limit you set.
@@ -346,12 +346,12 @@ pub enum CachePolicy {
 }
 
 /// This trait is used to implement/provide a callback that is used together
-/// with the Pane::with_lines_mut method.
-/// Ideally we'd simply pass an FnMut with the same signature as the trait
+/// with the `Pane::with_lines_mut` method.
+/// Ideally we'd simply pass an `FnMut` with the same signature as the trait
 /// method defined here, but doing so results in Pane not being object-safe.
 pub trait WithPaneLines {
-    /// The `first_row` parameter is set to the StableRowIndex of the resolved
-    /// first row from the Pane::with_lines_mut method. It will usually be
+    /// The `first_row` parameter is set to the `StableRowIndex` of the resolved
+    /// first row from the `Pane::with_lines_mut` method. It will usually be
     /// the start of the lines range, but in case that row is no longer in
     /// a valid range (scrolled out of scrollback), it may be revised.
     ///
@@ -361,8 +361,8 @@ pub trait WithPaneLines {
 }
 
 /// This trait is used to implement/provide a callback that is used together
-/// with the Pane::for_each_logical_line_in_stable_range_mut method.
-/// Ideally we'd simply pass an FnMut with the same signature as the trait
+/// with the `Pane::for_each_logical_line_in_stable_range_mut` method.
+/// Ideally we'd simply pass an `FnMut` with the same signature as the trait
 /// method defined here, but doing so results in Pane not being object-safe.
 pub trait ForEachPaneLogicalLine {
     /// The `stable_range` parameter is set to the range of physical lines
@@ -380,12 +380,12 @@ pub trait ForEachPaneLogicalLine {
     ) -> bool;
 }
 
-/// A helper that allows you to implement Pane::with_lines_mut in terms
-/// of your existing Pane::get_lines method.
+/// A helper that allows you to implement `Pane::with_lines_mut` in terms
+/// of your existing `Pane::get_lines` method.
 ///
 /// The mutability is really a lie: while `with_lines` is passed something
 /// that is mutable, it is operating on a copy the lines that won't persist
-/// beyond the call to Pane::with_lines_mut.
+/// beyond the call to `Pane::with_lines_mut`.
 pub fn impl_with_lines_via_get_lines<P: Pane + ?Sized>(
     pane: &P,
     lines: Range<StableRowIndex>,
@@ -393,18 +393,18 @@ pub fn impl_with_lines_via_get_lines<P: Pane + ?Sized>(
 ) {
     let (first, mut lines) = pane.get_lines(lines);
     let mut line_refs = vec![];
-    for line in lines.iter_mut() {
+    for line in &mut lines {
         line_refs.push(line);
     }
     with_lines.with_lines_mut(first, &mut line_refs);
 }
 
-/// A helper that allows you to implement Pane::for_each_logical_line_in_stable_range_mut
-/// in terms of your existing Pane::get_logical_lines method.
+/// A helper that allows you to implement `Pane::for_each_logical_line_in_stable_range_mut`
+/// in terms of your existing `Pane::get_logical_lines` method.
 ///
 /// The mutability is really a lie: while `with_lines` is passed something
 /// that is mutable, it is operating on a copy the lines that won't persist
-/// beyond the call to Pane::with_lines_mut.
+/// beyond the call to `Pane::with_lines_mut`.
 pub fn impl_for_each_logical_line_via_get_logical_lines<P: Pane + ?Sized>(
     pane: &P,
     lines: Range<StableRowIndex>,
@@ -415,7 +415,7 @@ pub fn impl_for_each_logical_line_via_get_logical_lines<P: Pane + ?Sized>(
     for line in &mut logical {
         let num_lines = line.physical_lines.len() as StableRowIndex;
         let mut line_refs = vec![];
-        for phys in line.physical_lines.iter_mut() {
+        for phys in &mut line.physical_lines {
             line_refs.push(phys);
         }
         let should_continue = for_line
@@ -426,8 +426,8 @@ pub fn impl_for_each_logical_line_via_get_logical_lines<P: Pane + ?Sized>(
     }
 }
 
-/// A helper that allows you to implement Pane::get_logical_lines in terms of
-/// your Pane::get_lines method.
+/// A helper that allows you to implement `Pane::get_logical_lines` in terms of
+/// your `Pane::get_lines` method.
 pub fn impl_get_logical_lines_via_get_lines<P: Pane + ?Sized>(
     pane: &P,
     lines: Range<StableRowIndex>,
@@ -511,8 +511,8 @@ pub fn impl_get_logical_lines_via_get_lines<P: Pane + ?Sized>(
     lines
 }
 
-/// A helper that allows you to implement Pane::get_lines in terms
-/// of your Pane::with_lines_mut method.
+/// A helper that allows you to implement `Pane::get_lines` in terms
+/// of your `Pane::with_lines_mut` method.
 pub fn impl_get_lines_via_with_lines<P: Pane + ?Sized>(
     pane: &P,
     lines: Range<StableRowIndex>,
@@ -671,7 +671,7 @@ mod test {
                 .chars()
                 .collect::<Vec<char>>()
                 .chunks(width)
-                .map(|c| c.into_iter().collect::<String>())
+                .map(|c| c.iter().collect::<String>())
                 .collect::<Vec<String>>();
             let n_chunks = chunks.len();
             for (idx, chunk) in chunks.into_iter().enumerate() {

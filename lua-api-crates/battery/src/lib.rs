@@ -21,7 +21,7 @@ struct BatteryInfo {
 }
 impl_lua_conversion_dynamic!(BatteryInfo);
 
-fn battery_info<'lua>(_: &'lua Lua, _: ()) -> mlua::Result<Vec<BatteryInfo>> {
+fn battery_info(_: &Lua, _: ()) -> mlua::Result<Vec<BatteryInfo>> {
     use starship_battery::{Manager, State};
     let manager = Manager::new().map_err(mlua::Error::external)?;
     let mut result = vec![];
@@ -42,15 +42,12 @@ fn battery_info<'lua>(_: &'lua Lua, _: ()) -> mlua::Result<Vec<BatteryInfo>> {
             .to_string(),
             time_to_full: bat.time_to_full().map(|q| q.value),
             time_to_empty: bat.time_to_empty().map(|q| q.value),
-        })
+        });
     }
     Ok(result)
 }
 
 fn opt_string(s: Option<&str>) -> String {
-    match s {
-        Some(s) => s,
-        None => "unknown",
-    }
+    s.unwrap_or("unknown")
     .to_string()
 }

@@ -1,6 +1,6 @@
-use crate::customglyph::*;
-use crate::termwindow::box_model::*;
-use crate::termwindow::render::corners::*;
+use crate::customglyph::{Poly, PolyCommand, BlockCoord, BlockAlpha, PolyStyle};
+use crate::termwindow::box_model::{ElementColors, SizedPoly, BorderColor, Element, ElementContent, VerticalAlign, BoxDimension, Corners};
+use crate::termwindow::render::corners::{TOP_LEFT_ROUNDED_CORNER, TOP_RIGHT_ROUNDED_CORNER, BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER};
 use crate::termwindow::{TabBarItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
 use config::{ConfigHandle, Dimension, IntegratedTitleButtonColor};
@@ -31,7 +31,7 @@ fn auto_button_color(
 }
 
 mod windows {
-    use super::*;
+    use super::{Poly, PolyCommand, BlockCoord, BlockAlpha, PolyStyle, SizedPoly, Dimension, IntegratedTitleButton, WindowButtonColors, auto_button_color, ElementColors, BorderColor, LinearRgba};
 
     pub const CLOSE: &[Poly] = &[Poly {
         path: &[
@@ -140,7 +140,7 @@ mod windows {
 }
 
 mod gnome {
-    use super::*;
+    use super::{Poly, PolyCommand, BlockCoord, BlockAlpha, PolyStyle, SizedPoly, Dimension, IntegratedTitleButton, WindowButtonColors, auto_button_color, ElementColors, BorderColor};
 
     pub const CLOSE: &[Poly] = &[Poly {
         path: &[
@@ -184,7 +184,7 @@ mod gnome {
         style: PolyStyle::Outline,
     }];
 
-    pub fn sized_poly(poly: &'static [Poly]) -> SizedPoly {
+    pub const fn sized_poly(poly: &'static [Poly]) -> SizedPoly {
         let size = Dimension::Pixels(8.);
         SizedPoly {
             poly,
@@ -259,7 +259,7 @@ pub fn window_button_element(
     };
 
     let element = Element::new(
-        &font,
+        font,
         ElementContent::Poly {
             line_width: metrics.underline_height.max(2),
             poly,
@@ -331,7 +331,7 @@ pub fn window_button_element(
 
     let foreground = config.integrated_title_button_color.clone();
     let background_lightness = {
-        let bg: config::RgbaColor = config.window_frame.active_titlebar_bg.into();
+        let bg: config::RgbaColor = config.window_frame.active_titlebar_bg;
         let (_h, _s, l, _a) = bg.to_hsla();
         l
     };
@@ -344,10 +344,10 @@ pub fn window_button_element(
 
     let colors = window_button_colors_fn(background_lightness, foreground, window_button);
 
-    let element = element
-        .item_type(UIItemType::TabBar(TabBarItem::WindowButton(window_button)))
-        .colors(colors.colors)
-        .hover_colors(Some(colors.hover_colors));
+    
 
     element
+        .item_type(UIItemType::TabBar(TabBarItem::WindowButton(window_button)))
+        .colors(colors.colors)
+        .hover_colors(Some(colors.hover_colors))
 }

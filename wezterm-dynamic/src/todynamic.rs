@@ -13,18 +13,18 @@ use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-/// The ToDynamic trait allows a type to emit a representation of itself
+/// The `ToDynamic` trait allows a type to emit a representation of itself
 /// as the Value type.
 /// This trait can be derived.
 pub trait ToDynamic {
     fn to_dynamic(&self) -> Value;
 }
 
-/// The PlaceDynamic trait is used by derived implementations of FromDynamic
+/// The `PlaceDynamic` trait is used by derived implementations of `FromDynamic`
 /// to implement flattened conversions.
-/// Deriving FromDynamic for a struct will usually also derive
-/// PlaceDynamic for the same struct.
-/// You do not typically consume PlaceDynamic directly.
+/// Deriving `FromDynamic` for a struct will usually also derive
+/// `PlaceDynamic` for the same struct.
+/// You do not typically consume `PlaceDynamic` directly.
 pub trait PlaceDynamic {
     /// Convert from Self to Value, by storing directly into the
     /// target Object.
@@ -143,7 +143,7 @@ impl ToDynamic for std::path::PathBuf {
 
 impl ToDynamic for String {
     fn to_dynamic(&self) -> Value {
-        Value::String(self.to_string())
+        Value::String(self.clone())
     }
 }
 

@@ -59,7 +59,7 @@ impl mlua::UserData for NerdFonts {
             |_, _, key: String| -> mlua::Result<Option<String>> {
                 Ok(termwiz::nerdfonts::NERD_FONTS
                     .get(key.as_str())
-                    .map(|c| c.to_string()))
+                    .map(std::string::ToString::to_string))
             },
         );
     }
@@ -73,7 +73,7 @@ pub enum FormatColor {
 }
 
 impl FormatColor {
-    fn to_attr(self) -> ColorAttribute {
+    fn into_attr(self) -> ColorAttribute {
         let spec: ColorSpec = self.into();
         let attr: ColorAttribute = spec.into();
         attr
@@ -88,7 +88,7 @@ impl From<FormatColor> for ColorSpec {
                 let rgba = SrgbaTuple::from_str(&s).unwrap_or_else(|()| (0xff, 0xff, 0xff).into());
                 rgba.into()
             }
-            FormatColor::Default => ColorSpec::Default,
+            FormatColor::Default => Self::Default,
         }
     }
 }
@@ -108,9 +108,9 @@ impl From<FormatItem> for Change {
         match val {
             FormatItem::Attribute(change) => change.into(),
             FormatItem::Text(t) => t.into(),
-            FormatItem::Foreground(c) => AttributeChange::Foreground(c.to_attr()).into(),
-            FormatItem::Background(c) => AttributeChange::Background(c.to_attr()).into(),
-            FormatItem::ResetAttributes => Change::AllAttributes(CellAttributes::default()),
+            FormatItem::Foreground(c) => AttributeChange::Foreground(c.into_attr()).into(),
+            FormatItem::Background(c) => AttributeChange::Background(c.into_attr()).into(),
+            FormatItem::ResetAttributes => Self::AllAttributes(CellAttributes::default()),
         }
     }
 }
@@ -136,17 +136,18 @@ impl termwiz::render::RenderTty for FormatTarget {
 
 pub fn format_as_escapes(items: Vec<FormatItem>) -> anyhow::Result<String> {
     let mut changes: Vec<Change> = items.into_iter().map(Into::into).collect();
-    changes.push(Change::AllAttributes(CellAttributes::default()).into());
+    changes.push(Change::AllAttributes(CellAttributes::default()));
     let mut renderer = new_wezterm_terminfo_renderer();
     let mut target = FormatTarget { target: vec![] };
     renderer.render_to(&changes, &mut target)?;
     Ok(String::from_utf8(target.target)?)
 }
 
-fn format<'lua>(_: &'lua Lua, items: Vec<FormatItem>) -> mlua::Result<String> {
+fn format(_: &Lua, items: Vec<FormatItem>) -> mlua::Result<String> {
     format_as_escapes(items).map_err(mlua::Error::external)
 }
 
+#[must_use] 
 pub fn pad_right(mut result: String, width: usize) -> String {
     let mut len = unicode_column_width(&result, None);
     while len < width {
@@ -157,6 +158,7 @@ pub fn pad_right(mut result: String, width: usize) -> String {
     result
 }
 
+#[must_use] 
 pub fn pad_left(mut result: String, width: usize) -> String {
     let mut len = unicode_column_width(&result, None);
     while len < width {
@@ -167,6 +169,7 @@ pub fn pad_left(mut result: String, width: usize) -> String {
     result
 }
 
+#[must_use] 
 pub fn truncate_left(s: &str, max_width: usize) -> String {
     let mut result = vec![];
     let mut len = 0;
@@ -184,6 +187,7 @@ pub fn truncate_left(s: &str, max_width: usize) -> String {
     result.join("")
 }
 
+#[must_use] 
 pub fn truncate_right(s: &str, max_width: usize) -> String {
     let mut result = String::new();
     let mut len = 0;
@@ -243,8 +247,7 @@ fn permute_any_or_no_mods<'lua>(
     permute_mods(lua, item, true)
 }
 
-lazy_static::lazy_static! {
-    static ref CAPS: Capabilities = {
+static CAPS: std::sync::LazyLock<Capabilities> = std::sync::LazyLock::new(|| {
         let data = include_bytes!("../../../termwiz/data/xterm-256color");
         let db = terminfo::Database::from_buffer(&data[..]).unwrap();
         Capabilities::new_with_hints(
@@ -258,8 +261,7 @@ lazy_static::lazy_static! {
                 .term_program_version(Some(config::wezterm_version().into())),
         )
         .expect("cannot fail to make internal Capabilities")
-    };
-}
+    });
 
 pub fn new_wezterm_terminfo_renderer() -> TerminfoRenderer {
     TerminfoRenderer::new(CAPS.clone())

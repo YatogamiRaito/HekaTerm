@@ -458,10 +458,12 @@ impl ConceptFrame {
                 |_| {
                     // We don't do synthesis here, so no need to filter
                 },
-                None,
-                wezterm_bidi::Direction::LeftToRight,
-                None,
-                None,
+                wezterm_font::shaper::ShapeContext {
+                    presentation: None,
+                    direction: wezterm_bidi::Direction::LeftToRight,
+                    range: None,
+                    presentation_width: None,
+                },
             )
             .ok()?;
 

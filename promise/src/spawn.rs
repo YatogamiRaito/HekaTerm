@@ -14,11 +14,9 @@ fn no_scheduler_configured(_: Runnable) {
     panic!("no scheduler has been configured");
 }
 
-lazy_static::lazy_static! {
-    static ref ON_MAIN_THREAD: Mutex<ScheduleFunc> = Mutex::new(Box::new(no_scheduler_configured));
-    static ref ON_MAIN_THREAD_LOW_PRI: Mutex<ScheduleFunc> = Mutex::new(Box::new(no_scheduler_configured));
-    static ref SCOPED_EXECUTOR: Mutex<Option<Arc<Executor<'static>>>> = Mutex::new(None);
-}
+static ON_MAIN_THREAD: std::sync::LazyLock<Mutex<ScheduleFunc>> = std::sync::LazyLock::new(|| Mutex::new(Box::new(no_scheduler_configured)));
+static ON_MAIN_THREAD_LOW_PRI: std::sync::LazyLock<Mutex<ScheduleFunc>> = std::sync::LazyLock::new(|| Mutex::new(Box::new(no_scheduler_configured)));
+static SCOPED_EXECUTOR: std::sync::LazyLock<Mutex<Option<Arc<Executor<'static>>>>> = std::sync::LazyLock::new(|| Mutex::new(None));
 
 static SCHEDULER_CONFIGURED: AtomicBool = AtomicBool::new(false);
 
@@ -37,6 +35,7 @@ pub fn is_scheduler_configured() -> bool {
 }
 
 /// Set callbacks for scheduling normal and low priority futures.
+///
 /// Why this and not "just tokio"?  In a GUI application there is typically
 /// a special GUI processing loop that may need to run on the "main thread",
 /// so we can't just run a tokio/mio loop in that context.
@@ -50,7 +49,8 @@ pub fn set_schedulers(main: ScheduleFunc, low_pri: ScheduleFunc) {
 }
 
 /// Spawn a new thread to execute the provided function.
-/// Returns a JoinHandle that implements the Future trait
+///
+/// Returns a `JoinHandle` that implements the Future trait
 /// and that can be used to await and yield the return value
 /// from the thread.
 /// Can be called from any thread.
@@ -122,7 +122,7 @@ fn get_scoped() -> Option<Arc<Executor<'static>>> {
 /// main thread.
 /// This function can be called from any thread.
 /// If you are on the main thread already, consider using
-/// spawn() instead to lift the `Send` requirement.
+/// `spawn()` instead to lift the `Send` requirement.
 pub fn spawn_into_main_thread<F, R>(future: F) -> Task<R>
 where
     F: Future<Output = R> + Send + 'static,
@@ -187,7 +187,14 @@ pub struct SimpleExecutor {
     rx: Receiver<SpawnFunc>,
 }
 
+impl Default for SimpleExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimpleExecutor {
+    #[must_use] 
     pub fn new() -> Self {
         let (tx, rx) = unbounded();
 
@@ -203,12 +210,12 @@ impl SimpleExecutor {
             Box::new(move |task| {
                 queue_func(Box::new(move || {
                     task.run();
-                }))
+                }));
             }),
             Box::new(move |task| {
                 queue_func_low(Box::new(move || {
                     task.run();
-                }))
+                }));
             }),
         );
         Self { rx }
@@ -217,13 +224,19 @@ impl SimpleExecutor {
     pub fn tick(&self) -> anyhow::Result<()> {
         match self.rx.recv() {
             Ok(func) => func(),
-            Err(err) => anyhow::bail!("while waiting for events: {:?}", err),
-        };
+            Err(err) => anyhow::bail!("while waiting for events: {err:?}"),
+        }
         Ok(())
     }
 }
 
 pub struct ScopedExecutor {}
+
+impl Default for ScopedExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl ScopedExecutor {
     pub fn new() -> Self {
