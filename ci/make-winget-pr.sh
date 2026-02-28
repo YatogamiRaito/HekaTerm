@@ -28,7 +28,7 @@ UpgradeBehavior: install
 ReleaseDate: $release_date
 Installers:
 - Architecture: x64
-  InstallerUrl: https://github.com/wezterm/wezterm/releases/download/$TAG_NAME/$setup_exe
+  InstallerUrl: https://github.com/YatogamiRaito/HekaTerm/releases/download/$TAG_NAME/$setup_exe
   InstallerSha256: $exehash
   ProductCode: '{BCF6F0DA-5B9A-408D-8562-F680AE6E1EAF}_is1'
 ManifestType: installer
@@ -41,14 +41,14 @@ PackageVersion: $TAG_NAME
 PackageLocale: en-US
 Publisher: Wez Furlong
 PublisherUrl: https://wezfurlong.org/
-PublisherSupportUrl: https://github.com/wezterm/wezterm/issues
+PublisherSupportUrl: https://github.com/YatogamiRaito/HekaTerm/issues
 Author: Wez Furlong
 PackageName: WezTerm
-PackageUrl: http://wezterm.org
+PackageUrl: https://github.com/YatogamiRaito/HekaTerm
 License: MIT
-LicenseUrl: https://github.com/wezterm/wezterm/blob/main/LICENSE.md
+LicenseUrl: https://github.com/YatogamiRaito/HekaTerm/blob/main/LICENSE.md
 ShortDescription: A GPU-accelerated cross-platform terminal emulator and multiplexer implemented in Rust
-ReleaseNotesUrl: https://wezterm.org/changelog.html#$TAG_NAME
+ReleaseNotesUrl: https://github.com/YatogamiRaito/HekaTerm/releases/tag/$TAG_NAME
 ManifestType: defaultLocale
 ManifestVersion: 1.1.0
 EOT

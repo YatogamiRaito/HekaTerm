@@ -87,7 +87,7 @@ pub fn load_last_release_info_and_set_banner() {
 
 fn set_banner_from_release_info(latest: &Release) {
     let mux = crate::Mux::get();
-    let url = format!("https://wezterm.org/changelog.html#{}", latest.tag_name);
+    let url = format!("https://github.com/YatogamiRaito/HekaTerm/releases/tag/{}", latest.tag_name);
 
     let icon = ITermFileData {
         name: None,
@@ -178,11 +178,11 @@ fn update_checker() {
                         current
                     );
 
-                    let url = format!("https://wezterm.org/changelog.html#{}", latest.tag_name);
+                    let url = format!("https://github.com/YatogamiRaito/HekaTerm/releases/tag/{}", latest.tag_name);
 
                     if force_ui || socks.is_empty() || socks[0] == my_sock {
                         persistent_toast_notification_with_click_to_open_url(
-                            "WezTerm Update Available",
+                            "HekaTerm Update Available",
                             "Click to see what's new",
                             &url,
                         );

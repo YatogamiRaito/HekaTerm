@@ -190,7 +190,7 @@ Version: ${WEZTERM_RPM_VERSION}
 Release: ${SPEC_RELEASE}
 Packager: Wez Furlong <wez@wezfurlong.org>
 License: MIT
-URL: https://wezterm.org/
+URL: https://github.com/YatogamiRaito/HekaTerm/
 Summary: Wez's Terminal Emulator.
 ${BUILD_REQUIRES}
 Requires: wezterm-common, wezterm-gui, wezterm-mux-server
@@ -306,13 +306,13 @@ Architecture: $(dpkg-architecture -q DEB_BUILD_ARCH_CPU)
 Maintainer: Wez Furlong <wez@wezfurlong.org>
 Section: utils
 Priority: optional
-Homepage: https://wezterm.org/
+Homepage: https://github.com/YatogamiRaito/HekaTerm/
 Description: Wez's Terminal Emulator.
  wezterm is a terminal emulator with support for modern features
  such as fonts with ligatures, hyperlinks, tabs and multiple
  windows.
 Provides: x-terminal-emulator
-Source: https://wezterm.org/
+Source: https://github.com/YatogamiRaito/HekaTerm/
 EOF
 
         cat > pkg/debian/postinst <<EOF
@@ -397,7 +397,7 @@ pkgdesc="A GPU-accelerated cross-platform terminal emulator and multiplexer writ
 license="MIT"
 arch="all"
 options="!check"
-url="https://wezterm.org/"
+url="https://github.com/YatogamiRaito/HekaTerm/"
 makedepends="cmd:tic"
 source="
   $TARGET_DIR/release/wezterm
