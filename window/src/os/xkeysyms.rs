@@ -2,7 +2,7 @@
 
 use crate::{KeyCode, Modifiers};
 
-#[must_use] 
+#[must_use]
 pub fn modifiers_from_state(state: u32) -> Modifiers {
     let mut mods = Modifiers::default();
 
@@ -25,7 +25,7 @@ pub fn modifiers_from_state(state: u32) -> Modifiers {
 /// Translates non-printable X11 keysym to `KeyCode`
 /// for missing keys, look into `/usr/include/X11/keysymdef.h`
 /// and/or define them in `KeyCode`.
-#[must_use] 
+#[must_use]
 pub fn keysym_to_keycode(keysym: u32) -> Option<KeyCode> {
     let utf32 = xkbcommon::xkb::keysym_to_utf32(keysym.into());
     if utf32 >= 0x20 {
@@ -37,7 +37,20 @@ pub fn keysym_to_keycode(keysym: u32) -> Option<KeyCode> {
         }
     }
 
-    use xkbcommon::xkb::keysyms::{KEY_Escape, KEY_Tab, KEY_ISO_Left_Tab, KEY_BackSpace, KEY_Return, KEY_Insert, KEY_Delete, KEY_Clear, KEY_Pause, KEY_Print, KEY_space, KEY_ydiaeresis, KEY_Home, KEY_End, KEY_Left, KEY_Up, KEY_Right, KEY_Down, KEY_Page_Up, KEY_Page_Down, KEY_Shift_L, KEY_Shift_R, KEY_Control_L, KEY_Control_R, KEY_Alt_L, KEY_Alt_R, KEY_Caps_Lock, KEY_Num_Lock, KEY_Scroll_Lock, KEY_Super_L, KEY_Super_R, KEY_Menu, KEY_Help, KEY_VoidSymbol, KEY_F1, KEY_F24, KEY_KP_Enter, KEY_KP_Delete, KEY_KP_Home, KEY_KP_End, KEY_KP_Page_Up, KEY_KP_Page_Down, KEY_KP_Begin, KEY_KP_Multiply, KEY_KP_Add, KEY_KP_Divide, KEY_KP_Subtract, KEY_KP_Decimal, KEY_KP_Separator, KEY_KP_Space, KEY_KP_Tab, KEY_KP_Left, KEY_KP_Up, KEY_KP_Right, KEY_KP_Down, KEY_KP_Insert, KEY_KP_Equal, KEY_KP_0, KEY_KP_9, KEY_XF86Copy, KEY_XF86Cut, KEY_XF86Paste, KEY_XF86Back, KEY_XF86Forward, KEY_XF86Stop, KEY_XF86Refresh, KEY_XF86Favorites, KEY_XF86HomePage, KEY_XF86AudioLowerVolume, KEY_XF86AudioMute, KEY_XF86AudioRaiseVolume};
+    use xkbcommon::xkb::keysyms::{
+        KEY_Alt_L, KEY_Alt_R, KEY_BackSpace, KEY_Caps_Lock, KEY_Clear, KEY_Control_L,
+        KEY_Control_R, KEY_Delete, KEY_Down, KEY_End, KEY_Escape, KEY_F1, KEY_F24, KEY_Help,
+        KEY_Home, KEY_ISO_Left_Tab, KEY_Insert, KEY_KP_0, KEY_KP_9, KEY_KP_Add, KEY_KP_Begin,
+        KEY_KP_Decimal, KEY_KP_Delete, KEY_KP_Divide, KEY_KP_Down, KEY_KP_End, KEY_KP_Enter,
+        KEY_KP_Equal, KEY_KP_Home, KEY_KP_Insert, KEY_KP_Left, KEY_KP_Multiply, KEY_KP_Page_Down,
+        KEY_KP_Page_Up, KEY_KP_Right, KEY_KP_Separator, KEY_KP_Space, KEY_KP_Subtract, KEY_KP_Tab,
+        KEY_KP_Up, KEY_Left, KEY_Menu, KEY_Num_Lock, KEY_Page_Down, KEY_Page_Up, KEY_Pause,
+        KEY_Print, KEY_Return, KEY_Right, KEY_Scroll_Lock, KEY_Shift_L, KEY_Shift_R, KEY_Super_L,
+        KEY_Super_R, KEY_Tab, KEY_Up, KEY_VoidSymbol, KEY_XF86AudioLowerVolume, KEY_XF86AudioMute,
+        KEY_XF86AudioRaiseVolume, KEY_XF86Back, KEY_XF86Copy, KEY_XF86Cut, KEY_XF86Favorites,
+        KEY_XF86Forward, KEY_XF86HomePage, KEY_XF86Paste, KEY_XF86Refresh, KEY_XF86Stop, KEY_space,
+        KEY_ydiaeresis,
+    };
     #[allow(non_upper_case_globals)]
     Some(match keysym {
         KEY_Escape => KeyCode::Char('\u{1b}'),

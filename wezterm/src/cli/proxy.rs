@@ -1,12 +1,12 @@
 use clap::Parser;
 use codec::{Pdu, SetClientId};
 use config::ConfigHandle;
+use mux::Mux;
 use mux::activity::Activity;
 use mux::client::ClientId;
-use mux::Mux;
 use std::io::{Read, Write};
 use std::sync::Arc;
-use wezterm_client::client::{unix_connect_with_retry, Client};
+use wezterm_client::client::{Client, unix_connect_with_retry};
 use wezterm_client::domain::ClientDomainConfig;
 
 #[derive(Debug, Parser, Clone)]

@@ -1,23 +1,26 @@
+use crate::Dimensions;
 use crate::color::LinearRgba;
 use crate::glyphcache::LoadState;
 use crate::quad::{QuadAllocator, QuadTrait};
 use crate::termwindow::RenderState;
 use crate::utilsprites::RenderMetrics;
-use crate::Dimensions;
 use anyhow::Context;
 use config::{
     BackgroundHorizontalAlignment, BackgroundLayer, BackgroundRepeat, BackgroundSize,
     BackgroundSource, BackgroundVerticalAlignment, ConfigHandle, DimensionContext, Gradient,
     GradientOrientation,
 };
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::SystemTime;
 use termwiz::image::{ImageData, ImageDataType};
 use wezterm_term::StableRowIndex;
 
-static IMAGE_CACHE: std::sync::LazyLock<Mutex<HashMap<String, CachedImage>>> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
-static GRADIENT_CACHE: std::sync::LazyLock<Mutex<Vec<CachedGradient>>> = std::sync::LazyLock::new(|| Mutex::new(vec![]));
+static IMAGE_CACHE: std::sync::LazyLock<Mutex<HashMap<String, CachedImage>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+static GRADIENT_CACHE: std::sync::LazyLock<Mutex<Vec<CachedGradient>>> =
+    std::sync::LazyLock::new(|| Mutex::new(vec![]));
 
 struct CachedGradient {
     g: Gradient,
@@ -78,9 +81,9 @@ impl CachedGradient {
                         f64::from(x) + noise(&mut rng, noise_amount),
                         0.0,
                         fw,
-                        dmin,
-                        dmax,
-                    )));
+                        dmin.into(),
+                        dmax.into(),
+                    ) as f32));
                 }
             }
             GradientOrientation::Vertical => {
@@ -89,9 +92,9 @@ impl CachedGradient {
                         f64::from(y) + noise(&mut rng, noise_amount),
                         0.0,
                         fh,
-                        dmin,
-                        dmax,
-                    )));
+                        dmin.into(),
+                        dmax.into(),
+                    ) as f32));
                 }
             }
             GradientOrientation::Linear { angle } => {
@@ -104,9 +107,9 @@ impl CachedGradient {
                         t + noise(&mut rng, noise_amount),
                         -fw / 2.,
                         fw / 2.,
-                        dmin,
-                        dmax,
-                    )));
+                        dmin.into(),
+                        dmax.into(),
+                    ) as f32));
                 }
             }
             GradientOrientation::Radial { radius, cx, cy } => {
@@ -132,8 +135,11 @@ impl CachedGradient {
                         noise(&mut rng, noise_amount)
                     };
 
-                    let t = (ny + y - cy).mul_add(ny + y - cy, (x - cx).mul_add(x - cx, nx)).sqrt() / radius;
-                    *pixel = to_pixel(grad.at(t));
+                    let t = (ny + y - cy)
+                        .mul_add(ny + y - cy, (x - cx).mul_add(x - cx, nx))
+                        .sqrt()
+                        / radius;
+                    *pixel = to_pixel(grad.at(t as f32));
                 }
             }
         }
@@ -147,7 +153,7 @@ impl CachedGradient {
     }
 
     fn load(g: &Gradient, width: u32, height: u32) -> anyhow::Result<Arc<ImageData>> {
-        let mut cache = GRADIENT_CACHE.lock().unwrap();
+        let mut cache = GRADIENT_CACHE.lock();
 
         if let Some(entry) = cache
             .iter_mut()
@@ -170,14 +176,14 @@ impl CachedGradient {
     }
 
     fn mark() {
-        let mut cache = GRADIENT_CACHE.lock().unwrap();
+        let mut cache = GRADIENT_CACHE.lock();
         for entry in cache.iter_mut() {
             entry.marked = true;
         }
     }
 
     fn sweep() {
-        let mut cache = GRADIENT_CACHE.lock().unwrap();
+        let mut cache = GRADIENT_CACHE.lock();
         cache.retain(|entry| !entry.marked);
     }
 }
@@ -194,12 +200,14 @@ impl CachedImage {
         let modified = std::fs::metadata(path)
             .and_then(|m| m.modified())
             .with_context(|| format!("getting metadata for {path}"))?;
-        let mut cache = IMAGE_CACHE.lock().unwrap();
+        let mut cache = IMAGE_CACHE.lock();
         if let Some(cached) = cache.get_mut(path)
-            && cached.modified == modified && cached.speed == speed {
-                cached.marked = false;
-                return Ok(Arc::clone(&cached.image));
-            }
+            && cached.modified == modified
+            && cached.speed == speed
+        {
+            cached.marked = false;
+            return Ok(Arc::clone(&cached.image));
+        }
 
         let data = std::fs::read(path)
             .with_context(|| format!("Failed to load window_background_image {path}"))?;
@@ -222,14 +230,14 @@ impl CachedImage {
     }
 
     fn mark() {
-        let mut cache = IMAGE_CACHE.lock().unwrap();
+        let mut cache = IMAGE_CACHE.lock();
         for entry in cache.values_mut() {
             entry.marked = true;
         }
     }
 
     fn sweep() {
-        let mut cache = IMAGE_CACHE.lock().unwrap();
+        let mut cache = IMAGE_CACHE.lock();
         cache.retain(|k, entry| {
             if entry.marked {
                 log::trace!("Unloading {k} from cache");

@@ -3,9 +3,9 @@ use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
 use wayland_client::protocol::wl_seat::WlSeat;
 use wayland_client::{Connection, QueueHandle};
 
+use crate::wayland::SurfaceUserData;
 use crate::wayland::keyboard::KeyboardData;
 use crate::wayland::pointer::PointerUserData;
-use crate::wayland::SurfaceUserData;
 
 use super::state::WaylandState;
 
@@ -80,7 +80,9 @@ impl SeatHandler for WaylandState {
         match capability {
             Capability::Keyboard => {
                 log::trace!("Lost keyboard capability");
-                if let Some(k) = self.keyboard.take() { k.release() }
+                if let Some(k) = self.keyboard.take() {
+                    k.release()
+                }
             }
             Capability::Pointer => {
                 log::trace!("Lost pointer capability");

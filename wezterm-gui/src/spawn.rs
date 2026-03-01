@@ -1,11 +1,11 @@
-use anyhow::{anyhow, bail, Context};
-use config::keyassignment::SpawnCommand;
+use anyhow::{Context, anyhow, bail};
 use config::TermConfig;
+use config::keyassignment::SpawnCommand;
+use mux::Mux;
 use mux::activity::Activity;
 use mux::domain::SplitSource;
 use mux::tab::SplitRequest;
 use mux::window::WindowId as MuxWindowId;
-use mux::Mux;
 use portable_pty::CommandBuilder;
 use std::sync::Arc;
 use wezterm_term::TerminalSize;
@@ -58,11 +58,13 @@ pub async fn spawn_command_internal(
     };
 
     let cwd = if let Some(cwd) = spawn.cwd.as_ref() {
-        Some(cwd.to_str().map(std::borrow::ToOwned::to_owned).ok_or_else(|| {
-            anyhow!(
-                "Domain::spawn requires that the cwd be unicode in {cwd:?}"
-            )
-        })?)
+        Some(
+            cwd.to_str()
+                .map(std::borrow::ToOwned::to_owned)
+                .ok_or_else(|| {
+                    anyhow!("Domain::spawn requires that the cwd be unicode in {cwd:?}")
+                })?,
+        )
     } else {
         None
     };
@@ -71,10 +73,15 @@ pub async fn spawn_command_internal(
         spawn.args.as_ref(),
         spawn.cwd.as_ref(),
         spawn.set_environment_variables.is_empty(),
-    ) { None } else {
+    ) {
+        None
+    } else {
         let mut builder = spawn
             .args
-            .as_ref().map_or_else(CommandBuilder::new_default_prog, |args| CommandBuilder::from_argv(args.iter().map(Into::into).collect()));
+            .as_ref()
+            .map_or_else(CommandBuilder::new_default_prog, |args| {
+                CommandBuilder::from_argv(args.iter().map(Into::into).collect())
+            });
         for (k, v) in &spawn.set_environment_variables {
             builder.env(k, v);
         }
@@ -87,9 +94,8 @@ pub async fn spawn_command_internal(
     let workspace = mux.active_workspace().clone();
 
     if let SpawnWhere::SplitPane(direction) = spawn_where {
-        let src_window_id = match src_window_id {
-            Some(id) => id,
-            None => anyhow::bail!("no src window when splitting a pane?"),
+        let Some(src_window_id) = src_window_id else {
+            anyhow::bail!("no src window when splitting a pane?")
         };
         if let Some(tab) = mux.get_active_tab_for_window(src_window_id) {
             let pane = tab

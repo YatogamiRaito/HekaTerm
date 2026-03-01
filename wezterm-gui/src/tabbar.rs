@@ -2,13 +2,13 @@ use crate::termwindow::{PaneInformation, TabInformation, UIItem, UIItemType};
 use config::{ConfigHandle, TabBarColors};
 use finl_unicode::grapheme_clusters::Graphemes;
 use mlua::FromLua;
-use termwiz::cell::{unicode_column_width, Cell, CellAttributes};
+use termwiz::cell::{Cell, CellAttributes, unicode_column_width};
 use termwiz::color::{AnsiColor, ColorSpec};
 use termwiz::escape::csi::Sgr;
 use termwiz::escape::parser::Parser;
-use termwiz::escape::{Action, ControlCode, CSI};
+use termwiz::escape::{Action, CSI, ControlCode};
 use termwiz::surface::SEQ_ZERO;
-use termwiz_funcs::{format_as_escapes, FormatColor, FormatItem};
+use termwiz_funcs::{FormatColor, FormatItem, format_as_escapes};
 use wezterm_term::{Line, Progress};
 use window::{IntegratedTitleButton, IntegratedTitleButtonAlignment, IntegratedTitleButtonStyle};
 
@@ -140,7 +140,9 @@ fn compute_tab_title(
 ) -> TitleText {
     let title = call_format_tab_title(tab, tab_info, pane_info, config, hover, tab_max_width);
 
-    if let Some(title) = title { title } else {
+    if let Some(title) = title {
+        title
+    } else {
         let mut items = vec![];
         let mut len = 0;
 
@@ -155,8 +157,7 @@ fn compute_tab_title(
             if config.show_tab_index_in_tab_bar {
                 let index = format!(
                     "{classic_spacing}{}: ",
-                    tab.tab_index
-                        + usize::from(!config.tab_and_split_indices_are_zero_based)
+                    tab.tab_index + usize::from(!config.tab_and_split_indices_are_zero_based)
                 );
                 len += unicode_column_width(&index, None);
                 items.push(FormatItem::Text(index));
@@ -206,8 +207,7 @@ fn compute_tab_title(
 }
 
 fn is_tab_hover(mouse_x: Option<usize>, x: usize, tab_title_len: usize) -> bool {
-    mouse_x
-        .is_some_and(|mouse_x| mouse_x >= x && mouse_x < x + tab_title_len)
+    mouse_x.is_some_and(|mouse_x| mouse_x >= x && mouse_x < x + tab_title_len)
 }
 
 impl TabBarState {
@@ -265,12 +265,9 @@ impl TabBarState {
             default_cell_hover.clone(),
         );
 
-        let window_close =
-            parse_status_text(&config.tab_bar_style.window_close, default_cell);
-        let window_close_hover = parse_status_text(
-            &config.tab_bar_style.window_close_hover,
-            default_cell_hover,
-        );
+        let window_close = parse_status_text(&config.tab_bar_style.window_close, default_cell);
+        let window_close_hover =
+            parse_status_text(&config.tab_bar_style.window_close_hover, default_cell_hover);
 
         for button in &config.integrated_title_buttons {
             use IntegratedTitleButton as Button;
@@ -329,6 +326,7 @@ impl TabBarState {
         pane_info: &[PaneInformation],
         colors: Option<&TabBarColors>,
         config: &ConfigHandle,
+        use_integrated_title_buttons: bool,
         left_status: &str,
         right_status: &str,
     ) -> Self {
@@ -356,10 +354,6 @@ impl TabBarState {
                 new_tab_hover_attrs
             },
         );
-
-        let use_integrated_title_buttons = config
-            .window_decorations
-            .contains(window::WindowDecorations::INTEGRATED_BUTTONS);
 
         // We ultimately want to produce a line looking like this:
         // ` | tab1-title x | tab2-title x |  +      . - X `
@@ -654,54 +648,56 @@ pub fn parse_status_text(text: &str, default_cell: CellAttributes) -> Line {
             }
             Action::CSI(csi) => {
                 flush_print(&mut print_buffer, &mut cells, &pen);
-                if let CSI::Sgr(sgr) = csi { match sgr {
-                    Sgr::Reset => pen = default_cell.clone(),
-                    Sgr::Intensity(i) => {
-                        pen.set_intensity(i);
-                    }
-                    Sgr::Underline(u) => {
-                        pen.set_underline(u);
-                    }
-                    Sgr::Overline(o) => {
-                        pen.set_overline(o);
-                    }
-                    Sgr::VerticalAlign(o) => {
-                        pen.set_vertical_align(o);
-                    }
-                    Sgr::Blink(b) => {
-                        pen.set_blink(b);
-                    }
-                    Sgr::Italic(i) => {
-                        pen.set_italic(i);
-                    }
-                    Sgr::Inverse(inverse) => {
-                        pen.set_reverse(inverse);
-                    }
-                    Sgr::Invisible(invis) => {
-                        pen.set_invisible(invis);
-                    }
-                    Sgr::StrikeThrough(strike) => {
-                        pen.set_strikethrough(strike);
-                    }
-                    Sgr::Foreground(col) => {
-                        if col == ColorSpec::Default {
-                            pen.set_foreground(default_cell.foreground());
-                        } else {
-                            pen.set_foreground(col);
+                if let CSI::Sgr(sgr) = csi {
+                    match sgr {
+                        Sgr::Reset => pen = default_cell.clone(),
+                        Sgr::Intensity(i) => {
+                            pen.set_intensity(i);
                         }
-                    }
-                    Sgr::Background(col) => {
-                        if col == ColorSpec::Default {
-                            pen.set_background(default_cell.background());
-                        } else {
-                            pen.set_background(col);
+                        Sgr::Underline(u) => {
+                            pen.set_underline(u);
                         }
+                        Sgr::Overline(o) => {
+                            pen.set_overline(o);
+                        }
+                        Sgr::VerticalAlign(o) => {
+                            pen.set_vertical_align(o);
+                        }
+                        Sgr::Blink(b) => {
+                            pen.set_blink(b);
+                        }
+                        Sgr::Italic(i) => {
+                            pen.set_italic(i);
+                        }
+                        Sgr::Inverse(inverse) => {
+                            pen.set_reverse(inverse);
+                        }
+                        Sgr::Invisible(invis) => {
+                            pen.set_invisible(invis);
+                        }
+                        Sgr::StrikeThrough(strike) => {
+                            pen.set_strikethrough(strike);
+                        }
+                        Sgr::Foreground(col) => {
+                            if col == ColorSpec::Default {
+                                pen.set_foreground(default_cell.foreground());
+                            } else {
+                                pen.set_foreground(col);
+                            }
+                        }
+                        Sgr::Background(col) => {
+                            if col == ColorSpec::Default {
+                                pen.set_background(default_cell.background());
+                            } else {
+                                pen.set_background(col);
+                            }
+                        }
+                        Sgr::UnderlineColor(col) => {
+                            pen.set_underline_color(col);
+                        }
+                        Sgr::Font(_) => {}
                     }
-                    Sgr::UnderlineColor(col) => {
-                        pen.set_underline_color(col);
-                    }
-                    Sgr::Font(_) => {}
-                } }
+                }
             }
             Action::OperatingSystemCommand(_)
             | Action::DeviceControl(_)

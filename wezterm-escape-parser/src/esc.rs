@@ -110,7 +110,7 @@ pub enum EscCode {
 }
 
 impl Esc {
-    #[must_use] 
+    #[must_use]
     pub fn parse(intermediate: Option<u8>, control: u8) -> Self {
         Self::internal_parse(intermediate, control).unwrap_or(Self::Unspecified {
             intermediate,

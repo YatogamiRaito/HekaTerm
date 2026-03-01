@@ -212,15 +212,12 @@ impl ParsedConfigFile {
                         }
                     }
                     None => {
-                        log::error!(
-                            "error expanding `Include {}`: unable to determine cwd",
-                            pattern
-                        );
+                        log::error!("error expanding `Include {pattern}`: unable to determine cwd");
                     }
                 }
             }
             Err(err) => {
-                log::error!("error expanding `Include {}`: {:#}", pattern, err);
+                log::error!("error expanding `Include {pattern}`: {err:#}");
             }
         }
     }
@@ -476,7 +473,7 @@ impl Config {
         }
         self.add_config_file("/etc/ssh/ssh_config");
         if let Ok(sysdrive) = std::env::var("SystemDrive") {
-            self.add_config_file(format!("{}/ProgramData/ssh/ssh_config", sysdrive));
+            self.add_config_file(format!("{sysdrive}/ProgramData/ssh/ssh_config"));
         }
     }
 
@@ -584,27 +581,29 @@ impl Config {
             .or_insert_with(|| target_user.clone());
 
         if !result.contains_key("userknownhostsfile")
-            && let Some(home) = self.resolve_home() {
-                result.insert(
-                    "userknownhostsfile".to_string(),
-                    format!("{}/.ssh/known_hosts {}/.ssh/known_hosts2", home, home,),
-                );
+            && let Some(home) = self.resolve_home()
+        {
+            result.insert(
+                "userknownhostsfile".to_string(),
+                format!("{home}/.ssh/known_hosts {home}/.ssh/known_hosts2",),
+            );
         }
 
         if !result.contains_key("identityfile")
-            && let Some(home) = self.resolve_home() {
-                result.insert(
-                    "identityfile".to_string(),
-                    format!(
-                        "{}/.ssh/id_dsa {}/.ssh/id_ecdsa {}/.ssh/id_ed25519 {}/.ssh/id_rsa",
-                        home, home, home, home
-                    ),
-                );
+            && let Some(home) = self.resolve_home()
+        {
+            result.insert(
+                "identityfile".to_string(),
+                format!(
+                    "{home}/.ssh/id_dsa {home}/.ssh/id_ecdsa {home}/.ssh/id_ed25519 {home}/.ssh/id_rsa"
+                ),
+            );
         }
 
         if !result.contains_key("identityagent")
-            && let Some(sock_path) = self.resolve_env("SSH_AUTH_SOCK") {
-                result.insert("identityagent".to_string(), sock_path);
+            && let Some(sock_path) = self.resolve_env("SSH_AUTH_SOCK")
+        {
+            result.insert("identityagent".to_string(), sock_path);
         }
 
         result
@@ -613,8 +612,16 @@ impl Config {
     /// Return true if a given option name is subject to environment variable
     /// expansion.
     fn should_expand_environment(&self, key: &str) -> bool {
-        matches!(key, "certificatefile" | "controlpath" | "identityagent" | "identityfile"
-            | "userknownhostsfile" | "localforward" | "remoteforward")
+        matches!(
+            key,
+            "certificatefile"
+                | "controlpath"
+                | "identityagent"
+                | "identityfile"
+                | "userknownhostsfile"
+                | "localforward"
+                | "remoteforward"
+        )
     }
 
     /// Returns a set of tokens that should be expanded for a given option name
@@ -638,12 +645,14 @@ impl Config {
     /// environment override before asking the system for the home directory.
     fn resolve_home(&self) -> Option<String> {
         if let Some(env) = self.environment.as_ref()
-            && let Some(home) = env.get("HOME") {
-                return Some(home.clone());
+            && let Some(home) = env.get("HOME")
+        {
+            return Some(home.clone());
         }
         if let Some(home) = dirs_next::home_dir()
-            && let Some(home) = home.to_str() {
-                return Some(home.to_string());
+            && let Some(home) = home.to_str()
+        {
+            return Some(home.to_string());
         }
         None
     }
@@ -786,10 +795,12 @@ impl Config {
                 for c in &group.criteria {
                     if let Criteria::Host(patterns) = c {
                         for pattern in patterns {
-                            if pattern.is_literal && !pattern.negated
-                                && !hosts.contains(&pattern.original) {
-                                    hosts.push(pattern.original.clone());
-                                }
+                            if pattern.is_literal
+                                && !pattern.negated
+                                && !hosts.contains(&pattern.original)
+                            {
+                                hosts.push(pattern.original.clone());
+                            }
                         }
                     }
                 }

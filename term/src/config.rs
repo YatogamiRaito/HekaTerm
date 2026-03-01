@@ -1,5 +1,5 @@
 use crate::color::ColorPalette;
-use downcast_rs::{impl_downcast, Downcast};
+use downcast_rs::{Downcast, impl_downcast};
 use wezterm_bidi::ParagraphDirectionHint;
 use wezterm_cell::UnicodeVersion;
 use wezterm_surface::{Line, SequenceNo};
@@ -22,7 +22,7 @@ impl NewlineCanon {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn canonicalize(self, text: &str) -> String {
         let target = self.target();
         let mut buf = String::new();

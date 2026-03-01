@@ -2,9 +2,10 @@ use crate::locator::{FontDataHandle, FontDataSource, FontOrigin};
 use crate::shaper::GlyphInfo;
 use config::{FontAttributes, FontStyle, FreeTypeLoadFlags, FreeTypeLoadTarget};
 pub use config::{FontStretch, FontWeight};
+use parking_lot::Mutex;
 use rangeset::RangeSet;
 use std::cmp::Ordering;
-use std::sync::Mutex;
+use std::fmt::Write as _;
 
 #[derive(Debug)]
 pub enum MaybeShaped {
@@ -80,7 +81,7 @@ impl Clone for ParsedFont {
             assume_emoji_presentation: self.assume_emoji_presentation,
             handle: self.handle.clone(),
             cap_height: self.cap_height,
-            coverage: Mutex::new(self.coverage.lock().unwrap().clone()),
+            coverage: Mutex::new(self.coverage.lock().clone()),
             pixel_sizes: self.pixel_sizes.clone(),
             harfbuzz_features: self.harfbuzz_features.clone(),
             freetype_load_target: self.freetype_load_target,
@@ -293,7 +294,7 @@ impl ParsedFont {
         let mut code = "wezterm.font_with_fallback({\n".to_string();
 
         for p in handles {
-            code.push_str(&format!("  -- {}\n", p.handle.diagnostic_string()));
+            writeln!(&mut code, "  -- {}", p.handle.diagnostic_string()).unwrap();
             if p.synthesize_italic {
                 code.push_str("  -- Will synthesize italics\n");
             }
@@ -306,15 +307,11 @@ impl ParsedFont {
                 code.push_str("  -- Assumed to have Emoji Presentation\n");
             }
             if !p.pixel_sizes.is_empty() {
-                code.push_str(&format!("  -- Pixel sizes: {:?}\n", p.pixel_sizes));
+                writeln!(&mut code, "  -- Pixel sizes: {:?}", p.pixel_sizes).unwrap();
             }
             if !p.palettes.is_empty() {
                 for pal in &p.palettes {
-                    let mut info = format!(
-                        "  -- Palette: {} {}",
-                        pal.palette_index,
-                        pal.name
-                    );
+                    let mut info = format!("  -- Palette: {} {}", pal.palette_index, pal.name);
                     if pal.usable_with_light_bg {
                         info.push_str(" (with light bg)");
                     }
@@ -326,7 +323,7 @@ impl ParsedFont {
                 }
             }
             for aka in &p.names.aliases {
-                code.push_str(&format!("  -- AKA: \"{aka}\"\n"));
+                writeln!(&mut code, "  -- AKA: \"{aka}\"").unwrap();
             }
 
             if p.weight == FontWeight::REGULAR
@@ -338,29 +335,29 @@ impl ParsedFont {
                 && p.harfbuzz_features.is_none()
                 && p.scale.is_none()
             {
-                code.push_str(&format!("  \"{}\",\n", p.names.family));
+                writeln!(&mut code, "  \"{}\",", p.names.family).unwrap();
             } else {
-                code.push_str(&format!("  {{family=\"{}\"", p.names.family));
+                write!(&mut code, "  {{family=\"{}\"", p.names.family).unwrap();
                 if p.weight != FontWeight::REGULAR {
-                    code.push_str(&format!(", weight={}", p.weight));
+                    write!(&mut code, ", weight={}", p.weight).unwrap();
                 }
                 if p.stretch != FontStretch::Normal {
-                    code.push_str(&format!(", stretch=\"{}\"", p.stretch));
+                    write!(&mut code, ", stretch=\"{}\"", p.stretch).unwrap();
                 }
                 if p.style != FontStyle::Normal {
-                    code.push_str(&format!(", style=\"{}\"", p.style));
+                    write!(&mut code, ", style=\"{}\"", p.style).unwrap();
                 }
                 if let Some(scale) = p.scale {
-                    code.push_str(&format!(", scale={scale}"));
+                    write!(&mut code, ", scale={scale}").unwrap();
                 }
                 if let Some(item) = p.freetype_load_flags {
-                    code.push_str(&format!(", freetype_load_flags=\"{item}\""));
+                    write!(&mut code, ", freetype_load_flags=\"{item}\"").unwrap();
                 }
                 if let Some(item) = p.freetype_load_target {
-                    code.push_str(&format!(", freetype_load_target=\"{item:?}\""));
+                    write!(&mut code, ", freetype_load_target=\"{item:?}\"").unwrap();
                 }
                 if let Some(item) = p.freetype_render_target {
-                    code.push_str(&format!(", freetype_render_target=\"{item:?}\""));
+                    write!(&mut code, ", freetype_render_target=\"{item:?}\"").unwrap();
                 }
                 if let Some(feat) = &p.harfbuzz_features {
                     code.push_str(", harfbuzz_features={");
@@ -412,18 +409,15 @@ impl ParsedFont {
             Err(_) => vec![],
         };
 
-        let has_svg = unsafe {
-            (((*face.face).face_flags as u32) & crate::ftwrap::FT_FACE_FLAG_SVG) != 0
-        };
+        let has_svg =
+            unsafe { (((*face.face).face_flags as u32) & crate::ftwrap::FT_FACE_FLAG_SVG) != 0 };
 
-        if has_svg
-            && config::configuration().ignore_svg_fonts {
-                anyhow::bail!("skipping svg font because ignore_svg_fonts=true");
-            }
+        if has_svg && config::configuration().ignore_svg_fonts {
+            anyhow::bail!("skipping svg font because ignore_svg_fonts=true");
+        }
 
-        let has_color = unsafe {
-            (((*face.face).face_flags as u32) & crate::ftwrap::FT_FACE_FLAG_COLOR) != 0
-        };
+        let has_color =
+            unsafe { (((*face.face).face_flags as u32) & crate::ftwrap::FT_FACE_FLAG_COLOR) != 0 };
         let assume_emoji_presentation = has_color;
 
         let names = Names::from_ft_face(face);
@@ -537,7 +531,7 @@ impl ParsedFont {
     /// Computes the codepoint coverage for this font entry if we haven't
     /// already done so.
     pub fn coverage_intersection(&self, wanted: &RangeSet<u32>) -> anyhow::Result<RangeSet<u32>> {
-        let mut cov = self.coverage.lock().unwrap();
+        let mut cov = self.coverage.lock();
         if cov.is_empty() {
             let t = std::time::Instant::now();
             let lib = crate::ftwrap::Library::new()?;

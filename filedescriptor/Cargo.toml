@@ -11,6 +11,7 @@ readme = "README.md"
 keywords = ["socketpair", "pipe", "poll", "filedescriptor"]
 
 [dependencies]
+parking_lot.workspace = true
 thiserror.workspace = true
 libc.workspace = true
 

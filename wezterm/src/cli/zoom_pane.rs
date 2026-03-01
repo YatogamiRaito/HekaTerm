@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use clap::Parser;
 use codec::SetPaneZoomed;
 use mux::pane::PaneId;

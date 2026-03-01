@@ -41,8 +41,8 @@ use crate::caps::{Capabilities, ProbeHints};
 use crate::input::{InputEvent, KeyCode, KeyEvent, Modifiers};
 use crate::surface::change::ChangeSequence;
 use crate::surface::{Change, Position};
-use crate::terminal::{new_terminal, Terminal};
-use crate::{bail, ensure, Result};
+use crate::terminal::{Terminal, new_terminal};
+use crate::{Result, bail, ensure};
 
 mod actions;
 mod buffer;
@@ -570,13 +570,10 @@ impl<'term> LineEditor<'term> {
             // We always start again from the bottom
             self.history_pos.take();
 
-            let history_pos = match host.history().last() {
-                Some(p) => p,
-                None => {
-                    // TODO: there's no way we can match anything.
-                    // Generate a failed match result?
-                    return;
-                }
+            let Some(history_pos) = host.history().last() else {
+                // TODO: there's no way we can match anything.
+                // Generate a failed match result?
+                return;
             };
 
             let last_matching_line;
@@ -705,7 +702,7 @@ impl<'term> LineEditor<'term> {
             Action::EndOfFile => {
                 return Err(
                     std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "End Of File").into(),
-                )
+                );
             }
             Action::Kill(movement) => {
                 self.kill_text(movement, movement);

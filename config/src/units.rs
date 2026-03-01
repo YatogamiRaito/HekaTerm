@@ -125,7 +125,7 @@ pub enum Dimension {
 }
 
 impl Dimension {
-    #[must_use] 
+    #[must_use]
     pub fn is_zero(&self) -> bool {
         match self {
             Self::Points(n) | Self::Pixels(n) | Self::Percent(n) | Self::Cells(n) => *n == 0.,
@@ -163,7 +163,7 @@ pub struct DimensionContext {
 }
 
 impl Dimension {
-    #[must_use] 
+    #[must_use]
     pub fn evaluate_as_pixels(&self, context: DimensionContext) -> f32 {
         match self {
             Self::Pixels(n) => n.floor(),
@@ -174,8 +174,7 @@ impl Dimension {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum GeometryOrigin {
     /// x,y relative to overall screen coordinate system.
     /// Selected position might be outside of the regions covered
@@ -186,7 +185,6 @@ pub enum GeometryOrigin {
     ActiveScreen,
     Named(String),
 }
-
 
 #[derive(Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
 pub struct GuiPosition {

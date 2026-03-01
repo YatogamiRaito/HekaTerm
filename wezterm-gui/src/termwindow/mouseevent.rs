@@ -1,16 +1,16 @@
 use crate::tabbar::TabBarItem;
 use crate::termwindow::{
-    GuiWin, MouseCapture, PositionedSplit, ScrollHit, TermWindowNotif, UIItem, UIItemType, TMB,
+    GuiWin, MouseCapture, PositionedSplit, ScrollHit, TMB, TermWindowNotif, UIItem, UIItemType,
 };
 use ::window::{
-    MouseButtons as WMB, MouseCursor, MouseEvent, MouseEventKind as WMEK, MousePress,
-    WindowDecorations, WindowOps, WindowState,
+    MouseButtons as WMB, MouseCursor, MouseEvent, MouseEventKind as WMEK, MousePress, WindowOps,
+    WindowState,
 };
-use config::keyassignment::{KeyAssignment, MouseEventTrigger, SpawnTabDomain};
 use config::MouseEventAltScreen;
+use config::keyassignment::{KeyAssignment, MouseEventTrigger, SpawnTabDomain};
+use mux::Mux;
 use mux::pane::{Pane, WithPaneLines};
 use mux::tab::SplitDirection;
-use mux::Mux;
 use mux_lua::MuxPane;
 use std::convert::TryInto;
 use std::ops::Sub;
@@ -60,9 +60,8 @@ impl super::TermWindow {
 
     pub fn mouse_event_impl(&mut self, event: MouseEvent, context: &dyn WindowOps) {
         log::trace!("{event:?}");
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
         };
 
         self.current_mouse_event.replace(event.clone());
@@ -261,9 +260,8 @@ impl super::TermWindow {
         context: &dyn WindowOps,
     ) {
         let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
+        let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+            return;
         };
         let delta = match split.direction {
             SplitDirection::Horizontal => (x as isize).saturating_sub(split.left as isize),
@@ -287,9 +285,8 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
         };
 
         let dims = pane.get_dimensions();
@@ -399,9 +396,8 @@ impl super::TermWindow {
     }
 
     fn do_new_tab_button_click(&mut self, button: MousePress) {
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
         };
         let action = match button {
             MousePress::Left => Some(KeyAssignment::SpawnTab(SpawnTabDomain::CurrentPaneDomain)),
@@ -424,12 +420,15 @@ impl super::TermWindow {
                         format!("{button:?}"),
                         action.clone(),
                     ))?;
-                    config::lua::emit_event(&lua, ("new-tab-button-click".to_string(), args))
-                        .await
-                        .map_err(|e| {
-                            log::error!("while processing new-tab-button-click event: {e:#}");
-                            e
-                        })?
+                    config::lua::emit_event(
+                        (*lua).clone(),
+                        ("new-tab-button-click".to_string(), args),
+                    )
+                    .await
+                    .map_err(|e| {
+                        log::error!("while processing new-tab-button-click event: {e:#}");
+                        e
+                    })?
                 }
                 None => true,
             };
@@ -469,15 +468,15 @@ impl super::TermWindow {
                         .window_state
                         .intersects(WindowState::MAXIMIZED | WindowState::FULL_SCREEN);
                     if let Some(ref window) = self.window
-                        && self.config.window_decorations
-                            == WindowDecorations::INTEGRATED_BUTTONS | WindowDecorations::RESIZE
-                            && self.last_mouse_click.as_ref().map(|c| c.streak) == Some(2) {
-                                if maximized {
-                                    window.restore();
-                                } else {
-                                    window.maximize();
-                                }
-                            }
+                        && self.use_integrated_title_buttons()
+                        && self.last_mouse_click.as_ref().map(|c| c.streak) == Some(2)
+                    {
+                        if maximized {
+                            window.restore();
+                        } else {
+                            window.maximize();
+                        }
+                    }
                     // Potentially starting a drag by the tab bar
                     if !maximized {
                         self.window_drag_position.replace(event);
@@ -542,9 +541,8 @@ impl super::TermWindow {
                     );
                     context.set_maximize_button_position(bounds);
                 }
-                TabBarItem::WindowButton(_)
-                | TabBarItem::Tab { .. }
-                | TabBarItem::NewTabButton => {}
+                TabBarItem::WindowButton(_) | TabBarItem::Tab { .. } | TabBarItem::NewTabButton => {
+                }
             },
             WMEK::VertWheel(n) => {
                 if self.config.mouse_wheel_scrolls_tabs {
@@ -673,7 +671,9 @@ impl super::TermWindow {
                     match &event.kind {
                         WMEK::Press(_) => {
                             let mux = Mux::get();
-                            if let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) { tab.set_active_idx(pos.index) }
+                            if let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) {
+                                tab.set_active_idx(pos.index)
+                            }
 
                             pane = Arc::clone(&pos.pane);
                             is_click_to_focus_pane = true;
@@ -681,7 +681,10 @@ impl super::TermWindow {
                         WMEK::Move => {
                             if self.config.pane_focus_follows_mouse {
                                 let mux = Mux::get();
-                                if let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) { tab.set_active_idx(pos.index) }
+                                if let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id)
+                                {
+                                    tab.set_active_idx(pos.index)
+                                }
 
                                 pane = Arc::clone(&pos.pane);
                                 context.invalidate();
@@ -727,16 +730,17 @@ impl super::TermWindow {
             false
         };
 
-        if self.focused.is_some() && !is_focused
+        if self.focused.is_some()
+            && !is_focused
             && matches!(&event.kind, WMEK::Press(_))
-                && self.config.swallow_mouse_click_on_window_focus
-            {
-                // Entering click to focus state
-                self.is_click_to_focus_window = true;
-                context.invalidate();
-                log::trace!("enter click to focus");
-                return;
-            }
+            && self.config.swallow_mouse_click_on_window_focus
+        {
+            // Entering click to focus state
+            self.is_click_to_focus_window = true;
+            context.invalidate();
+            log::trace!("enter click to focus");
+            return;
+        }
         if self.is_click_to_focus_window && matches!(&event.kind, WMEK::Release(_)) {
             // Exiting click to focus state
             self.is_click_to_focus_window = false;
@@ -751,9 +755,7 @@ impl super::TermWindow {
             true
         };
 
-        log::trace!(
-            "is_focused={is_focused} allow_action={allow_action} event={event:?}"
-        );
+        log::trace!("is_focused={is_focused} allow_action={allow_action} event={event:?}");
 
         let dims = pane.get_dimensions();
         let stable_row = self
@@ -785,9 +787,10 @@ impl super::TermWindow {
             fn with_lines_mut(&mut self, stable_top: StableRowIndex, lines: &mut [&mut Line]) {
                 if stable_top == self.stable_row
                     && let Some(line) = lines.first()
-                        && let Some(cell) = line.get_cell(self.column) {
-                            self.current = cell.attrs().hyperlink().cloned();
-                        }
+                    && let Some(cell) = line.get_cell(self.column)
+                {
+                    self.current = cell.attrs().hyperlink().cloned();
+                }
             }
         }
 
@@ -860,9 +863,7 @@ impl super::TermWindow {
                 } else if let Some(LastMouseClick { streak, button, .. }) =
                     self.last_mouse_click.as_ref()
                 {
-                    if Some(*button)
-                        == self.current_mouse_buttons.last().map(mouse_press_to_tmb)
-                    {
+                    if Some(*button) == self.current_mouse_buttons.last().map(mouse_press_to_tmb) {
                         Some(MouseEventTrigger::Drag {
                             streak: *streak,
                             button: *button,
@@ -898,77 +899,75 @@ impl super::TermWindow {
             }),
         };
 
-        if allow_action
-            && let Some(mut event_trigger_type) = event_trigger_type {
-                self.current_event = Some(event_trigger_type.to_dynamic());
-                let mut modifiers = event.modifiers;
+        if allow_action && let Some(mut event_trigger_type) = event_trigger_type {
+            self.current_event = Some(event_trigger_type.to_dynamic());
+            let mut modifiers = event.modifiers;
 
-                // Since we use shift to force assessing the mouse bindings, pretend
-                // that shift is not one of the mods when the mouse is grabbed.
-                let mut mouse_reporting = pane.is_mouse_grabbed();
-                if mouse_reporting
-                    && modifiers.contains(self.config.bypass_mouse_reporting_modifiers) {
-                        modifiers.remove(self.config.bypass_mouse_reporting_modifiers);
-                        mouse_reporting = false;
-                    }
-
-                if mouse_reporting {
-                    // If they were scrolled back prior to launching an
-                    // application that captures the mouse, then mouse based
-                    // scrolling assignments won't have any effect.
-                    // Ensure that we scroll to the bottom if they try to
-                    // use the mouse so that things are less surprising
-                    self.scroll_to_bottom(&pane);
-                }
-
-                // normalize delta and streak to make mouse assignment
-                // easier to wrangle
-                match event_trigger_type {
-                    MouseEventTrigger::Down {
-                        ref mut streak,
-                        button:
-                            MouseButton::WheelUp(ref mut delta)
-                            | MouseButton::WheelDown(ref mut delta)
-                            | MouseButton::WheelLeft(ref mut delta)
-                            | MouseButton::WheelRight(ref mut delta),
-                    }
-                    | MouseEventTrigger::Up {
-                        ref mut streak,
-                        button:
-                            MouseButton::WheelUp(ref mut delta)
-                            | MouseButton::WheelDown(ref mut delta)
-                            | MouseButton::WheelLeft(ref mut delta)
-                            | MouseButton::WheelRight(ref mut delta),
-                    }
-                    | MouseEventTrigger::Drag {
-                        ref mut streak,
-                        button:
-                            MouseButton::WheelUp(ref mut delta)
-                            | MouseButton::WheelDown(ref mut delta)
-                            | MouseButton::WheelLeft(ref mut delta)
-                            | MouseButton::WheelRight(ref mut delta),
-                    } => {
-                        *streak = 1;
-                        *delta = 1;
-                    }
-                    _ => {}
-                }
-
-                let mouse_mods = config::MouseEventTriggerMods {
-                    mods: modifiers,
-                    mouse_reporting,
-                    alt_screen: if pane.is_alt_screen_active() {
-                        MouseEventAltScreen::True
-                    } else {
-                        MouseEventAltScreen::False
-                    },
-                };
-
-                if let Some(action) = self.input_map.lookup_mouse(event_trigger_type, mouse_mods) {
-                    self.perform_key_assignment(&pane, &action).ok();
-                    return;
-                }
+            // Since we use shift to force assessing the mouse bindings, pretend
+            // that shift is not one of the mods when the mouse is grabbed.
+            let mut mouse_reporting = pane.is_mouse_grabbed();
+            if mouse_reporting && modifiers.contains(self.config.bypass_mouse_reporting_modifiers) {
+                modifiers.remove(self.config.bypass_mouse_reporting_modifiers);
+                mouse_reporting = false;
             }
+
+            if mouse_reporting {
+                // If they were scrolled back prior to launching an
+                // application that captures the mouse, then mouse based
+                // scrolling assignments won't have any effect.
+                // Ensure that we scroll to the bottom if they try to
+                // use the mouse so that things are less surprising
+                self.scroll_to_bottom(&pane);
+            }
+
+            // normalize delta and streak to make mouse assignment
+            // easier to wrangle
+            match event_trigger_type {
+                MouseEventTrigger::Down {
+                    ref mut streak,
+                    button:
+                        MouseButton::WheelUp(ref mut delta)
+                        | MouseButton::WheelDown(ref mut delta)
+                        | MouseButton::WheelLeft(ref mut delta)
+                        | MouseButton::WheelRight(ref mut delta),
+                }
+                | MouseEventTrigger::Up {
+                    ref mut streak,
+                    button:
+                        MouseButton::WheelUp(ref mut delta)
+                        | MouseButton::WheelDown(ref mut delta)
+                        | MouseButton::WheelLeft(ref mut delta)
+                        | MouseButton::WheelRight(ref mut delta),
+                }
+                | MouseEventTrigger::Drag {
+                    ref mut streak,
+                    button:
+                        MouseButton::WheelUp(ref mut delta)
+                        | MouseButton::WheelDown(ref mut delta)
+                        | MouseButton::WheelLeft(ref mut delta)
+                        | MouseButton::WheelRight(ref mut delta),
+                } => {
+                    *streak = 1;
+                    *delta = 1;
+                }
+                _ => {}
+            }
+
+            let mouse_mods = config::MouseEventTriggerMods {
+                mods: modifiers,
+                mouse_reporting,
+                alt_screen: if pane.is_alt_screen_active() {
+                    MouseEventAltScreen::True
+                } else {
+                    MouseEventAltScreen::False
+                },
+            };
+
+            if let Some(action) = self.input_map.lookup_mouse(event_trigger_type, mouse_mods) {
+                self.perform_key_assignment(&pane, &action).ok();
+                return;
+            }
+        }
 
         let mouse_event = wezterm_term::MouseEvent {
             kind: match event.kind {

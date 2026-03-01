@@ -2,16 +2,16 @@
 #![allow(clippy::result_large_err)]
 #[cfg(feature = "widgets")]
 mod inner {
+    use termwiz::Error;
     use termwiz::caps::Capabilities;
     use termwiz::cell::AttributeChange;
     use termwiz::color::{AnsiColor, ColorAttribute};
     use termwiz::input::*;
     use termwiz::surface::Change;
     use termwiz::terminal::buffered::BufferedTerminal;
-    use termwiz::terminal::{new_terminal, Terminal};
+    use termwiz::terminal::{Terminal, new_terminal};
     use termwiz::widgets::layout::{ChildOrientation, VerticalAlignment};
     use termwiz::widgets::*;
-    use termwiz::Error;
 
     /// This is the main container widget for the app
     struct MainScreen {}

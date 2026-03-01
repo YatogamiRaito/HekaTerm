@@ -17,6 +17,7 @@ vendored-openssl-ssh2 = ["ssh2/vendored-openssl"]
 vendored-openssl-libssh-rs = ["libssh-rs/vendored-openssl"]
 
 [dependencies]
+parking_lot.workspace = true
 anyhow.workspace = true
 base64 = {workspace = true, features=["std"]}
 bitflags.workspace = true

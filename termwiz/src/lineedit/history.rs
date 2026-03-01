@@ -70,11 +70,7 @@ impl SearchDirection {
             Self::Backwards => idx.overflowing_sub(1),
             Self::Forwards => idx.overflowing_add(1),
         };
-        if overflow {
-            None
-        } else {
-            Some(next)
-        }
+        if overflow { None } else { Some(next) }
     }
 }
 

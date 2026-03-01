@@ -1,6 +1,6 @@
 use crate::bitmaps::{BitmapImage, Texture2d, TextureRect};
 use crate::{Point, Rect, Size};
-use anyhow::{ensure, Result as Fallible};
+use anyhow::{Result as Fallible, ensure};
 use guillotiere::{SimpleAtlasAllocator, Size as AtlasSize};
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -50,7 +50,7 @@ impl Atlas {
     }
 
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub fn texture(&self) -> Rc<dyn Texture2d> {
         Rc::clone(&self.texture)
     }
@@ -127,7 +127,7 @@ impl Atlas {
         res
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn size(&self) -> usize {
         self.side
     }
@@ -168,7 +168,7 @@ impl Clone for Sprite {
 
 impl Sprite {
     /// Returns the texture coordinates of the sprite
-    #[must_use] 
+    #[must_use]
     pub fn texture_coords(&self) -> TextureRect {
         self.texture.to_texture_coords(self.coords)
     }

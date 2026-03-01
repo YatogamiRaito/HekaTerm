@@ -210,11 +210,7 @@ impl Pattern {
     pub fn add_charset(&mut self, charset: &CharSet) -> anyhow::Result<()> {
         unsafe {
             ensure!(
-                FcPatternAddCharSet(
-                    self.pat,
-                    c"charset".as_ptr(),
-                    charset.cset
-                ) != 0,
+                FcPatternAddCharSet(self.pat, c"charset".as_ptr(), charset.cset) != 0,
                 "failed to add charset property"
             );
             Ok(())
@@ -307,7 +303,11 @@ impl Pattern {
     pub fn config_substitute(&mut self, match_kind: MatchKind) -> Result<(), Error> {
         unsafe {
             ensure!(
-                FcConfigSubstitute(ptr::null_mut(), self.pat, mem::transmute::<MatchKind, fontconfig::FcMatchKind>(match_kind)) != 0,
+                FcConfigSubstitute(
+                    ptr::null_mut(),
+                    self.pat,
+                    mem::transmute::<MatchKind, fontconfig::FcMatchKind>(match_kind)
+                ) != 0,
                 "FcConfigSubstitute failed"
             );
             Ok(())

@@ -328,9 +328,9 @@ impl Face {
     }
 
     pub fn weight_and_width(&self) -> (u16, u16) {
-        let (mut weight, mut width) = self
-            .get_os2_table()
-            .map_or((400., 5.), |os2| (os2.usWeightClass as f64, os2.usWidthClass as f64));
+        let (mut weight, mut width) = self.get_os2_table().map_or((400., 5.), |os2| {
+            (os2.usWeightClass as f64, os2.usWidthClass as f64)
+        });
 
         unsafe {
             let index = (*self.face).face_index;
@@ -460,9 +460,7 @@ impl Face {
         }
 
         let pixel_height = point_size * dpi as f64 / 72.0;
-        log::debug!(
-            "set_char_size computing {point_size} dpi={dpi} (pixel height={pixel_height})"
-        );
+        log::debug!("set_char_size computing {point_size} dpi={dpi} (pixel height={pixel_height})");
 
         // Scaling before truncating to integer minimizes the chances of hitting
         // the fallback code for set_pixel_sizes below.
@@ -724,7 +722,8 @@ impl Face {
             let entry_names: Vec<String> = entry_name_ids
                 .iter()
                 .map(|&id| {
-                    self.get_sfnt_name(id as _).map_or_else(|_| String::new(), |rec| rec.name)
+                    self.get_sfnt_name(id as _)
+                        .map_or_else(|_| String::new(), |rec| rec.name)
                 })
                 .collect();
 
@@ -735,7 +734,8 @@ impl Face {
                     palette_index,
                     flags,
                     name: self
-                        .get_sfnt_name(name_id as _).map_or_else(|_| String::new(), |rec| rec.name),
+                        .get_sfnt_name(name_id as _)
+                        .map_or_else(|_| String::new(), |rec| rec.name),
                     entry_names: entry_names.clone(),
                 });
             }
@@ -913,9 +913,7 @@ impl Face {
                 (),
             )
             .with_context(|| {
-                format!(
-                    "load_and_render_glyph: FT_Load_Glyph glyph_index:{glyph_index}"
-                )
+                format!("load_and_render_glyph: FT_Load_Glyph glyph_index:{glyph_index}")
             })?;
             let slot = &mut *(*self.face).glyph;
 
@@ -942,9 +940,9 @@ impl Face {
                         FT_Color_Root_Transform::FT_COLOR_NO_ROOT_TRANSFORM,
                     )
                     .is_ok()
-                {
-                    return Err(IsColr1OrLater.into());
-                }
+            {
+                return Err(IsColr1OrLater.into());
+            }
 
             ft_result(FT_Render_Glyph(slot, render_mode), ())
                 .context("load_and_render_glyph: FT_Render_Glyph")?;

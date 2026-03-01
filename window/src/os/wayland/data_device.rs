@@ -1,15 +1,15 @@
+use smithay_client_toolkit::data_device_manager::WritePipe;
 use smithay_client_toolkit::data_device_manager::data_device::DataDeviceHandler;
 use smithay_client_toolkit::data_device_manager::data_offer::DataOfferHandler;
 use smithay_client_toolkit::data_device_manager::data_source::DataSourceHandler;
-use smithay_client_toolkit::data_device_manager::WritePipe;
 use smithay_client_toolkit::reexports::client::protocol::wl_data_device::WlDataDevice;
+use wayland_client::Proxy;
 use wayland_client::protocol::wl_data_device_manager::DndAction;
 use wayland_client::protocol::wl_surface::WlSurface;
-use wayland_client::Proxy;
 
+use crate::wayland::SurfaceUserData;
 use crate::wayland::drag_and_drop::SurfaceAndOffer;
 use crate::wayland::pointer::PointerUserData;
-use crate::wayland::SurfaceUserData;
 
 use super::copy_and_paste::write_selection_to_pipe;
 use super::drag_and_drop::{DragAndDrop, SurfaceAndPipe};
@@ -39,9 +39,7 @@ impl DataDeviceHandler for WaylandState {
         let offer = data.drag_offer().unwrap();
 
         offer.with_mime_types(|mime_types| {
-            log::trace!(
-                "Data offer entered: {offer:?}, mime_types: {mime_types:?}"
-            );
+            log::trace!("Data offer entered: {offer:?}, mime_types: {mime_types:?}");
 
             if let Some(mime) = mime_types.iter().find(|s| *s == URI_MIME_TYPE) {
                 offer.accept_mime_type(*self.last_serial.borrow(), Some(mime.clone()));
@@ -56,8 +54,7 @@ impl DataDeviceHandler for WaylandState {
             .data::<PointerUserData>()
             .unwrap()
             .state
-            .lock()
-            .unwrap();
+            .lock();
 
         let window_id = SurfaceUserData::from_wl(&offer.surface).window_id;
 
@@ -76,8 +73,7 @@ impl DataDeviceHandler for WaylandState {
             .data::<PointerUserData>()
             .unwrap()
             .state
-            .lock()
-            .unwrap();
+            .lock();
         if let Some(SurfaceAndOffer { offer, .. }) = pstate.drag_and_drop.offer.take() {
             offer.destroy();
         }
@@ -111,7 +107,7 @@ impl DataDeviceHandler for WaylandState {
             }
 
             if let Some(copy_and_paste) = self.resolve_copy_and_paste() {
-                copy_and_paste.lock().unwrap().confirm_selection(offer);
+                copy_and_paste.lock().confirm_selection(offer);
             }
         }
     }
@@ -128,8 +124,7 @@ impl DataDeviceHandler for WaylandState {
             .data::<PointerUserData>()
             .unwrap()
             .state
-            .lock()
-            .unwrap();
+            .lock();
         let drag_and_drop = &mut pstate.drag_and_drop;
         if let Some(SurfaceAndPipe { window_id, read }) = drag_and_drop.create_pipe_for_drop() {
             std::thread::spawn(move || {

@@ -90,7 +90,11 @@ impl FieldInfo<'_> {
         let doc = &self.doc;
         let type_name = &self.type_name;
         let container_type = Ident::new(&format!("{:?}", self.container_type), Span::call_site());
-        let get_default = if let Some(def) = self.compute_default() { quote!(Some(|| #def.to_dynamic())) } else { quote!(None) };
+        let get_default = if let Some(def) = self.compute_default() {
+            quote!(Some(|| #def.to_dynamic()))
+        } else {
+            quote!(None)
+        };
         quote!(
             crate::meta::ConfigOption {
                 name: #name,
@@ -120,7 +124,10 @@ impl FieldInfo<'_> {
 }
 
 const fn extract_lit_str_from_expr(expr: &Expr) -> Option<&syn::LitStr> {
-    if let Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = expr {
+    if let Expr::Lit(ExprLit {
+        lit: Lit::Str(s), ..
+    }) = expr
+    {
         Some(s)
     } else {
         None

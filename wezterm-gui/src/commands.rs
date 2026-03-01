@@ -1,15 +1,37 @@
 use crate::inputmap::InputMap;
-use config::keyassignment::{KeyAssignment, SpawnCommand, SpawnTabDomain, ClipboardPasteSource, ClipboardCopyDestination, ScrollbackEraseMode, Pattern, PaneSelectArguments, PaneSelectMode, PaneDirection, RotationDirection, CharSelectArguments};
+use KeyAssignment::{
+    ActivateCommandPalette, ActivateCopyMode, ActivateKeyTable, ActivateLastTab,
+    ActivatePaneByIndex, ActivatePaneDirection, ActivateTab, ActivateTabRelative,
+    ActivateTabRelativeNoWrap, ActivateWindow, ActivateWindowRelative,
+    ActivateWindowRelativeNoWrap, AdjustPaneSize, AttachDomain, CharSelect, ClearKeyTableStack,
+    ClearScrollback, ClearSelection, CloseCurrentPane, CloseCurrentTab, CompleteSelection,
+    CompleteSelectionOrOpenLinkAtMouseCursor, Confirmation, CopyMode, CopyTextTo, CopyTo,
+    DecreaseFontSize, DetachDomain, DisableDefaultAssignment, EmitEvent,
+    ExtendSelectionToMouseCursor, Hide, HideApplication, IncreaseFontSize, InputSelector, MoveTab,
+    MoveTabRelative, Multiple, Nop, OpenLinkAtMouseCursor, OpenUri, PaneSelect, PasteFrom,
+    PopKeyTable, PromptInputLine, QuickSelect, QuickSelectArgs, QuitApplication,
+    ReloadConfiguration, ResetFontAndWindowSize, ResetFontSize, ResetTerminal, RotatePanes,
+    ScrollByCurrentEventWheelDelta, ScrollByLine, ScrollByPage, ScrollToBottom, ScrollToPrompt,
+    ScrollToTop, Search, SelectTextAtMouseCursor, SendKey, SendString, SetPaneZoomState,
+    SetWindowLevel, Show, ShowDebugOverlay, ShowLauncher, ShowLauncherArgs, ShowTabNavigator,
+    SpawnCommandInNewTab, SpawnCommandInNewWindow, SpawnTab, SpawnWindow, SplitHorizontal,
+    SplitPane, SplitVertical, StartWindowDrag, SwitchToWorkspace, SwitchWorkspaceRelative,
+    ToggleAlwaysOnBottom, ToggleAlwaysOnTop, ToggleFullScreen, TogglePaneZoomState,
+};
+use config::keyassignment::{
+    CharSelectArguments, ClipboardCopyDestination, ClipboardPasteSource, KeyAssignment,
+    PaneDirection, PaneSelectArguments, PaneSelectMode, Pattern, RotationDirection,
+    ScrollbackEraseMode, SpawnCommand, SpawnTabDomain,
+};
 use config::window::WindowLevel;
 use config::{ConfigHandle, DeferredKeyCode};
-use mux::domain::DomainState;
 use mux::Mux;
+use mux::domain::DomainState;
 use ordered_float::NotNan;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use window::{KeyCode, Modifiers};
-use KeyAssignment::{SplitPane, SplitHorizontal, SplitVertical, SpawnCommandInNewWindow, SpawnCommandInNewTab, PasteFrom, CopyTextTo, CopyTo, ToggleFullScreen, ToggleAlwaysOnTop, ToggleAlwaysOnBottom, SetWindowLevel, Hide, Show, HideApplication, SpawnWindow, ClearScrollback, Search, ShowDebugOverlay, InputSelector, Confirmation, PromptInputLine, QuickSelect, QuickSelectArgs, CharSelect, PaneSelect, DecreaseFontSize, IncreaseFontSize, ResetFontSize, ResetFontAndWindowSize, SpawnTab, ActivateTab, ActivatePaneByIndex, SetPaneZoomState, EmitEvent, CloseCurrentTab, CloseCurrentPane, ActivateWindow, ActivateWindowRelative, ActivateWindowRelativeNoWrap, ActivateTabRelative, ActivateTabRelativeNoWrap, ReloadConfiguration, QuitApplication, MoveTabRelative, MoveTab, ScrollByPage, ScrollByLine, ScrollToPrompt, ScrollByCurrentEventWheelDelta, ScrollToBottom, ScrollToTop, ActivateCopyMode, AdjustPaneSize, ActivatePaneDirection, TogglePaneZoomState, ActivateLastTab, ClearKeyTableStack, OpenLinkAtMouseCursor, ShowLauncherArgs, ShowLauncher, ShowTabNavigator, DetachDomain, OpenUri, SendString, SendKey, Nop, DisableDefaultAssignment, SelectTextAtMouseCursor, ExtendSelectionToMouseCursor, ClearSelection, CompleteSelection, CompleteSelectionOrOpenLinkAtMouseCursor, StartWindowDrag, Multiple, SwitchToWorkspace, SwitchWorkspaceRelative, ActivateKeyTable, PopKeyTable, AttachDomain, CopyMode, RotatePanes, ResetTerminal, ActivateCommandPalette};
 
 /// Describes an argument/parameter/context that is required
 /// in order for the command to have meaning.
@@ -322,10 +344,7 @@ impl CommandDef {
         // And sweep to pick up stuff from their key assignments
         let inputmap = InputMap::new(config);
         for ((keycode, mods), entry) in &inputmap.keys.default {
-            if result
-                .iter()
-                .any(|cmd| cmd.action == entry.action)
-            {
+            if result.iter().any(|cmd| cmd.action == entry.action) {
                 continue;
             }
             if let Some(cmd) = derive_command_from_key_assignment(&entry.action) {
@@ -341,10 +360,7 @@ impl CommandDef {
         }
         for table in inputmap.keys.by_name.values() {
             for entry in table.values() {
-                if result
-                    .iter()
-                    .any(|cmd| cmd.action == entry.action)
-                {
+                if result.iter().any(|cmd| cmd.action == entry.action) {
                     continue;
                 }
                 if let Some(cmd) = derive_command_from_key_assignment(&entry.action) {
@@ -600,7 +616,9 @@ const fn spawn_command_from_action(action: &KeyAssignment) -> Option<&SpawnComma
 }
 
 fn label_string(action: &KeyAssignment, candidate: String) -> String {
-    if let Some(label) = spawn_command_from_action(action).and_then(config::keyassignment::SpawnCommand::label_for_palette) {
+    if let Some(label) = spawn_command_from_action(action)
+        .and_then(config::keyassignment::SpawnCommand::label_for_palette)
+    {
         label
     } else {
         candidate

@@ -1,13 +1,16 @@
 use crate::quad::{HeapQuadAllocator, QuadTrait, TripleLayerQuadAllocator};
 use crate::selection::SelectionRange;
-use crate::termwindow::box_model::{ComputedElement, PixelDimension, ElementColors, BorderColor, InheritableColor, ComputedElementContent};
+use crate::termwindow::box_model::{
+    BorderColor, ComputedElement, ComputedElementContent, ElementColors, InheritableColor,
+    PixelDimension,
+};
 use crate::termwindow::render::{
-    same_hyperlink, CursorProperties, LineQuadCacheKey, LineQuadCacheValue, LineToEleShapeCacheKey,
-    RenderScreenLineParams,
+    CursorProperties, LineQuadCacheKey, LineQuadCacheValue, LineToEleShapeCacheKey,
+    RenderScreenLineParams, same_hyperlink,
 };
 use crate::termwindow::{ScrollHit, UIItem, UIItemType};
-use ::window::bitmaps::TextureRect;
 use ::window::DeadKeyStatus;
+use ::window::bitmaps::TextureRect;
 use anyhow::Context;
 use config::VisualBellTarget;
 use mux::pane::{PaneId, WithPaneLines};
@@ -116,7 +119,10 @@ impl crate::TermWindow {
                 )
             } else {
                 (
-                    (pos.left as f32).mul_add(cell_width, padding_left + border.left.get() as f32 - (cell_width / 2.0)),
+                    (pos.left as f32).mul_add(
+                        cell_width,
+                        padding_left + border.left.get() as f32 - (cell_width / 2.0),
+                    ),
                     cell_width,
                 )
             };
@@ -336,7 +342,10 @@ impl crate::TermWindow {
                 error: Option<anyhow::Error>,
             }
 
-            let left_pixel_x = (pos.left as f32).mul_add(self.render_metrics.cell_size.width as f32, padding_left + border.left.get() as f32);
+            let left_pixel_x = (pos.left as f32).mul_add(
+                self.render_metrics.cell_size.width as f32,
+                padding_left + border.left.get() as f32,
+            );
 
             let mut render = LineRender {
                 term_window: self,
@@ -431,9 +440,12 @@ impl crate::TermWindow {
                         selection: selrange.clone(),
                         cursor,
                         shape_hash,
-                        top_pixel_y: NotNan::new(self.top_pixel_y).unwrap()
-                            + (line_idx + self.pos.top) as f32
-                                * self.term_window.render_metrics.cell_size.height as f32,
+                        top_pixel_y: NotNan::new(
+                            self.top_pixel_y
+                                + (line_idx + self.pos.top) as f32
+                                    * self.term_window.render_metrics.cell_size.height as f32,
+                        )
+                        .unwrap(),
                         left_pixel_x: NotNan::new(self.left_pixel_x).unwrap(),
                         phys_line_idx: line_idx,
                         reverse_video: self.dims.reverse_video,
@@ -442,9 +454,7 @@ impl crate::TermWindow {
                     if let Some(cached_quad) =
                         self.term_window.line_quad_cache.borrow_mut().get(&quad_key)
                     {
-                        let expired = cached_quad
-                            .expires
-                            .is_some_and(|i| Instant::now() >= i);
+                        let expired = cached_quad.expires.is_some_and(|i| Instant::now() >= i);
                         let hover_changed = if cached_quad.invalidate_on_hover_change {
                             !same_hyperlink(
                                 cached_quad.current_highlight.as_ref(),
@@ -606,7 +616,10 @@ impl crate::TermWindow {
             )
         } else {
             (
-                (pos.left as f32).mul_add(cell_width, padding_left + border.left.get() as f32 - (cell_width / 2.0)),
+                (pos.left as f32).mul_add(
+                    cell_width,
+                    padding_left + border.left.get() as f32 - (cell_width / 2.0),
+                ),
                 cell_width,
             )
         };
@@ -642,7 +655,10 @@ impl crate::TermWindow {
 
         // Bounds for the terminal cells
         let content_rect = euclid::rect(
-            (pos.left as f32).mul_add(cell_width, padding_left + border.left.get() as f32 - (cell_width / 2.0)),
+            (pos.left as f32).mul_add(
+                cell_width,
+                padding_left + border.left.get() as f32 - (cell_width / 2.0),
+            ),
             (pos.top as f32).mul_add(cell_height, top_pixel_y) - (cell_height / 2.0),
             pos.width as f32 * cell_width,
             pos.height as f32 * cell_height,

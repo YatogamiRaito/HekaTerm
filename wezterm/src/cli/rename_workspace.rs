@@ -49,7 +49,8 @@ impl RenameWorkspace {
             let pane_id = client.resolve_pane_id(self.pane_id).await?;
             pane_id_to_workspace
                 .get(&pane_id)
-                .ok_or_else(|| anyhow::anyhow!("unable to resolve current workspace"))?.clone()
+                .ok_or_else(|| anyhow::anyhow!("unable to resolve current workspace"))?
+                .clone()
         };
 
         client

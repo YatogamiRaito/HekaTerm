@@ -10,6 +10,7 @@ default = ["lua"]
 lua = ["dep:luahelper", "dep:wezterm-dynamic"]
 
 [dependencies]
+parking_lot.workspace = true
 libc.workspace = true
 log.workspace = true
 luahelper = { workspace=true, optional = true }

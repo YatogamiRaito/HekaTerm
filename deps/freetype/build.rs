@@ -207,8 +207,7 @@ fn freetype() {
         "type1/type1.c",
         "type42/type42.c",
         "winfonts/winfnt.c",
-    ]
-    {
+    ] {
         cfg.file(format!("freetype2/src/{f}"));
     }
 

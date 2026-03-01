@@ -3,27 +3,32 @@ use crate::pane::{
     CachePolicy, CloseReason, ForEachPaneLogicalLine, LogicalLine, Pane, PaneId, Pattern,
     SearchResult, WithPaneLines,
 };
-use crate::renderable::{StableCursorPosition, terminal_get_cursor_position, terminal_get_dirty_lines, terminal_for_each_logical_line_in_stable_range_mut, terminal_with_lines_mut, RenderableDimensions, terminal_get_dimensions};
+use crate::renderable::{
+    RenderableDimensions, StableCursorPosition, terminal_for_each_logical_line_in_stable_range_mut,
+    terminal_get_cursor_position, terminal_get_dimensions, terminal_get_dirty_lines,
+    terminal_with_lines_mut,
+};
 use crate::tmux::{TmuxDomain, TmuxDomainState};
 use crate::{Domain, Mux, MuxNotification};
+use ahash::AHashMap as HashMap;
 use anyhow::Error;
 use async_trait::async_trait;
 use config::keyassignment::ScrollbackEraseMode;
-use config::{configuration, ExitBehavior, ExitBehaviorMessaging};
+use config::{ExitBehavior, ExitBehaviorMessaging, configuration};
 use fancy_regex::Regex;
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 use procinfo::LocalProcessInfo;
 use rangeset::RangeSet;
-use smol::channel::{bounded, Receiver, TryRecvError};
+use smol::channel::{Receiver, TryRecvError, bounded};
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::convert::TryInto;
 use std::io::{Result as IoResult, Write};
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use termwiz::escape::csi::{Sgr, CSI};
+use termwiz::escape::csi::{CSI, Sgr};
 use termwiz::escape::{Action, DeviceControlMode};
 use termwiz::input::KeyboardEncoding;
 use termwiz::surface::{Line, SequenceNo};
@@ -219,8 +224,13 @@ impl Pane for LocalPane {
         terminal_get_dimensions(&mut self.terminal.lock())
     }
 
-    fn copy_user_vars(&self) -> HashMap<String, String> {
-        self.terminal.lock().user_vars().iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+    fn copy_user_vars(&self) -> std::collections::HashMap<String, String> {
+        self.terminal
+            .lock()
+            .user_vars()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     }
 
     fn exit_behavior(&self) -> Option<ExitBehavior> {
@@ -286,9 +296,13 @@ impl Pane for LocalPane {
                 };
 
                 if let Some(status) = status {
-                    let success = if status.success() { true } else { configuration()
-                    .clean_exit_codes
-                    .contains(&status.exit_code()) };
+                    let success = if status.success() {
+                        true
+                    } else {
+                        configuration()
+                            .clean_exit_codes
+                            .contains(&status.exit_code())
+                    };
 
                     match (
                         self.exit_behavior()
@@ -446,12 +460,13 @@ impl Pane for LocalPane {
         // If the title is the default pane title, then try to spice
         // things up a bit by returning the process basename instead
         if title == "wezterm"
-            && let Some(proc_name) = self.get_foreground_process_name(CachePolicy::AllowStale) {
-                let proc_name = std::path::Path::new(&proc_name);
-                if let Some(name) = proc_name.file_name() {
-                    return name.to_string_lossy().to_string();
-                }
+            && let Some(proc_name) = self.get_foreground_process_name(CachePolicy::AllowStale)
+        {
+            let proc_name = std::path::Path::new(&proc_name);
+            if let Some(name) = proc_name.file_name() {
+                return name.to_string_lossy().to_string();
             }
+        }
 
         title
     }
@@ -560,10 +575,7 @@ impl Pane for LocalPane {
             );
 
             let hook_result = config::run_immediate_with_lua_config(|lua| {
-                let lua = match lua {
-                    Some(lua) => lua,
-                    None => return Ok(None),
-                };
+                let Some(lua) = lua else { return Ok(None) };
                 let v = config::lua::emit_sync_callback(
                     &lua,
                     ("mux-is-process-stateful".to_string(), (info.root.clone())),
@@ -665,10 +677,11 @@ impl Pane for LocalPane {
 
         screen.for_each_logical_line_in_stable_range(range, |sr, lines| {
             if let Some(limit) = limit
-                && results.len() == limit as usize {
-                    // We've reach the limit, stop iteration.
-                    return false;
-                }
+                && results.len() == limit as usize
+            {
+                // We've reach the limit, stop iteration.
+                return false;
+            }
 
             if lines.is_empty() {
                 // Nothing to do on this iteration, carry on with the next.
@@ -759,7 +772,9 @@ impl Pane for LocalPane {
             }
             let coords = coords.as_ref().unwrap();
 
-            let match_id = if let Some(id) = uniq_matches.get(text).copied() { id } else {
+            let match_id = if let Some(id) = uniq_matches.get(text).copied() {
+                id
+            } else {
                 let id = uniq_matches.len();
                 uniq_matches.insert(text.to_owned(), id);
                 id
@@ -917,15 +932,17 @@ impl AlertHandler for LocalPaneNotifHandler {
             match &alert {
                 Alert::WindowTitleChanged(title) => {
                     if let Some((_domain, window_id, _tab_id)) = mux.resolve_pane_id(pane_id)
-                        && let Some(mut window) = mux.get_window_mut(window_id) {
-                            window.set_title(title);
-                        }
+                        && let Some(mut window) = mux.get_window_mut(window_id)
+                    {
+                        window.set_title(title);
+                    }
                 }
                 Alert::TabTitleChanged(title) => {
                     if let Some((_domain, _window_id, tab_id)) = mux.resolve_pane_id(pane_id)
-                        && let Some(tab) = mux.get_tab(tab_id) {
-                            tab.set_title(title.as_deref().unwrap_or(""));
-                        }
+                        && let Some(tab) = mux.get_tab(tab_id)
+                    {
+                        tab.set_title(title.as_deref().unwrap_or(""));
+                    }
                 }
                 _ => {}
             }
@@ -1110,7 +1127,8 @@ impl LocalPane {
 
     #[allow(dead_code)]
     fn divine_foreground_process(&self, policy: CachePolicy) -> Option<LocalProcessInfo> {
-        self.divine_process_list(policy).map(|info| info.foreground.clone())
+        self.divine_process_list(policy)
+            .map(|info| info.foreground.clone())
     }
 }
 

@@ -1,20 +1,23 @@
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use clap::builder::ValueParser;
 use clap::{Parser, ValueEnum, ValueHint};
-use clap_complete::{generate as generate_completion, shells, Generator as CompletionGenerator};
-use config::{wezterm_version, ConfigHandle};
+use clap_complete::{Generator as CompletionGenerator, generate as generate_completion, shells};
+use config::{ConfigHandle, wezterm_version};
 use mux::Mux;
 use std::ffi::OsString;
 use std::io::Read;
 use termwiz::caps::Capabilities;
-use termwiz::escape::esc::{Esc, EscCode};
 use termwiz::escape::OneBased;
+use termwiz::escape::esc::{Esc, EscCode};
 use termwiz::input::{InputEvent, KeyCode, KeyEvent, Modifiers};
-use termwiz::surface::change::Change;
 use termwiz::surface::Position;
+use termwiz::surface::change::Change;
 use termwiz::terminal::{ScreenSize, Terminal};
 use umask::UmaskSaver;
-use wezterm_gui_subcommands::{name_equals_value, StartCommand, SshCommand, SerialCommand, ConnectCommand, LsFontsCommand, ShowKeysCommand};
+use wezterm_gui_subcommands::{
+    ConnectCommand, LsFontsCommand, SerialCommand, ShowKeysCommand, SshCommand, StartCommand,
+    name_equals_value,
+};
 
 mod asciicast;
 mod cli;
@@ -589,8 +592,17 @@ impl ImgCatCommand {
         if self.hold {
             term.set_raw_mode()?;
             while let Ok(Some(event)) = term.poll_input(None) {
-                if let InputEvent::Key(KeyEvent { key: KeyCode::Enter | KeyCode::Escape, modifiers: _
-} | KeyEvent { key: KeyCode::Char('c' | 'd'), modifiers: Modifiers::CTRL }) = event {
+                if let InputEvent::Key(
+                    KeyEvent {
+                        key: KeyCode::Enter | KeyCode::Escape,
+                        modifiers: _,
+                    }
+                    | KeyEvent {
+                        key: KeyCode::Char('c' | 'd'),
+                        modifiers: Modifiers::CTRL,
+                    },
+                ) = event
+                {
                     break;
                 }
             }
@@ -714,7 +726,9 @@ fn init_config(opts: &Opt) -> anyhow::Result<ConfigHandle> {
     let config = config::configuration();
     config.update_ulimit()?;
     if let Some(value) = &config.default_ssh_auth_sock {
-        unsafe { std::env::set_var("SSH_AUTH_SOCK", value); }
+        unsafe {
+            std::env::set_var("SSH_AUTH_SOCK", value);
+        }
     }
     Ok(config)
 }

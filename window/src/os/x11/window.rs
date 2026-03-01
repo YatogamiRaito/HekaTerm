@@ -1,16 +1,17 @@
-use super::{xcb_util, XConnection, CursorInfo};
+use super::{CursorInfo, XConnection, xcb_util};
 use crate::bitmaps::{BitmapImage, Image};
 use crate::connection::ConnectionOps;
-use crate::os::{xkeysyms, Connection, Window};
+use crate::os::{Connection, Window, xkeysyms};
 use crate::{
     Appearance, Clipboard, DeadKeyStatus, Dimensions, MouseButtons, MouseCursor, MouseEvent,
     MouseEventKind, MousePress, Point, Rect, RequestedWindowGeometry, ResizeIncrement,
     ResolvedGeometry, ScreenPoint, ScreenRect, WindowDecorations, WindowEvent, WindowEventSender,
     WindowOps, WindowState,
 };
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use async_trait::async_trait;
 use config::ConfigHandle;
+use parking_lot::Mutex;
 use promise::{Future, Promise};
 use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle,
@@ -22,7 +23,7 @@ use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::{Rc, Weak};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use url::Url;
 use wezterm_font::FontConfiguration;
 use wezterm_input_types::{KeyCode, KeyEvent, KeyboardLedStatus, Modifiers};
@@ -119,27 +120,30 @@ const _NET_WM_MOVERESIZE_CANCEL: u32 = 11;
 impl Drop for XWindowInner {
     fn drop(&mut self) {
         if self.window_id != xcb::x::Window::none()
-            && let Some(conn) = self.conn.upgrade() {
-                self.conn()
-                    .conn()
-                    .flush()
-                    .context("flush pending requests prior to issuing DestroyWindow")
-                    .ok();
-                conn.send_request_no_reply_log(&xcb::x::DestroyWindow {
-                    window: self.child_id,
-                });
-                conn.send_request_no_reply_log(&xcb::x::DestroyWindow {
-                    window: self.window_id,
-                });
-            }
+            && let Some(conn) = self.conn.upgrade()
+        {
+            self.conn()
+                .conn()
+                .flush()
+                .context("flush pending requests prior to issuing DestroyWindow")
+                .ok();
+            conn.send_request_no_reply_log(&xcb::x::DestroyWindow {
+                window: self.child_id,
+            });
+            conn.send_request_no_reply_log(&xcb::x::DestroyWindow {
+                window: self.window_id,
+            });
+        }
     }
 }
 
 impl HasDisplayHandle for XWindowInner {
     fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
         if let Some(conn) = self.conn.upgrade() {
-            let handle =
-                XcbDisplayHandle::new(NonNull::new(conn.conn.get_raw_conn().cast()), conn.screen_num);
+            let handle = XcbDisplayHandle::new(
+                NonNull::new(conn.conn.get_raw_conn().cast()),
+                conn.screen_num,
+            );
             unsafe { Ok(DisplayHandle::borrow_raw(RawDisplayHandle::Xcb(handle))) }
         } else {
             Err(HandleError::Unavailable)
@@ -157,39 +161,6 @@ impl HasWindowHandle for XWindowInner {
 }
 
 impl XWindowInner {
-    fn enable_opengl(&mut self) -> anyhow::Result<Rc<glium::backend::Context>> {
-        let conn = self.conn();
-
-        let gl_state = match conn.gl_connection.borrow().as_ref() {
-            None => crate::egl::GlState::create(
-                Some(conn.conn.get_raw_dpy() as *const _),
-                self.child_id.resource_id() as *mut _,
-            ),
-            Some(glconn) => crate::egl::GlState::create_with_existing_connection(
-                glconn,
-                self.child_id.resource_id() as *mut _,
-            ),
-        };
-
-        // Don't chain on the end of the above to avoid borrowing gl_connection twice.
-        let gl_state = gl_state.map(Rc::new).and_then(|state| unsafe {
-            conn.gl_connection
-                .borrow_mut()
-                .replace(Rc::clone(state.get_connection()));
-            Ok(glium::backend::Context::new(
-                Rc::clone(&state),
-                true,
-                if cfg!(debug_assertions) {
-                    glium::debug::DebugCallbackBehavior::DebugMessageOnError
-                } else {
-                    glium::debug::DebugCallbackBehavior::Ignore
-                },
-            )?)
-        })?;
-
-        Ok(gl_state)
-    }
-
     /// Add a region to the list of exposed/damaged/dirty regions.
     /// Note that a window resize will likely invalidate the entire window.
     /// If the new region intersects with the prior region, then we expand
@@ -396,8 +367,7 @@ impl XWindowInner {
                 let window_id = self.window_id;
                 let max_fps = self.config.max_fps;
                 promise::spawn::spawn(async move {
-                    async_io::Timer::after(std::time::Duration::from_millis(1000 / max_fps))
-                        .await;
+                    async_io::Timer::after(std::time::Duration::from_millis(1000 / max_fps)).await;
                     XConnection::with_window_inner(window_id, move |inner| {
                         inner.paint_throttled = false;
                         if inner.invalidated {
@@ -572,7 +542,9 @@ impl XWindowInner {
             self.drag_and_drop.src_window = Some(srcwin);
             let moretypes = data[1] & 0x01 != 0;
             let xdndversion = data[1] >> 24_u8;
-            log::trace!("ClientMessage {msgtype_name}, Version {xdndversion}, more than 3 types: {moretypes}");
+            log::trace!(
+                "ClientMessage {msgtype_name}, Version {xdndversion}, more than 3 types: {moretypes}"
+            );
             if moretypes {
                 self.drag_and_drop.src_types =
                     match conn.send_and_wait_request(&xcb::x::GetProperty {
@@ -617,7 +589,9 @@ impl XWindowInner {
                 conn.atom_name(self.drag_and_drop.target_type)
             );
         } else if self.drag_and_drop.src_window != Some(srcwin) {
-            log::error!("ClientMessage {msgtype_name} received, but no Xdnd in progress or source window mismatch");
+            log::error!(
+                "ClientMessage {msgtype_name} received, but no Xdnd in progress or source window mismatch"
+            );
         } else if msgtype == conn.atom_xdndposition {
             self.drag_and_drop.time = data[3];
             let (x, y) = (data[2] >> 16_u16, data[2] as u16);
@@ -719,14 +693,8 @@ impl XWindowInner {
             Event::X(xcb::x::Event::MotionNotify(motion)) => {
                 let event = MouseEvent {
                     kind: MouseEventKind::Move,
-                    coords: Point::new(
-                        motion.event_x().into(),
-                        motion.event_y().into(),
-                    ),
-                    screen_coords: ScreenPoint::new(
-                        motion.root_x().into(),
-                        motion.root_y().into(),
-                    ),
+                    coords: Point::new(motion.event_x().into(), motion.event_y().into()),
+                    screen_coords: ScreenPoint::new(motion.root_x().into(), motion.root_y().into()),
                     modifiers: xkeysyms::modifiers_from_state(motion.state().bits()),
                     mouse_buttons: MouseButtons::default(),
                 };
@@ -754,8 +722,8 @@ impl XWindowInner {
             }
             Event::X(xcb::x::Event::ClientMessage(msg)) => {
                 let type_atom_name = conn.atom_name(msg.r#type());
-                use xcb::x::ClientMessageData;
                 use xcb::XidNew;
+                use xcb::x::ClientMessageData;
                 let xdnd_msgtype_atoms = [
                     conn.atom_xdndenter,
                     conn.atom_xdndposition,
@@ -1024,9 +992,7 @@ impl XWindowInner {
             // we can report back to them.
             xcb::x::ATOM_NONE
         };
-        log::trace!(
-            "SEL: window_id={window_id:?} responding with selprop={selprop:?}"
-        );
+        log::trace!("SEL: window_id={window_id:?} responding with selprop={selprop:?}");
 
         conn.send_request_no_reply(&xcb::x::SendEvent {
             propagate: true,
@@ -1542,7 +1508,6 @@ impl XWindow {
 
         window
             .lock()
-            .unwrap()
             .adjust_decorations(config.window_decorations)?;
 
         let window_handle = Window::X11(Self::from_id(window_id));
@@ -1875,7 +1840,10 @@ impl XWindowInner {
     }
 
     fn set_resize_increments(&mut self, incr: ResizeIncrement) -> anyhow::Result<()> {
-        use xcb_util::{xcb_size_hints_t, XCB_ICCCM_SIZE_HINT_P_MIN_SIZE, XCB_ICCCM_SIZE_HINT_P_RESIZE_INC, XCB_ICCCM_SIZE_HINT_BASE_SIZE};
+        use xcb_util::{
+            XCB_ICCCM_SIZE_HINT_BASE_SIZE, XCB_ICCCM_SIZE_HINT_P_MIN_SIZE,
+            XCB_ICCCM_SIZE_HINT_P_RESIZE_INC, xcb_size_hints_t,
+        };
         let hints = xcb_size_hints_t {
             flags: XCB_ICCCM_SIZE_HINT_P_MIN_SIZE
                 | XCB_ICCCM_SIZE_HINT_P_RESIZE_INC
@@ -1923,7 +1891,8 @@ impl HasDisplayHandle for XWindow {
         let conn = Connection::get()
             .expect("display_handle only callable on main thread")
             .x11();
-        let handle = XcbDisplayHandle::new(NonNull::new(conn.get_raw_conn().cast()), conn.screen_num);
+        let handle =
+            XcbDisplayHandle::new(NonNull::new(conn.get_raw_conn().cast()), conn.screen_num);
 
         unsafe { Ok(DisplayHandle::borrow_raw(RawDisplayHandle::Xcb(handle))) }
     }
@@ -1937,7 +1906,7 @@ impl HasWindowHandle for XWindow {
             .window_by_id(self.0)
             .expect("window handle invalid!?");
 
-        let inner = handle.lock().unwrap();
+        let inner = handle.lock();
         let handle = inner.window_handle()?;
         unsafe { Ok(WindowHandle::borrow_raw(handle.as_raw())) }
     }
@@ -1945,19 +1914,6 @@ impl HasWindowHandle for XWindow {
 
 #[async_trait(?Send)]
 impl WindowOps for XWindow {
-    async fn enable_opengl(&self) -> anyhow::Result<Rc<glium::backend::Context>> {
-        let window = self.0;
-        promise::spawn::spawn(async move {
-            if let Some(handle) = Connection::get().unwrap().x11().window_by_id(window) {
-                let mut inner = handle.lock().unwrap();
-                inner.enable_opengl()
-            } else {
-                anyhow::bail!("invalid window");
-            }
-        })
-        .await
-    }
-
     fn notify<T: Any + Send + Sync>(&self, t: T)
     where
         Self: Sized,
@@ -2241,10 +2197,6 @@ enum NetWmStateAction {
 
 impl NetWmStateAction {
     const fn with_bool(enable: bool) -> Self {
-        if enable {
-            Self::Add
-        } else {
-            Self::Remove
-        }
+        if enable { Self::Add } else { Self::Remove }
     }
 }

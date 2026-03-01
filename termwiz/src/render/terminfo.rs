@@ -1,8 +1,9 @@
 //! Rendering of Changes using terminfo
+use crate::Result;
 use crate::caps::{Capabilities, ColorLevel};
 use crate::cell::{AttributeChange, Blink, CellAttributes, Intensity, Underline};
 use crate::color::{ColorAttribute, ColorSpec};
-use crate::escape::csi::{Cursor, Edit, EraseInDisplay, EraseInLine, Sgr, CSI};
+use crate::escape::csi::{CSI, Cursor, Edit, EraseInDisplay, EraseInLine, Sgr};
 use crate::escape::esc::EscCode;
 use crate::escape::osc::OperatingSystemCommand;
 #[cfg(feature = "use_image")]
@@ -12,9 +13,8 @@ use crate::escape::{Esc, OneBased};
 use crate::image::{ImageDataType, TextureCoordinate};
 use crate::render::RenderTty;
 use crate::surface::{Change, CursorShape, CursorVisibility, LineAttribute, Position};
-use crate::Result;
 use std::io::Write;
-use terminfo::{capability as cap, Capability as TermInfoCapability};
+use terminfo::{Capability as TermInfoCapability, capability as cap};
 
 pub struct TerminfoRenderer {
     caps: Capabilities,
@@ -34,7 +34,9 @@ impl TerminfoRenderer {
     }
 
     fn get_capability<'a, T: TermInfoCapability<'a>>(&'a self) -> Option<T> {
-        self.caps.terminfo_db().and_then(terminfo::Database::get::<T>)
+        self.caps
+            .terminfo_db()
+            .and_then(terminfo::Database::get::<T>)
     }
 
     fn attr_apply<F: FnOnce(&mut CellAttributes)>(&mut self, func: F) {
@@ -307,11 +309,13 @@ impl TerminfoRenderer {
         y: u32,
         out: &mut W,
     ) -> Result<()> {
-        if x == 0 && y == 0
-            && let Some(attr) = self.get_capability::<cap::CursorHome>() {
-                attr.expand().to(out.by_ref())?;
-                return Ok(());
-            }
+        if x == 0
+            && y == 0
+            && let Some(attr) = self.get_capability::<cap::CursorHome>()
+        {
+            attr.expand().to(out.by_ref())?;
+            return Ok(());
+        }
 
         if let Some(attr) = self.get_capability::<cap::CursorAddress>() {
             // terminfo expansion automatically converts coordinates to 1-based,
@@ -642,28 +646,27 @@ impl TerminfoRenderer {
                     scroll_count,
                 } => {
                     if *region_size > 0
-                        && let Some(csr) = self.get_capability::<cap::ChangeScrollRegion>() {
-                            let top = *first_row as u32;
-                            let bottom = (*first_row + *region_size - 1) as u32;
-                            let scroll_count = *scroll_count as u32;
-                            csr.expand().top(top).bottom(bottom).to(out.by_ref())?;
-                            if scroll_count > 0 {
-                                if let Some(scroll) = self.get_capability::<cap::ParmIndex>() {
-                                    scroll.expand().count(scroll_count).to(out.by_ref())?
-                                } else {
-                                    let scroll = self.get_capability::<cap::ScrollForward>();
-                                    let set_position = self.get_capability::<cap::CursorAddress>();
-                                    if let (Some(scroll), Some(set_position)) =
-                                        (scroll, set_position)
-                                    {
-                                        set_position.expand().x(0).y(bottom).to(out.by_ref())?;
-                                        for _ in 0..scroll_count {
-                                            scroll.expand().to(out.by_ref())?
-                                        }
+                        && let Some(csr) = self.get_capability::<cap::ChangeScrollRegion>()
+                    {
+                        let top = *first_row as u32;
+                        let bottom = (*first_row + *region_size - 1) as u32;
+                        let scroll_count = *scroll_count as u32;
+                        csr.expand().top(top).bottom(bottom).to(out.by_ref())?;
+                        if scroll_count > 0 {
+                            if let Some(scroll) = self.get_capability::<cap::ParmIndex>() {
+                                scroll.expand().count(scroll_count).to(out.by_ref())?
+                            } else {
+                                let scroll = self.get_capability::<cap::ScrollForward>();
+                                let set_position = self.get_capability::<cap::CursorAddress>();
+                                if let (Some(scroll), Some(set_position)) = (scroll, set_position) {
+                                    set_position.expand().x(0).y(bottom).to(out.by_ref())?;
+                                    for _ in 0..scroll_count {
+                                        scroll.expand().to(out.by_ref())?
                                     }
                                 }
                             }
                         }
+                    }
                 }
                 Change::ScrollRegionDown {
                     first_row,
@@ -671,28 +674,27 @@ impl TerminfoRenderer {
                     scroll_count,
                 } => {
                     if *region_size > 0
-                        && let Some(csr) = self.get_capability::<cap::ChangeScrollRegion>() {
-                            let top = *first_row as u32;
-                            let bottom = (*first_row + *region_size - 1) as u32;
-                            let scroll_count = *scroll_count as u32;
-                            csr.expand().top(top).bottom(bottom).to(out.by_ref())?;
-                            if scroll_count > 0 {
-                                if let Some(scroll) = self.get_capability::<cap::ParmRindex>() {
-                                    scroll.expand().count(scroll_count).to(out.by_ref())?
-                                } else {
-                                    let scroll = self.get_capability::<cap::ScrollReverse>();
-                                    let set_position = self.get_capability::<cap::CursorAddress>();
-                                    if let (Some(scroll), Some(set_position)) =
-                                        (scroll, set_position)
-                                    {
-                                        set_position.expand().x(0).y(top).to(out.by_ref())?;
-                                        for _ in 0..scroll_count {
-                                            scroll.expand().to(out.by_ref())?
-                                        }
+                        && let Some(csr) = self.get_capability::<cap::ChangeScrollRegion>()
+                    {
+                        let top = *first_row as u32;
+                        let bottom = (*first_row + *region_size - 1) as u32;
+                        let scroll_count = *scroll_count as u32;
+                        csr.expand().top(top).bottom(bottom).to(out.by_ref())?;
+                        if scroll_count > 0 {
+                            if let Some(scroll) = self.get_capability::<cap::ParmRindex>() {
+                                scroll.expand().count(scroll_count).to(out.by_ref())?
+                            } else {
+                                let scroll = self.get_capability::<cap::ScrollReverse>();
+                                let set_position = self.get_capability::<cap::CursorAddress>();
+                                if let (Some(scroll), Some(set_position)) = (scroll, set_position) {
+                                    set_position.expand().x(0).y(top).to(out.by_ref())?;
+                                    for _ in 0..scroll_count {
+                                        scroll.expand().to(out.by_ref())?
                                     }
                                 }
                             }
                         }
+                    }
                 }
 
                 Change::Title(text) => {
@@ -732,7 +734,7 @@ mod test {
     use crate::escape::{Action, Esc, EscCode};
     use crate::input::InputEvent;
     use crate::terminal::unix::{Purge, SetAttributeWhen, UnixTty};
-    use crate::terminal::{cast, ScreenSize, Terminal, TerminalWaker};
+    use crate::terminal::{ScreenSize, Terminal, TerminalWaker, cast};
     use libc::winsize;
     use std::io::{Error as IoError, Read, Result as IoResult, Write};
     use std::mem;
@@ -1261,9 +1263,9 @@ mod test {
         assert_eq!(
             result,
             vec![
-                Action::CSI(CSI::Sgr(Sgr::Foreground(
-                    ColorSpec::TrueColor((255, 128, 64).into()),
-                ))),
+                Action::CSI(CSI::Sgr(Sgr::Foreground(ColorSpec::TrueColor(
+                    (255, 128, 64).into()
+                ),))),
                 Action::Print('A'),
             ]
         );
@@ -1284,9 +1286,9 @@ mod test {
         assert_eq!(
             result,
             vec![
-                Action::CSI(CSI::Sgr(Sgr::Foreground(
-                    ColorSpec::TrueColor((255, 128, 64).into()),
-                ))),
+                Action::CSI(CSI::Sgr(Sgr::Foreground(ColorSpec::TrueColor(
+                    (255, 128, 64).into()
+                ),))),
                 Action::Print('A'),
             ]
         );

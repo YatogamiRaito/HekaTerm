@@ -1,11 +1,11 @@
 #![cfg(feature = "simple_tempdir")]
 
 use crate::{BlobStorage, BoxedReader, BufSeekRead, ContentId, Error, LeaseId};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use tempfile::TempDir;
 
 pub struct SimpleTempDir {
@@ -46,11 +46,11 @@ impl SimpleTempDir {
     }
 
     fn add_ref(&self, content_id: ContentId) {
-        *self.refs.lock().unwrap().entry(content_id).or_insert(0) += 1;
+        *self.refs.lock().entry(content_id).or_insert(0) += 1;
     }
 
     fn del_ref(&self, content_id: ContentId) {
-        let mut refs = self.refs.lock().unwrap();
+        let mut refs = self.refs.lock();
         match refs.get_mut(&content_id) {
             Some(count) if *count == 1 => {
                 if let Ok(path) = self.path_for_content(content_id) {
@@ -72,7 +72,7 @@ impl SimpleTempDir {
 
 impl BlobStorage for SimpleTempDir {
     fn store(&self, content_id: ContentId, data: &[u8], _lease_id: LeaseId) -> Result<(), Error> {
-        let mut refs = self.refs.lock().unwrap();
+        let mut refs = self.refs.lock();
 
         let path = self.path_for_content(content_id)?;
         let mut file = tempfile::Builder::new()
@@ -90,7 +90,7 @@ impl BlobStorage for SimpleTempDir {
     }
 
     fn lease_by_content(&self, content_id: ContentId, _lease_id: LeaseId) -> Result<(), Error> {
-        let _refs = self.refs.lock().unwrap();
+        let _refs = self.refs.lock();
 
         let path = self.path_for_content(content_id)?;
         if path.exists() {
@@ -102,7 +102,7 @@ impl BlobStorage for SimpleTempDir {
     }
 
     fn get_data(&self, content_id: ContentId, _lease_id: LeaseId) -> Result<Vec<u8>, Error> {
-        let _refs = self.refs.lock().unwrap();
+        let _refs = self.refs.lock();
 
         let path = self.path_for_content(content_id)?;
         std::fs::read(&path).map_err(|err| Error::StorageDirIoError(path, err))

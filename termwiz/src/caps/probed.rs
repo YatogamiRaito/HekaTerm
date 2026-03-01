@@ -1,8 +1,8 @@
 use crate::escape::csi::{Device, Window};
 use crate::escape::parser::Parser;
-use crate::escape::{Action, DeviceControlMode, Esc, EscCode, CSI};
+use crate::escape::{Action, CSI, DeviceControlMode, Esc, EscCode};
 use crate::terminal::ScreenSize;
-use crate::{bail, Result};
+use crate::{Result, bail};
 use std::io::{Read, Write};
 
 const TMUX_BEGIN: &str = "\u{1b}Ptmux;\u{1b}";
@@ -40,8 +40,6 @@ impl XtVersion {
     }
 }
 
-
-
 /// This struct is a helper that uses probing to determine specific capabilities
 /// of the associated Terminal instance.
 /// It will write and read data to and from the associated Terminal.
@@ -52,10 +50,7 @@ pub struct ProbeCapabilities<'a> {
 
 impl<'a> ProbeCapabilities<'a> {
     pub fn new<R: Read, W: Write>(read: &'a mut R, write: &'a mut W) -> Self {
-        Self {
-            read,
-            write,
-        }
+        Self { read, write }
     }
 
     /// Probe for the XTVERSION response
@@ -116,7 +111,8 @@ impl<'a> ProbeCapabilities<'a> {
         let is_tmux = xt_version.is_tmux();
 
         // some tmux versions have their rows/cols swapped in ReportTextAreaSizeCells
-        let swapped_cols_rows = matches!(xt_version.full_version(),
+        let swapped_cols_rows = matches!(
+            xt_version.full_version(),
             "tmux 3.2" | "tmux 3.2a" | "tmux 3.3" | "tmux 3.3a"
         );
 

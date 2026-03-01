@@ -99,8 +99,16 @@ fn run_confirmation_impl(message: &str, term: &mut TermWizTerminal) -> anyhow::R
             }) => {
                 return Ok(true);
             }
-            InputEvent::Key(KeyEvent { key: KeyCode::Char('n' | 'N'), .. } | KeyEvent {
-key: KeyCode::Escape, .. }) => {
+            InputEvent::Key(
+                KeyEvent {
+                    key: KeyCode::Char('n' | 'N'),
+                    ..
+                }
+                | KeyEvent {
+                    key: KeyCode::Escape,
+                    ..
+                },
+            ) => {
                 return Ok(false);
             }
             InputEvent::Mouse(MouseEvent {
@@ -145,9 +153,8 @@ pub fn show_confirmation_overlay(
     window: GuiWin,
     pane: MuxPane,
 ) -> anyhow::Result<()> {
-    let name = match *args.action {
-        KeyAssignment::EmitEvent(id) => id,
-        _ => anyhow::bail!("Confirmation requires action to be defined by wezterm.action_callback"),
+    let KeyAssignment::EmitEvent(name) = *args.action else {
+        anyhow::bail!("Confirmation requires action to be defined by wezterm.action_callback")
     };
 
     if let Ok(confirm) = run_confirmation_impl(&args.message, &mut term) {
@@ -158,13 +165,14 @@ pub fn show_confirmation_overlay(
             })
             .detach();
         } else if let Some(key_assignment) = args.cancel
-            && let KeyAssignment::EmitEvent(id) = *key_assignment {
-                promise::spawn::spawn_into_main_thread(async move {
-                    trampoline(id, window, pane);
-                    anyhow::Result::<()>::Ok(())
-                })
-                .detach();
-            }
+            && let KeyAssignment::EmitEvent(id) = *key_assignment
+        {
+            promise::spawn::spawn_into_main_thread(async move {
+                trampoline(id, window, pane);
+                anyhow::Result::<()>::Ok(())
+            })
+            .detach();
+        }
     }
     Ok(())
 }
@@ -185,7 +193,7 @@ async fn do_event(
     if let Some(lua) = lua {
         let args = lua.pack_multi((window, pane))?;
 
-        if let Err(err) = config::lua::emit_event(&lua, (name.clone(), args)).await {
+        if let Err(err) = config::lua::emit_event((*lua).clone(), (name.clone(), args)).await {
             log::error!("while processing {name} event: {err:#}");
         }
     }

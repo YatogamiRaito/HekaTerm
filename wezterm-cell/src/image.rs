@@ -13,10 +13,11 @@
 //! z-order.
 
 use ordered_float::NotNan;
+use parking_lot::{Mutex, MutexGuard};
 #[cfg(feature = "use_serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 use std::time::Duration;
 #[cfg(feature = "std")]
 use wezterm_blob_leases::{BlobLease, BlobManager};
@@ -61,12 +62,12 @@ pub struct TextureCoordinate {
 }
 
 impl TextureCoordinate {
-    #[must_use] 
+    #[must_use]
     pub const fn new(x: NotNan<f32>, y: NotNan<f32>) -> Self {
         Self { x, y }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn new_f32(x: f32, y: f32) -> Self {
         let x = NotNan::new(x).unwrap();
         let y = NotNan::new(y).unwrap();
@@ -147,37 +148,37 @@ impl ImageCell {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn matches_placement(&self, image_id: u32, placement_id: Option<u32>) -> bool {
         self.image_id == Some(image_id) && self.placement_id == placement_id
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn has_placement_id(&self) -> bool {
         self.placement_id.is_some()
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn image_id(&self) -> Option<u32> {
         self.image_id
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn placement_id(&self) -> Option<u32> {
         self.placement_id
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn top_left(&self) -> TextureCoordinate {
         self.top_left
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn bottom_right(&self) -> TextureCoordinate {
         self.bottom_right
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn image_data(&self) -> &Arc<ImageData> {
         &self.data
     }
@@ -186,13 +187,13 @@ impl ImageCell {
     /// >= 0 is rendered above the text.
     /// > negative z_index < INT32_MIN/2 will be drawn under cells
     /// > with non-default background colors
-    #[must_use] 
+    #[must_use]
     pub const fn z_index(&self) -> i32 {
         self.z_index
     }
 
     /// Returns padding (left, top, right, bottom)
-    #[must_use] 
+    #[must_use]
     pub const fn padding(&self) -> (u16, u16, u16, u16) {
         (
             self.padding_left,
@@ -276,7 +277,7 @@ impl std::fmt::Debug for ImageDataType {
 }
 
 impl ImageDataType {
-    #[must_use] 
+    #[must_use]
     pub fn new_single_frame(width: u32, height: u32, data: Vec<u8>) -> Self {
         let hash = Self::hash_bytes(&data);
         assert_eq!(
@@ -296,7 +297,7 @@ impl ImageDataType {
     }
 
     /// Black pixels
-    #[must_use] 
+    #[must_use]
     pub fn placeholder() -> Self {
         let mut data = vec![];
         let size = 8;
@@ -306,7 +307,7 @@ impl ImageDataType {
         Self::new_single_frame(size, size, data)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn hash_bytes(bytes: &[u8]) -> [u8; 32] {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
@@ -314,7 +315,7 @@ impl ImageDataType {
         hasher.finalize().into()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn compute_hash(&self) -> [u8; 32] {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
@@ -364,8 +365,9 @@ impl ImageDataType {
         match self {
             Self::EncodedFile(data) => Ok(dimensions_for_data(data)?),
             Self::EncodedLease(lease) => Ok(dimensions_for_data(&lease.get_data()?)?),
-            Self::AnimRgba8 { width, height, .. }
-            | Self::Rgba8 { width, height, .. } => Ok((*width, *height)),
+            Self::AnimRgba8 { width, height, .. } | Self::Rgba8 { width, height, .. } => {
+                Ok((*width, *height))
+            }
         }
     }
 
@@ -386,7 +388,7 @@ impl ImageDataType {
     /// if we recognize the file format, otherwise the `EncodedFile` data
     /// is preserved as is.
     #[cfg(feature = "use_image")]
-    #[must_use] 
+    #[must_use]
     pub fn decode(self) -> Self {
         use image::{AnimationDecoder, ImageFormat};
 
@@ -418,9 +420,8 @@ impl ImageDataType {
                             Self::decode_single(data)
                         }),
                     ImageFormat::Png => {
-                        let decoder = match image::codecs::png::PngDecoder::new(cursor) {
-                            Ok(d) => d,
-                            _ => return Self::EncodedFile(data),
+                        let Ok(decoder) = image::codecs::png::PngDecoder::new(cursor) else {
+                            return Self::EncodedFile(data);
                         };
                         if decoder.is_apng().unwrap_or(false) {
                             match decoder
@@ -439,9 +440,8 @@ impl ImageDataType {
                         }
                     }
                     ImageFormat::WebP => {
-                        let decoder = match image::codecs::webp::WebPDecoder::new(cursor) {
-                            Ok(d) => d,
-                            _ => return Self::EncodedFile(data),
+                        let Ok(decoder) = image::codecs::webp::WebPDecoder::new(cursor) else {
+                            return Self::EncodedFile(data);
                         };
                         match decoder.into_frames().collect_frames() {
                             Ok(frames) if frames.is_empty() => {
@@ -558,7 +558,7 @@ impl PartialEq for ImageData {
 
 impl ImageData {
     /// Create a new `ImageData` struct with the provided raw data.
-    #[must_use] 
+    #[must_use]
     pub fn with_raw_data(data: Vec<u8>) -> Self {
         let hash = ImageDataType::hash_bytes(&data);
         Self::with_data_and_hash(ImageDataType::EncodedFile(data).decode(), hash)
@@ -571,7 +571,7 @@ impl ImageData {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_data(data: ImageDataType) -> Self {
         let hash = data.compute_hash();
         Self {
@@ -587,7 +587,8 @@ impl ImageData {
 
     /// Returns the in-memory footprint
     pub fn len(&self) -> usize {
-        match &*self.data() {
+        let data = self.data();
+        match &*data {
             ImageDataType::EncodedFile(d) => d.len(),
             ImageDataType::EncodedLease(_) => 0,
             ImageDataType::Rgba8 { data, .. } => data.len(),
@@ -596,7 +597,7 @@ impl ImageData {
     }
 
     pub fn data(&self) -> MutexGuard<'_, ImageDataType> {
-        self.data.lock().unwrap()
+        self.data.lock()
     }
 
     pub const fn hash(&self) -> [u8; 32] {

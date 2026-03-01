@@ -34,7 +34,9 @@ impl MovePaneToNewTab {
         let pane_id = client.resolve_pane_id(self.pane_id).await?;
         let window_id = if self.new_window {
             None
-        } else if let Some(w) = self.window_id { Some(w) } else {
+        } else if let Some(w) = self.window_id {
+            Some(w)
+        } else {
             let panes = client.list_panes().await?;
             let mut window_id = None;
             'outer_move: for tabroot in panes.tabs {
@@ -42,10 +44,11 @@ impl MovePaneToNewTab {
 
                 loop {
                     if let Some(entry) = cursor.leaf_mut()
-                        && entry.pane_id == pane_id {
-                            window_id.replace(entry.window_id);
-                            break 'outer_move;
-                        }
+                        && entry.pane_id == pane_id
+                    {
+                        window_id.replace(entry.window_id);
+                        break 'outer_move;
+                    }
                     match cursor.preorder_next() {
                         Ok(c) => cursor = c,
                         Err(_) => break,

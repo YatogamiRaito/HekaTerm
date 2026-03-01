@@ -5,6 +5,7 @@ use config::keyassignment::{
 };
 use config::{ConfigHandle, MouseEventAltScreen, MouseEventTriggerMods};
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::Write as _;
 use std::time::Duration;
 use wezterm_dynamic::{ToDynamic, Value};
 use wezterm_term::input::MouseButton;
@@ -45,7 +46,11 @@ impl InputMap {
             };
         }
 
-        use KeyAssignment::{ScrollByCurrentEventWheelDelta, SelectTextAtMouseCursor, ExtendSelectionToMouseCursor, CompleteSelectionOrOpenLinkAtMouseCursor, CompleteSelection, PasteFrom, StartWindowDrag};
+        use KeyAssignment::{
+            CompleteSelection, CompleteSelectionOrOpenLinkAtMouseCursor,
+            ExtendSelectionToMouseCursor, PasteFrom, ScrollByCurrentEventWheelDelta,
+            SelectTextAtMouseCursor, StartWindowDrag,
+        };
 
         if !config.disable_default_key_bindings {
             for (mods, code, action) in CommandDef::default_key_assignments(config) {
@@ -427,9 +432,11 @@ impl InputMap {
 
     pub fn is_leader(&self, key: &KeyCode, mods: Modifiers) -> Option<std::time::Duration> {
         if let Some((leader_key, leader_mods, timeout)) = self.leader.as_ref()
-            && *leader_key == *key && *leader_mods == mods.remove_positional_mods() {
-                return Some(*timeout);
-            }
+            && *leader_key == *key
+            && *leader_mods == mods.remove_positional_mods()
+        {
+            return Some(*timeout);
+        }
         None
     }
 
@@ -480,9 +487,10 @@ impl InputMap {
         println!("  key_tables = {{");
         for name in table_names {
             if let Some(wanted_table) = key_table
-                && name != wanted_table {
-                    continue;
-                }
+                && name != wanted_table
+            {
+                continue;
+            }
             if let Some(table) = self.keys.by_name.get(name) {
                 println!("    {name} = {{");
                 show_key_table_as_lua(table, 6);
@@ -633,7 +641,7 @@ pub fn human_key(key: &KeyCode) -> String {
         KeyCode::Char(c) => c.to_string(),
         KeyCode::Function(n) => format!("F{n}"),
         KeyCode::Numpad(n) => format!("Numpad{n}"),
-        KeyCode::Physical(phys) => format!("{} (Physical)", phys),
+        KeyCode::Physical(phys) => format!("{phys} (Physical)"),
         _ => format!("{key:?}"),
     }
 }
@@ -650,7 +658,7 @@ fn lua_key_code(key: &KeyCode) -> String {
         KeyCode::Char(c) => c.to_string(),
         KeyCode::Function(n) => format!("F{n}"),
         KeyCode::Numpad(n) => format!("Numpad{n}"),
-        KeyCode::Physical(phys) => format!("phys:{}", phys),
+        KeyCode::Physical(phys) => format!("phys:{phys}"),
         _ => format!("{key:?}"),
     }
 }
@@ -670,10 +678,7 @@ fn luaify(value: Value, is_top: bool) -> String {
         }
         Value::Object(o) if is_top => {
             if let Some((k, v)) = o.into_iter().next() {
-                let k = match k {
-                    Value::String(s) => s,
-                    _ => unreachable!(),
-                };
+                let Value::String(k) = k else { unreachable!() };
                 let arg = match v {
                     Value::String(_) => format!(" {}", luaify(v, false)),
                     Value::Array(a) => {
@@ -692,10 +697,7 @@ fn luaify(value: Value, is_top: bool) -> String {
         Value::Object(o) => {
             let mut fields = vec![];
             for (k, v) in o {
-                let k = match k {
-                    Value::String(s) => s,
-                    _ => unreachable!(),
-                };
+                let Value::String(k) = k else { unreachable!() };
                 let arg = match v {
                     Value::Null => continue,
                     Value::String(_) => format!(" {}", luaify(v, false)),
@@ -756,7 +758,7 @@ fn quote_lua_string(s: &str) -> String {
             }
             _ => {
                 let b = c as u32;
-                result.push_str(&format!("\\u{{{b:x}}}"));
+                write!(&mut result, "\\u{{{b:x}}}").unwrap();
             }
         }
     }

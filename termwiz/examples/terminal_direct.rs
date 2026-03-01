@@ -6,12 +6,12 @@
 //! the `buffered_terminal.rs` example demonstrates a simple
 //! way to enable optimizations.
 
+use termwiz::Error;
 use termwiz::caps::Capabilities;
 use termwiz::cell::AttributeChange;
 use termwiz::color::AnsiColor;
 use termwiz::surface::Change;
-use termwiz::terminal::{new_terminal, Terminal};
-use termwiz::Error;
+use termwiz::terminal::{Terminal, new_terminal};
 
 fn main() -> Result<(), Error> {
     let caps = Capabilities::new_from_env()?;

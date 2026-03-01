@@ -21,11 +21,11 @@ use crate::units::Dimension;
 use crate::unix::UnixDomain;
 use crate::wsl::WslDomain;
 use crate::{
-    default_config_with_overrides_applied, default_one_point_oh, default_one_point_oh_f64,
-    default_true, default_win32_acrylic_accent_color, CellWidth, GpuInfo,
+    CONFIG_DIRS, CONFIG_FILE_OVERRIDE, CONFIG_OVERRIDES, CONFIG_SKIP, CellWidth, GpuInfo, HOME_DIR,
     IntegratedTitleButtonColor, KeyMapPreference, LoadedConfig, MouseEventTriggerMods, RgbaColor,
-    SerialDomain, SystemBackdrop, WebGpuPowerPreference, CONFIG_DIRS, CONFIG_FILE_OVERRIDE,
-    CONFIG_OVERRIDES, CONFIG_SKIP, HOME_DIR,
+    SerialDomain, SystemBackdrop, WebGpuPowerPreference, default_config_with_overrides_applied,
+    default_one_point_oh, default_one_point_oh_f64, default_true,
+    default_win32_acrylic_accent_color,
 };
 use anyhow::Context;
 use luahelper::impl_lua_conversion_dynamic;
@@ -915,7 +915,7 @@ impl Default for Config {
 }
 
 impl Config {
-    #[must_use] 
+    #[must_use]
     pub fn load() -> LoadedConfig {
         Self::load_with_overrides(&wezterm_dynamic::Value::default())
     }
@@ -923,7 +923,7 @@ impl Config {
     /// It is relatively expensive to parse all the ssh config files,
     /// so we defer producing the default list until someone explicitly
     /// asks for it
-    #[must_use] 
+    #[must_use]
     pub fn ssh_domains(&self) -> Vec<SshDomain> {
         if let Some(domains) = &self.ssh_domains {
             domains.clone()
@@ -932,7 +932,7 @@ impl Config {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn wsl_domains(&self) -> Vec<WslDomain> {
         if let Some(domains) = &self.wsl_domains {
             domains.clone()
@@ -944,7 +944,7 @@ impl Config {
     pub fn update_ulimit(&self) -> anyhow::Result<()> {
         #[cfg(unix)]
         {
-            use nix::sys::resource::{getrlimit, rlim_t, setrlimit, Resource};
+            use nix::sys::resource::{Resource, getrlimit, rlim_t, setrlimit};
 
             let (no_file_soft, no_file_hard) = getrlimit(Resource::RLIMIT_NOFILE)?;
 
@@ -966,7 +966,7 @@ impl Config {
 
         #[cfg(all(unix, not(target_os = "macos")))]
         {
-            use nix::sys::resource::{getrlimit, rlim_t, setrlimit, Resource};
+            use nix::sys::resource::{Resource, getrlimit, rlim_t, setrlimit};
 
             let (nproc_soft, nproc_hard) = getrlimit(Resource::RLIMIT_NPROC)?;
 
@@ -979,9 +979,7 @@ impl Config {
                     nproc_hard,
                 )
                 .with_context(|| {
-                    format!(
-                        "raise RLIMIT_NPROC from {nproc_soft} to ulimit_nproc {ulimit_nproc}"
-                    )
+                    format!("raise RLIMIT_NPROC from {nproc_soft} to ulimit_nproc {ulimit_nproc}")
                 })?;
             }
         }
@@ -1010,16 +1008,17 @@ impl Config {
             // So we prioritize that here: if there is a config in the same
             // dir as the executable that will take precedence.
             if let Ok(exe_name) = std::env::current_exe()
-                && let Some(exe_dir) = exe_name.parent() {
-                    paths.insert(0, PathPossibility::optional(exe_dir.join("wezterm.lua")));
-                }
+                && let Some(exe_dir) = exe_name.parent()
+            {
+                paths.insert(0, PathPossibility::optional(exe_dir.join("wezterm.lua")));
+            }
         }
         if let Some(path) = std::env::var_os("WEZTERM_CONFIG_FILE") {
             log::trace!("Note: WEZTERM_CONFIG_FILE is set in the environment");
             paths.insert(0, PathPossibility::required(path.into()));
         }
 
-        if let Some(path) = CONFIG_FILE_OVERRIDE.lock().unwrap().as_ref() {
+        if let Some(path) = CONFIG_FILE_OVERRIDE.lock().as_ref() {
             log::trace!("Note: config file override is set");
             paths.insert(0, PathPossibility::required(path.clone()));
         }
@@ -1036,7 +1035,7 @@ impl Config {
                         file_name: Some(path_item.path.clone()),
                         lua: None,
                         warnings: vec![],
-                    }
+                    };
                 }
                 Ok(None) => continue,
                 Ok(Some(loaded)) => return loaded,
@@ -1138,11 +1137,11 @@ impl Config {
         }))
     }
 
-    pub(crate) fn apply_overrides_obj_to<'l>(
-        lua: &'l mlua::Lua,
-        mut config: mlua::Value<'l>,
+    pub(crate) fn apply_overrides_obj_to(
+        lua: &mlua::Lua,
+        mut config: mlua::Value,
         overrides: &wezterm_dynamic::Value,
-    ) -> anyhow::Result<mlua::Value<'l>> {
+    ) -> anyhow::Result<mlua::Value> {
         // config may be a table, or it may be a config builder.
         // We'll leave it up to lua to call the appropriate
         // index function as managing that from Rust is a PITA.
@@ -1170,11 +1169,11 @@ impl Config {
         }
     }
 
-    pub(crate) fn apply_overrides_to<'l>(
-        lua: &'l mlua::Lua,
-        mut config: mlua::Value<'l>,
-    ) -> anyhow::Result<mlua::Value<'l>> {
-        let overrides = CONFIG_OVERRIDES.lock().unwrap();
+    pub(crate) fn apply_overrides_to(
+        lua: &mlua::Lua,
+        mut config: mlua::Value,
+    ) -> anyhow::Result<mlua::Value> {
+        let overrides = CONFIG_OVERRIDES.lock();
         for (key, value) in &*overrides {
             if value == "nil" {
                 // Literal nil as the value is the same as not specifying the value.
@@ -1248,12 +1247,12 @@ impl Config {
         Ok(())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn default_config() -> Self {
         Self::default().compute_extra_defaults(None)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn key_bindings(&self) -> KeyTables {
         let mut tables = KeyTables {
             default: KeyTable::new(),
@@ -1295,7 +1294,7 @@ impl Config {
         tables
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn mouse_bindings(
         &self,
     ) -> HashMap<(MouseEventTrigger, MouseEventTriggerMods), KeyAssignment> {
@@ -1310,7 +1309,7 @@ impl Config {
 
     /// In some cases we need to compute expanded values based
     /// on those provided by the user.  This is where we do that.
-    #[must_use] 
+    #[must_use]
     pub fn compute_extra_defaults(&self, config_path: Option<&Path>) -> Self {
         let mut cfg = self.clone();
 
@@ -1324,9 +1323,10 @@ impl Config {
             }
 
             if let Some(path) = &self.window_background_image
-                && !path.is_absolute() {
-                    cfg.window_background_image.replace(config_dir.join(path));
-                }
+                && !path.is_absolute()
+            {
+                cfg.window_background_image.replace(config_dir.join(path));
+            }
         }
 
         // Add some reasonable default font rules
@@ -1412,9 +1412,10 @@ impl Config {
         if cfg!(windows) {
             // See commentary re: portable tools above!
             if let Ok(exe_name) = std::env::current_exe()
-                && let Some(exe_dir) = exe_name.parent() {
-                    paths.insert(0, exe_dir.join("colors"));
-                }
+                && let Some(exe_dir) = exe_name.parent()
+            {
+                paths.insert(0, exe_dir.join("colors"));
+            }
         }
         paths
     }
@@ -1439,35 +1440,36 @@ impl Config {
                 for entry in dir {
                     if let Ok(entry) = entry
                         && let Some(name) = entry.file_name().to_str()
-                            && let Some(scheme_name) = extract_scheme_name(name) {
-                                if self.color_schemes.contains_key(scheme_name) {
-                                    // This scheme has already been defined
-                                    continue;
-                                }
+                        && let Some(scheme_name) = extract_scheme_name(name)
+                    {
+                        if self.color_schemes.contains_key(scheme_name) {
+                            // This scheme has already been defined
+                            continue;
+                        }
 
-                                let path = entry.path();
-                                match load_scheme(&path) {
-                                    Ok(scheme) => {
-                                        let name = scheme
-                                            .metadata
-                                            .name
-                                            .unwrap_or_else(|| scheme_name.to_string());
-                                        log::trace!(
-                                            "Loaded color scheme `{}` from {}",
-                                            name,
-                                            path.display()
-                                        );
-                                        self.color_schemes.insert(name, scheme.colors);
-                                    }
-                                    Err(err) => {
-                                        log::error!(
-                                            "Color scheme in `{}` failed to load: {:#}",
-                                            path.display(),
-                                            err
-                                        );
-                                    }
-                                }
+                        let path = entry.path();
+                        match load_scheme(&path) {
+                            Ok(scheme) => {
+                                let name = scheme
+                                    .metadata
+                                    .name
+                                    .unwrap_or_else(|| scheme_name.to_string());
+                                log::trace!(
+                                    "Loaded color scheme `{}` from {}",
+                                    name,
+                                    path.display()
+                                );
+                                self.color_schemes.insert(name, scheme.colors);
                             }
+                            Err(err) => {
+                                log::error!(
+                                    "Color scheme in `{}` failed to load: {:#}",
+                                    path.display(),
+                                    err
+                                );
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1485,7 +1487,7 @@ impl Config {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn initial_size(&self, dpi: u32, cell_pixel_dims: Option<(usize, usize)>) -> TerminalSize {
         // If we aren't passed the actual values, guess at a plausible
         // default set of pixel dimensions.
@@ -1551,9 +1553,10 @@ impl Config {
         }
 
         if let Some(default_prog) = default_prog
-            && cmd.is_default_prog() {
-                cmd.replace_default_prog(default_prog);
-            }
+            && cmd.is_default_prog()
+        {
+            cmd.replace_default_prog(default_prog);
+        }
 
         // Augment WSLENV so that TERM related environment propagates
         // across the win32/wsl boundary
@@ -1615,7 +1618,7 @@ const fn default_pane_select_font_size() -> f64 {
 }
 
 fn default_integrated_title_buttons() -> Vec<IntegratedTitleButton> {
-    use IntegratedTitleButton::{Hide, Maximize, Close};
+    use IntegratedTitleButton::{Close, Hide, Maximize};
     vec![Hide, Maximize, Close]
 }
 
@@ -1699,7 +1702,7 @@ const fn default_initial_cols() -> u16 {
     80
 }
 
-#[must_use] 
+#[must_use]
 pub fn default_hyperlink_rules() -> Vec<hyperlink::Rule> {
     vec![
         // First handle URLs wrapped with punctuation (i.e. brackets)
@@ -1760,17 +1763,17 @@ pub fn pki_dir() -> anyhow::Result<PathBuf> {
     compute_runtime_dir().map(|d| d.join("pki"))
 }
 
-#[must_use] 
+#[must_use]
 pub const fn default_read_timeout() -> Duration {
     Duration::from_secs(60)
 }
 
-#[must_use] 
+#[must_use]
 pub const fn default_write_timeout() -> Duration {
     Duration::from_secs(60)
 }
 
-#[must_use] 
+#[must_use]
 pub const fn default_local_echo_threshold_ms() -> Option<u64> {
     Some(100)
 }
@@ -1898,7 +1901,7 @@ pub enum DefaultCursorStyle {
 }
 
 impl DefaultCursorStyle {
-    #[must_use] 
+    #[must_use]
     pub const fn effective_shape(self, shape: CursorShape) -> CursorShape {
         match shape {
             CursorShape::Default => match self {
@@ -2058,7 +2061,7 @@ impl Default for DroppedFileQuoting {
 }
 
 impl DroppedFileQuoting {
-    #[must_use] 
+    #[must_use]
     pub fn escape(self, s: &str) -> String {
         match self {
             Self::None => s.to_string(),

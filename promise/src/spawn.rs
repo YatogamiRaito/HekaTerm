@@ -1,9 +1,10 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_executor::Executor;
-use flume::{bounded, unbounded, Receiver, TryRecvError};
+use flume::{Receiver, TryRecvError, bounded, unbounded};
+use parking_lot::Mutex;
 use std::future::Future;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::task::{Poll, Waker};
 
 pub use async_task::{Runnable, Task};
@@ -14,9 +15,12 @@ fn no_scheduler_configured(_: Runnable) {
     panic!("no scheduler has been configured");
 }
 
-static ON_MAIN_THREAD: std::sync::LazyLock<Mutex<ScheduleFunc>> = std::sync::LazyLock::new(|| Mutex::new(Box::new(no_scheduler_configured)));
-static ON_MAIN_THREAD_LOW_PRI: std::sync::LazyLock<Mutex<ScheduleFunc>> = std::sync::LazyLock::new(|| Mutex::new(Box::new(no_scheduler_configured)));
-static SCOPED_EXECUTOR: std::sync::LazyLock<Mutex<Option<Arc<Executor<'static>>>>> = std::sync::LazyLock::new(|| Mutex::new(None));
+static ON_MAIN_THREAD: std::sync::LazyLock<Mutex<ScheduleFunc>> =
+    std::sync::LazyLock::new(|| Mutex::new(Box::new(no_scheduler_configured)));
+static ON_MAIN_THREAD_LOW_PRI: std::sync::LazyLock<Mutex<ScheduleFunc>> =
+    std::sync::LazyLock::new(|| Mutex::new(Box::new(no_scheduler_configured)));
+static SCOPED_EXECUTOR: std::sync::LazyLock<Mutex<Option<Arc<Executor<'static>>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
 
 static SCHEDULER_CONFIGURED: AtomicBool = AtomicBool::new(false);
 
@@ -25,8 +29,7 @@ fn schedule_runnable(runnable: Runnable, high_pri: bool) {
         ON_MAIN_THREAD.lock()
     } else {
         ON_MAIN_THREAD_LOW_PRI.lock()
-    }
-    .unwrap();
+    };
     func(runnable);
 }
 
@@ -43,8 +46,8 @@ pub fn is_scheduler_configured() -> bool {
 /// it just provides the abstraction for scheduling the work.
 /// This function allows the embedding application to set that up.
 pub fn set_schedulers(main: ScheduleFunc, low_pri: ScheduleFunc) {
-    *ON_MAIN_THREAD.lock().unwrap() = Box::new(main);
-    *ON_MAIN_THREAD_LOW_PRI.lock().unwrap() = Box::new(low_pri);
+    *ON_MAIN_THREAD.lock() = Box::new(main);
+    *ON_MAIN_THREAD_LOW_PRI.lock() = Box::new(low_pri);
     SCHEDULER_CONFIGURED.store(true, Ordering::Relaxed);
 }
 
@@ -82,7 +85,7 @@ where
         // they will have populated the waker; extract it
         // and wake up the scheduler so that it will poll
         // the result again.
-        let mut waker = thread_waker.waker.lock().unwrap();
+        let mut waker = thread_waker.waker.lock();
         if let Some(waker) = waker.take() {
             waker.wake();
         }
@@ -100,7 +103,7 @@ where
             match self.rx.try_recv() {
                 Ok(res) => Poll::Ready(res),
                 Err(TryRecvError::Empty) => {
-                    let mut waker = self.holder.waker.lock().unwrap();
+                    let mut waker = self.holder.waker.lock();
                     waker.replace(cx.waker().clone());
                     Poll::Pending
                 }
@@ -115,7 +118,7 @@ where
 }
 
 fn get_scoped() -> Option<Arc<Executor<'static>>> {
-    SCOPED_EXECUTOR.lock().unwrap().as_ref().map(Arc::clone)
+    SCOPED_EXECUTOR.lock().as_ref().map(|e| Arc::clone(e))
 }
 
 /// Spawn a future into the main thread; it will be polled in the
@@ -194,7 +197,7 @@ impl Default for SimpleExecutor {
 }
 
 impl SimpleExecutor {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let (tx, rx) = unbounded();
 
@@ -240,10 +243,7 @@ impl Default for ScopedExecutor {
 
 impl ScopedExecutor {
     pub fn new() -> Self {
-        SCOPED_EXECUTOR
-            .lock()
-            .unwrap()
-            .replace(Arc::new(Executor::new()));
+        SCOPED_EXECUTOR.lock().replace(Arc::new(Executor::new()));
 
         Self {}
     }
@@ -258,6 +258,6 @@ impl ScopedExecutor {
 
 impl Drop for ScopedExecutor {
     fn drop(&mut self) {
-        SCOPED_EXECUTOR.lock().unwrap().take();
+        SCOPED_EXECUTOR.lock().take();
     }
 }

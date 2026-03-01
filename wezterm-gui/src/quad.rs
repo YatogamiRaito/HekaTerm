@@ -41,9 +41,6 @@ pub struct Vertex {
     pub has_color: f32,
     pub mix_value: f32,
 }
-::window::glium::implement_vertex!(
-    Vertex, position, tex, fg_color, alt_color, hsv, has_color, mix_value
-);
 
 impl Vertex {
     const ATTRIBS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
@@ -191,8 +188,7 @@ impl QuadTrait for Quad<'_> {
     }
 
     fn set_hsv(&mut self, hsv: Option<HsbTransform>) {
-        let (h, s, v) = hsv
-            .map_or((1., 1., 1.), |t| (t.hue, t.saturation, t.brightness));
+        let (h, s, v) = hsv.map_or((1., 1., 1.), |t| (t.hue, t.saturation, t.brightness));
         for vert in self.vert.iter_mut() {
             vert.hsv = [h, s, v];
         }
@@ -249,8 +245,7 @@ impl QuadTrait for BoxedQuad {
         self.mix_value = mix_value;
     }
     fn set_hsv(&mut self, hsv: Option<HsbTransform>) {
-        let (h, s, v) = hsv
-            .map_or((1., 1., 1.), |t| (t.hue, t.saturation, t.brightness));
+        let (h, s, v) = hsv.map_or((1., 1., 1.), |t| (t.hue, t.saturation, t.brightness));
         self.hsv = [h, s, v];
     }
 

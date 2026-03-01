@@ -15,6 +15,7 @@ use wezterm_dynamic::{FromDynamic, FromDynamicOptions, ToDynamic, Value};
 extern crate alloc;
 use crate::alloc::borrow::ToOwned;
 use crate::alloc::string::ToString;
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -187,7 +188,7 @@ impl Rule {
 
     /// Given a line of text from the terminal screen, and a set of
     /// rules, return the set of `RuleMatches`.
-    #[must_use] 
+    #[must_use]
     pub fn match_hyperlinks(line: &str, rules: &[Self]) -> Vec<RuleMatch> {
         let mut matches = Vec::new();
         for rule in rules {
@@ -220,6 +221,7 @@ impl Rule {
 #[cfg(test)]
 mod test {
     use super::*;
+    use alloc::{vec, vec::Vec};
 
     #[test]
     fn parse_implicit() {

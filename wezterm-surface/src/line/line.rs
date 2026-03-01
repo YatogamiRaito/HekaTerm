@@ -5,7 +5,7 @@ use crate::line::clusterline::ClusteredLine;
 use crate::line::linebits::LineBits;
 use crate::line::storage::{CellStorage, VisibleCellIter};
 use crate::line::vecstorage::{VecStorage, VecStorageIter};
-use crate::{Change, SequenceNo, SEQ_ZERO};
+use crate::{Change, SEQ_ZERO, SequenceNo};
 use alloc::borrow::Cow;
 #[cfg(feature = "appdata")]
 use alloc::sync::{Arc, Weak};
@@ -14,11 +14,11 @@ use core::any::Any;
 use core::hash::Hash;
 use core::ops::Range;
 use finl_unicode::grapheme_clusters::Graphemes;
+#[cfg(feature = "appdata")]
+use parking_lot::RwLock;
 #[cfg(feature = "use_serde")]
 use serde::{Deserialize, Serialize};
 use siphasher::sip128::{Hasher128, SipHasher};
-#[cfg(feature = "appdata")]
-use std::sync::Mutex;
 use wezterm_bidi::{Direction, ParagraphDirectionHint};
 use wezterm_cell::{Cell, CellAttributes, SemanticType, UnicodeVersion};
 
@@ -50,7 +50,7 @@ pub struct Line {
     bits: LineBits,
     #[cfg(feature = "appdata")]
     #[cfg_attr(feature = "use_serde", serde(skip))]
-    appdata: Mutex<Option<Weak<dyn Any + Send + Sync>>>,
+    appdata: RwLock<Option<Weak<dyn Any + Send + Sync>>>,
 }
 
 impl Clone for Line {
@@ -61,7 +61,7 @@ impl Clone for Line {
             seqno: self.seqno,
             bits: self.bits,
             #[cfg(feature = "appdata")]
-            appdata: Mutex::new(self.appdata.lock().unwrap().clone()),
+            appdata: RwLock::new(self.appdata.read().clone()),
         }
     }
 }
@@ -73,10 +73,9 @@ impl PartialEq for Line {
 }
 
 impl Line {
-    #[must_use] 
+    #[must_use]
     pub fn with_width_and_cell(width: usize, cell: Cell, seqno: SequenceNo) -> Self {
-        let mut cells = Vec::with_capacity(width);
-        cells.resize(width, cell);
+        let cells = vec![cell; width];
         let bits = LineBits::NONE;
         Self {
             bits,
@@ -84,11 +83,11 @@ impl Line {
             seqno,
             zones: vec![],
             #[cfg(feature = "appdata")]
-            appdata: Mutex::new(None),
+            appdata: RwLock::new(None),
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_cells(cells: Vec<Cell>, seqno: SequenceNo) -> Self {
         let bits = LineBits::NONE;
         Self {
@@ -97,7 +96,7 @@ impl Line {
             seqno,
             zones: vec![],
             #[cfg(feature = "appdata")]
-            appdata: Mutex::new(None),
+            appdata: RwLock::new(None),
         }
     }
 
@@ -105,7 +104,7 @@ impl Line {
     /// and lower memory utilization.
     /// The line will automatically switch to cell storage when necessary
     /// to apply edits.
-    #[must_use] 
+    #[must_use]
     pub fn new(seqno: SequenceNo) -> Self {
         Self {
             bits: LineBits::NONE,
@@ -113,7 +112,7 @@ impl Line {
             seqno,
             zones: vec![],
             #[cfg(feature = "appdata")]
-            appdata: Mutex::new(None),
+            appdata: RwLock::new(None),
         }
     }
 
@@ -136,9 +135,9 @@ impl Line {
 
     /// Fast hardware CRC32 hash of the line, primarily used for dirty detection workflows.
     pub fn compute_crc32_shape_hash(&self) -> u32 {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(all(target_arch = "x86_64", feature = "std"))]
         {
-            if std::arch::is_x86_feature_detected!("sse4.2") {
+            if std::is_x86_feature_detected!("sse4.2") {
                 let mut crc: u32 = 0;
                 let bits = u32::from(self.bits.bits());
                 unsafe {
@@ -197,8 +196,7 @@ impl Line {
     }
 
     pub fn with_width(width: usize, seqno: SequenceNo) -> Self {
-        let mut cells = Vec::with_capacity(width);
-        cells.resize_with(width, Cell::blank);
+        let cells = vec![Cell::blank(); width];
         let bits = LineBits::NONE;
         Self {
             bits,
@@ -206,11 +204,11 @@ impl Line {
             seqno,
             zones: vec![],
             #[cfg(feature = "appdata")]
-            appdata: Mutex::new(None),
+            appdata: RwLock::new(None),
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_text(
         s: &str,
         attrs: &CellAttributes,
@@ -234,11 +232,11 @@ impl Line {
             seqno,
             zones: vec![],
             #[cfg(feature = "appdata")]
-            appdata: Mutex::new(None),
+            appdata: RwLock::new(None),
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_text_with_wrapped_last_col(
         s: &str,
         attrs: &CellAttributes,
@@ -290,8 +288,9 @@ impl Line {
                     .last_mut()
                     .is_none_or(|line| line.len() + cell.width() > width);
                 if need_new_line {
-                    if let Some(line) = lines
-                        .last_mut() { line.set_last_cell_was_wrapped(true, seqno) }
+                    if let Some(line) = lines.last_mut() {
+                        line.set_last_cell_was_wrapped(true, seqno)
+                    }
                     lines.push(Self::new(seqno));
                     delta = cell.cell_index();
                 }
@@ -320,15 +319,12 @@ impl Line {
     #[cfg(feature = "appdata")]
     pub fn set_appdata<T: Any + Send + Sync>(&self, appdata: Arc<T>) {
         let appdata: Arc<dyn Any + Send + Sync> = appdata;
-        self.appdata
-            .lock()
-            .unwrap()
-            .replace(Arc::downgrade(&appdata));
+        self.appdata.write().replace(Arc::downgrade(&appdata));
     }
 
     #[cfg(feature = "appdata")]
     pub fn clear_appdata(&self) {
-        self.appdata.lock().unwrap().take();
+        self.appdata.write().take();
     }
 
     /// Retrieve the appdata for the line, if any.
@@ -337,8 +333,7 @@ impl Line {
     #[cfg(feature = "appdata")]
     pub fn get_appdata(&self) -> Option<Arc<dyn Any + Send + Sync>> {
         self.appdata
-            .lock()
-            .unwrap()
+            .read()
             .as_ref()
             .and_then(std::sync::Weak::upgrade)
     }
@@ -719,7 +714,7 @@ impl Line {
             seqno,
             zones: vec![],
             #[cfg(feature = "appdata")]
-            appdata: Mutex::new(None),
+            appdata: RwLock::new(None),
         }
     }
 
@@ -759,11 +754,7 @@ impl Line {
             lower = cell.cell_index();
         }
 
-        if upper > lower
-            && upper >= len
-            && cells
-                .last()
-                .is_some_and(|cell| cell.attrs().wrapped())
+        if upper > lower && upper >= len && cells.last().is_some_and(|cell| cell.attrs().wrapped())
         {
             DoubleClickRange::RangeWithWrap(lower..upper)
         } else {
@@ -803,7 +794,7 @@ impl Line {
             seqno: self.current_seqno(),
             zones: vec![],
             #[cfg(feature = "appdata")]
-            appdata: Mutex::new(None),
+            appdata: RwLock::new(None),
         }
     }
 

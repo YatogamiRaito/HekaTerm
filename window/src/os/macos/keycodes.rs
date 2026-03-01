@@ -124,7 +124,8 @@ fn build_map() -> HashMap<u16, PhysKeyCode> {
     .collect()
 }
 
-static MAP: std::sync::LazyLock<HashMap<u16, PhysKeyCode>> = std::sync::LazyLock::new(|| build_map());
+static MAP: std::sync::LazyLock<HashMap<u16, PhysKeyCode>> =
+    std::sync::LazyLock::new(|| build_map());
 
 pub fn vkey_to_phys(vkey: u16) -> Option<PhysKeyCode> {
     MAP.get(&vkey).copied()

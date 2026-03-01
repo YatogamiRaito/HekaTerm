@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub use wezterm_color_types::{LinearRgba, SrgbaTuple};
 use wezterm_dynamic::{FromDynamic, FromDynamicOptions, ToDynamic, Value};
 
-use crate::allocate::{ToString, String};
+use crate::allocate::{String, ToString};
 
 #[derive(Debug, Clone, Copy, FromPrimitive, PartialEq, Eq, FromDynamic, ToDynamic)]
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
@@ -68,7 +68,7 @@ impl From<RgbColor> for SrgbaTuple {
 impl RgbColor {
     /// Construct a color from discrete red, green, blue values
     /// in the range 0-255.
-    #[must_use] 
+    #[must_use]
     pub const fn new_8bpc(red: u8, green: u8, blue: u8) -> Self {
         Self {
             bits: ((red as u32) << 16) | ((green as u32) << 8) | blue as u32,
@@ -77,7 +77,7 @@ impl RgbColor {
 
     /// Construct a color from discrete red, green, blue values
     /// in the range 0.0-1.0 in the sRGB colorspace.
-    #[must_use] 
+    #[must_use]
     pub fn new_f32(red: f32, green: f32, blue: f32) -> Self {
         let red = (red * 255.) as u8;
         let green = (green * 255.) as u8;
@@ -87,7 +87,7 @@ impl RgbColor {
 
     /// Returns red, green, blue as 8bpc values.
     /// Will convert from 10bpc if that is the internal storage.
-    #[must_use] 
+    #[must_use]
     pub const fn to_tuple_rgb8(self) -> (u8, u8, u8) {
         (
             (self.bits >> 16) as u8,
@@ -99,7 +99,7 @@ impl RgbColor {
     /// Returns red, green, blue as floating point values in the range 0.0-1.0.
     /// An alpha channel with the value of 1.0 is included.
     /// The values are in the sRGB colorspace.
-    #[must_use] 
+    #[must_use]
     pub fn to_tuple_rgba(self) -> SrgbaTuple {
         SrgbaTuple(
             f32::from((self.bits >> 16) as u8) / 255.0,
@@ -112,7 +112,7 @@ impl RgbColor {
     /// Returns red, green, blue as floating point values in the range 0.0-1.0.
     /// An alpha channel with the value of 1.0 is included.
     /// The values are converted from sRGB to linear colorspace.
-    #[must_use] 
+    #[must_use]
     pub fn to_linear_tuple_rgba(self) -> LinearRgba {
         self.to_tuple_rgba().to_linear()
     }
@@ -121,25 +121,23 @@ impl RgbColor {
     /// Returns None if the supplied name is not recognized.
     /// The list of names can be found here:
     /// <https://en.wikipedia.org/wiki/X11_color_names>
-    #[must_use] 
+    #[must_use]
     pub fn from_named(name: &str) -> Option<Self> {
         Some(SrgbaTuple::from_named(name)?.into())
     }
 
     /// Returns a string of the form `#RRGGBB`
-    #[must_use] 
+    #[must_use]
     pub fn to_rgb_string(self) -> String {
         let (red, green, blue) = self.to_tuple_rgb8();
         format!("#{red:02x}{green:02x}{blue:02x}")
     }
 
     /// Returns a string of the form `rgb:RRRR/GGGG/BBBB`
-    #[must_use] 
+    #[must_use]
     pub fn to_x11_16bit_rgb_string(self) -> String {
         let (red, green, blue) = self.to_tuple_rgb8();
-        format!(
-            "rgb:{red:02x}{red:02x}/{green:02x}{green:02x}/{blue:02x}{blue:02x}"
-        )
+        format!("rgb:{red:02x}{red:02x}/{green:02x}{green:02x}/{blue:02x}{blue:02x}")
     }
 
     /// Construct a color from a string of the form `#RRGGBB` where
@@ -148,7 +146,7 @@ impl RgbColor {
     /// in the HSL color space, where `hue` is measure in degrees and has
     /// a range of 0-360, and both `sat` and `light` are specified in percentage
     /// in the range 0-100.
-    #[must_use] 
+    #[must_use]
     pub fn from_rgb_str(s: &str) -> Option<Self> {
         let srgb: SrgbaTuple = s.parse().ok()?;
         Some(srgb.into())
@@ -164,7 +162,7 @@ impl RgbColor {
     /// Returns None if the supplied name is not recognized.
     /// The list of names can be found here:
     /// <https://ogeon.github.io/docs/palette/master/palette/named/index.html>
-    #[must_use] 
+    #[must_use]
     pub fn from_named_or_rgb_string(s: &str) -> Option<Self> {
         Self::from_rgb_str(s).or_else(|| Self::from_named(s))
     }
@@ -220,8 +218,7 @@ impl FromDynamic for RgbColor {
         options: FromDynamicOptions,
     ) -> Result<Self, wezterm_dynamic::Error> {
         let s = String::from_dynamic(value, options)?;
-        Ok(Self::from_named_or_rgb_string(&s)
-            .ok_or_else(|| format!("unknown color name: {s}"))?)
+        Ok(Self::from_named_or_rgb_string(&s).ok_or_else(|| format!("unknown color name: {s}"))?)
     }
 }
 
@@ -233,8 +230,7 @@ pub type PaletteIndex = u8;
 /// This differs from `ColorAttribute` in that this type can only
 /// specify one of the possible color types at once, whereas the
 /// `ColorAttribute` type can specify a `TrueColor` value and a fallback.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Default)]
 pub enum ColorSpec {
     #[default]
     Default,
@@ -242,7 +238,6 @@ pub enum ColorSpec {
     PaletteIndex(PaletteIndex),
     TrueColor(SrgbaTuple),
 }
-
 
 impl From<AnsiColor> for ColorSpec {
     fn from(col: AnsiColor) -> Self {

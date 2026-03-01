@@ -275,8 +275,7 @@ mod test {
                         None,
                         config::configuration()
                             .dpi
-                            .unwrap_or_else(::window::default_dpi)
-                            as usize,
+                            .unwrap_or_else(::window::default_dpi) as usize,
                     )
                     .unwrap(),
                 );

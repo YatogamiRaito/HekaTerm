@@ -1,7 +1,9 @@
-use crate::terminalstate::image::{dimensions, check_image_dimensions, ImageAttachParams, ImageAttachStyle};
 use crate::TerminalState;
-use ::image::imageops::FilterType;
+use crate::terminalstate::image::{
+    ImageAttachParams, ImageAttachStyle, check_image_dimensions, dimensions,
+};
 use ::image::ImageFormat;
+use ::image::imageops::FilterType;
 use log::error;
 use wezterm_cell::image::ImageDataType;
 use wezterm_escape_parser::osc::ITermFileData;

@@ -21,15 +21,17 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     window_mod.set(
         "gui_window_for_mux_window",
         lua.create_async_function(|_, mux_window_id: MuxWindowId| async move {
-            let fe =
-                try_front_end().ok_or_else(|| mlua::Error::external("not called on gui thread"))?;
-            let _ = fe.reconcile_workspace().await;
-            let win = fe.gui_window_for_mux_window(mux_window_id).ok_or_else(|| {
-                mlua::Error::external(format!(
-                    "mux window id {mux_window_id} is not currently associated with a gui window"
-                ))
-            })?;
-            Ok(win)
+            promise::spawn::spawn(async move {
+                let fe = try_front_end()
+                    .ok_or_else(|| mlua::Error::external("not called on gui thread"))?;
+                let _ = fe.reconcile_workspace().await;
+                fe.gui_window_for_mux_window(mux_window_id).ok_or_else(|| {
+                    mlua::Error::external(format!(
+                        "mux window id {mux_window_id} is not currently associated with a gui window"
+                    ))
+                })
+            })
+            .await
         })?,
     )?;
 

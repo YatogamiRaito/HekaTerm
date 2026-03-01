@@ -62,25 +62,25 @@ fn toml_encode_pretty(_: &Lua, value: LuaValue) -> mlua::Result<String> {
     toml::to_string_pretty(&json).map_err(|err| mlua::Error::external(format!("{err:#}")))
 }
 
-fn json_decode(lua: &Lua, text: String) -> mlua::Result<LuaValue<'_>> {
+fn json_decode(lua: &Lua, text: String) -> mlua::Result<LuaValue> {
     let value =
         serde_json::from_str(&text).map_err(|err| mlua::Error::external(format!("{err:#}")))?;
     json_value_to_lua_value(lua, value)
 }
 
-fn yaml_decode(lua: &Lua, text: String) -> mlua::Result<LuaValue<'_>> {
+fn yaml_decode(lua: &Lua, text: String) -> mlua::Result<LuaValue> {
     let value: JValue =
         serde_yaml::from_str(&text).map_err(|err| mlua::Error::external(format!("{err:#}")))?;
     json_value_to_lua_value(lua, value)
 }
 
-fn toml_decode(lua: &Lua, text: String) -> mlua::Result<LuaValue<'_>> {
+fn toml_decode(lua: &Lua, text: String) -> mlua::Result<LuaValue> {
     let value: JValue =
         toml::from_str(&text).map_err(|err| mlua::Error::external(format!("{err:#}")))?;
     json_value_to_lua_value(lua, value)
 }
 
-fn json_value_to_lua_value(lua: &Lua, value: JValue) -> mlua::Result<LuaValue<'_>> {
+fn json_value_to_lua_value(lua: &Lua, value: JValue) -> mlua::Result<LuaValue> {
     Ok(match value {
         JValue::Null => LuaValue::Nil,
         JValue::Bool(b) => LuaValue::Boolean(b),
@@ -166,15 +166,15 @@ fn lua_value_to_json_value(value: LuaValue, visited: &mut HashSet<usize>) -> mlu
             } else {
                 return Err(mlua::Error::FromLuaConversionError {
                     from: "number",
-                    to: "JsonValue",
+                    to: "JsonValue".to_string(),
                     message: Some(format!("unable to represent {i} as json float")),
                 });
             }
         }
-        LuaValue::UserData(ud) => match ud.get_metatable() {
+        LuaValue::UserData(ud) => match ud.metatable() {
             Ok(mt) => {
                 if let Ok(to_dynamic) = mt.get::<mlua::Function>("__wezterm_to_dynamic") {
-                    match to_dynamic.call(LuaValue::UserData(ud.clone())) {
+                    match to_dynamic.call::<LuaValue>(LuaValue::UserData(ud.clone())) {
                         Ok(value) => {
                             let dyn_value = lua_value_to_dynamic(value)?;
                             return dyn_to_json(dyn_value).map_err(mlua::Error::external);
@@ -182,7 +182,7 @@ fn lua_value_to_json_value(value: LuaValue, visited: &mut HashSet<usize>) -> mlu
                         Err(err) => {
                             return Err(mlua::Error::FromLuaConversionError {
                                 from: "userdata",
-                                to: "wezterm_dynamic::Value",
+                                to: "wezterm_dynamic::Value".to_string(),
                                 message: Some(format!(
                                     "error calling __wezterm_to_dynamic: {err:#}"
                                 )),
@@ -192,14 +192,14 @@ fn lua_value_to_json_value(value: LuaValue, visited: &mut HashSet<usize>) -> mlu
                 }
                 return Err(mlua::Error::FromLuaConversionError {
                     from: "userdata",
-                    to: "wezterm_dynamic::Value",
+                    to: "wezterm_dynamic::Value".to_string(),
                     message: Some("no __wezterm_to_dynamic metadata".to_string()),
                 });
             }
             Err(err) => {
                 return Err(mlua::Error::FromLuaConversionError {
                     from: "userdata",
-                    to: "wezterm_dynamic::Value",
+                    to: "wezterm_dynamic::Value".to_string(),
                     message: Some(format!("error getting metatable: {err:#}")),
                 })
             }
@@ -209,25 +209,25 @@ fn lua_value_to_json_value(value: LuaValue, visited: &mut HashSet<usize>) -> mlu
         LuaValue::LightUserData(_) => {
             return Err(mlua::Error::FromLuaConversionError {
                 from: "userdata",
-                to: "JsonValue",
+                to: "JsonValue".to_string(),
                 message: None,
             })
         }
         LuaValue::Function(_) => {
             return Err(mlua::Error::FromLuaConversionError {
                 from: "function",
-                to: "JsonValue",
+                to: "JsonValue".to_string(),
                 message: None,
             })
         }
         LuaValue::Thread(_) => {
             return Err(mlua::Error::FromLuaConversionError {
                 from: "thread",
-                to: "JsonValue",
+                to: "JsonValue".to_string(),
                 message: None,
             })
         }
-        LuaValue::Error(e) => return Err(e),
+        LuaValue::Error(e) => return Err(*e),
         LuaValue::Table(table) => {
             if matches!(table.contains_key(1), Ok(true)) {
                 let mut array = vec![];
@@ -247,7 +247,7 @@ fn lua_value_to_json_value(value: LuaValue, visited: &mut HashSet<usize>) -> mlu
                             let key = luahelper::ValuePrinter(key);
                             return Err(mlua::Error::FromLuaConversionError {
                                 from: type_name,
-                                to: "numeric array index",
+                                to: "numeric array index".to_string(),
                                 message: Some(format!(
                                     "Unexpected key {key:?} for array style table"
                                 )),
@@ -262,21 +262,18 @@ fn lua_value_to_json_value(value: LuaValue, visited: &mut HashSet<usize>) -> mlu
                 for pair in table.pairs::<LuaValue, LuaValue>() {
                     let (key, value) = pair?;
                     let key_type = key.type_name();
-                    let key = match lua_value_to_json_value(key, visited)? {
-                        JValue::String(s) => s,
-                        _ => {
-                            return Err(mlua::Error::FromLuaConversionError {
-                                from: key_type,
-                                to: "string",
-                                message: Some("json object keys must be strings".to_string()),
-                            });
-                        }
+                    let JValue::String(key) = lua_value_to_json_value(key, visited)? else {
+                        return Err(mlua::Error::FromLuaConversionError {
+                            from: key_type,
+                            to: "string".to_string(),
+                            message: Some("json object keys must be strings".to_string()),
+                        });
                     };
                     let lua_type = value.type_name();
                     let value = lua_value_to_json_value(value, visited).map_err(|e| {
                         mlua::Error::FromLuaConversionError {
                             from: lua_type,
-                            to: "value",
+                            to: "value".to_string(),
                             message: Some(format!("while processing {key:?}: {e}")),
                         }
                     })?;
@@ -284,6 +281,13 @@ fn lua_value_to_json_value(value: LuaValue, visited: &mut HashSet<usize>) -> mlu
                 }
                 JValue::Object(obj)
             }
+        }
+        LuaValue::Other(_) => {
+            return Err(mlua::Error::FromLuaConversionError {
+                from: "other",
+                to: "JsonValue".to_string(),
+                message: None,
+            })
         }
     })
 }

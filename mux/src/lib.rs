@@ -1,20 +1,15 @@
-
-
-
-
-
 use crate::client::{ClientId, ClientInfo};
 use crate::pane::{CachePolicy, Pane, PaneId};
 use crate::ssh_agent::AgentProxy;
 use crate::tab::{SplitRequest, Tab, TabId};
 use crate::window::{Window, WindowId};
-use anyhow::{anyhow, Context, Error};
+use anyhow::{Context, Error, anyhow};
 use config::keyassignment::SpawnTabDomain;
-use config::{configuration, ExitBehavior, GuiPosition};
+use config::{ExitBehavior, GuiPosition, configuration};
 use domain::{Domain, DomainId, DomainState, SplitSource};
-use filedescriptor::{poll, pollfd, socketpair, AsRawSocketDescriptor, FileDescriptor, POLLIN};
+use filedescriptor::{AsRawSocketDescriptor, FileDescriptor, POLLIN, poll, pollfd, socketpair};
 #[cfg(unix)]
-use libc::{c_int, SOL_SOCKET, SO_RCVBUF, SO_SNDBUF};
+use libc::{SO_RCVBUF, SO_SNDBUF, SOL_SOCKET, c_int};
 use log::error;
 use metrics::histogram;
 use parking_lot::{
@@ -36,7 +31,7 @@ use termwiz::escape::{Action, CSI};
 use thiserror::Error;
 use wezterm_term::{Clipboard, ClipboardSelection, DownloadHandler, TerminalSize};
 #[cfg(windows)]
-use winapi::um::winsock2::{SOL_SOCKET, SO_RCVBUF, SO_SNDBUF};
+use winapi::um::winsock2::{SO_RCVBUF, SO_SNDBUF, SOL_SOCKET};
 
 pub mod activity;
 pub mod client;
@@ -337,9 +332,7 @@ fn read_from_pane_pty(
                 histogram!("read_from_pane_pty.bytes.rate").record(size as f64);
                 log::trace!("read_pty pane {pane_id} read {size} bytes");
                 if let Err(err) = tx.write_all(&buf[..size]) {
-                    error!(
-                        "read_pty failed to write to parser: pane {pane_id} {err:?}"
-                    );
+                    error!("read_pty failed to write to parser: pane {pane_id} {err:?}");
                     break;
                 }
             }
@@ -369,7 +362,8 @@ fn read_from_pane_pty(
     dead.store(true, Ordering::Relaxed);
 }
 
-static MUX: std::sync::LazyLock<Mutex<Option<Arc<Mux>>>> = std::sync::LazyLock::new(|| Mutex::new(None));
+static MUX: std::sync::LazyLock<Mutex<Option<Arc<Mux>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
 
 pub struct MuxWindowBuilder {
     window_id: WindowId,
@@ -539,9 +533,10 @@ impl Mux {
         }
         // Synthesize focus events
         if let Some(prior_id) = prior
-            && let Some(pane) = self.get_pane(prior_id) {
-                pane.focus_changed(false);
-            }
+            && let Some(pane) = self.get_pane(prior_id)
+        {
+            pane.focus_changed(false);
+        }
         if let Some(pane) = self.get_pane(pane_id) {
             pane.focus_changed(true);
         }
@@ -586,10 +581,7 @@ impl Mux {
     }
 
     pub fn iter_clients(&self) -> Vec<ClientInfo> {
-        self.clients
-            .read()
-            .values().cloned()
-            .collect()
+        self.clients.read().values().cloned().collect()
     }
 
     /// Returns a list of the unique workspace names known to the mux.
@@ -720,10 +712,11 @@ impl Mux {
 
     pub fn notify_from_any_thread(notification: MuxNotification) {
         if let Some(mux) = Self::try_get()
-            && mux.is_main_thread() {
-                mux.notify(notification);
-                return;
-            }
+            && mux.is_main_thread()
+        {
+            mux.notify(notification);
+            return;
+        }
         promise::spawn::spawn_into_main_thread(async {
             if let Some(mux) = Self::try_get() {
                 mux.notify(notification);
@@ -876,15 +869,16 @@ impl Mux {
 
             for domain_id in domains_of_window {
                 if let Some(domain) = self.get_domain(domain_id)
-                    && domain.detachable() {
-                        log::info!("detaching domain");
-                        if let Err(err) = domain.detach() {
-                            log::error!(
-                                "while detaching domain {domain_id} {}: {err:#}",
-                                domain.domain_name()
-                            );
-                        }
+                    && domain.detachable()
+                {
+                    log::info!("detaching domain");
+                    if let Err(err) = domain.detach() {
+                        log::error!(
+                            "while detaching domain {domain_id} {}: {err:#}",
+                            domain.domain_name()
+                        );
                     }
+                }
             }
 
             for tab in window.iter() {
@@ -916,7 +910,7 @@ impl Mux {
         let dead_tab_ids: Vec<TabId>;
 
         {
-            let mut windows = if let Some(w) = self.windows.try_write() { w } else {
+            let Some(mut windows) = self.windows.try_write() else {
                 // It's ok if our caller already locked it; we can prune later.
                 log::trace!("prune_dead_windows: self.windows already borrowed");
                 return;
@@ -1044,9 +1038,7 @@ impl Mux {
     }
 
     pub fn iter_panes(&self) -> Vec<Arc<dyn Pane>> {
-        self.panes
-            .read().values().map(Arc::clone)
-            .collect()
+        self.panes.read().values().map(Arc::clone).collect()
     }
 
     pub fn iter_windows_in_workspace(&self, workspace: &str) -> Vec<WindowId> {
@@ -1140,20 +1132,18 @@ impl Mux {
             SpawnTabDomain::DomainId(domain_id) => self
                 .get_domain(*domain_id)
                 .ok_or_else(|| anyhow!("domain id {domain_id} is invalid"))?,
-            SpawnTabDomain::DomainName(name) => {
-                self.get_domain_by_name(name).ok_or_else(|| {
-                    let names: Vec<String> = self
-                        .domains_by_name
-                        .read()
-                        .keys()
-                        .map(|name| format!("\"{name}\""))
-                        .collect();
-                    anyhow!(
-                        "domain name \"{name}\" is invalid. Possible names are {}.",
-                        names.join(", ")
-                    )
-                })?
-            }
+            SpawnTabDomain::DomainName(name) => self.get_domain_by_name(name).ok_or_else(|| {
+                let names: Vec<String> = self
+                    .domains_by_name
+                    .read()
+                    .keys()
+                    .map(|name| format!("\"{name}\""))
+                    .collect();
+                anyhow!(
+                    "domain name \"{name}\" is invalid. Possible names are {}.",
+                    names.join(", ")
+                )
+            })?,
         };
         Ok(domain)
     }
@@ -1273,9 +1263,8 @@ impl Mux {
             return Ok((tab, window_id));
         }
 
-        let src_tab = match self.get_tab(src_tab) {
-            Some(t) => t,
-            None => anyhow::bail!("Invalid tab id {src_tab}"),
+        let Some(src_tab) = self.get_tab(src_tab) else {
+            anyhow::bail!("Invalid tab id {src_tab}")
         };
 
         let window_builder;
@@ -1310,8 +1299,6 @@ impl Mux {
 
         Ok((tab, window_id))
     }
-
-
 
     pub async fn spawn_tab_or_window(
         &self,

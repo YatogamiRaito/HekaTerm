@@ -12,7 +12,7 @@ use log::error;
 use num_traits::FromPrimitive;
 use vtparse::{CsiParam, VTActor, VTParser};
 
-use crate::allocate::{Vec, String, ToString, Box};
+use crate::allocate::{Box, String, ToString, Vec};
 
 mod sixel;
 use sixel::SixelBuilder;
@@ -25,7 +25,10 @@ struct GetTcapBuilder {
 
 impl GetTcapBuilder {
     fn flush(&mut self) {
-        let decoded = hex::decode(&self.current).map_or_else(|_| String::from_utf8_lossy(&self.current).to_string(), |s| String::from_utf8_lossy(&s).to_string());
+        let decoded = hex::decode(&self.current).map_or_else(
+            |_| String::from_utf8_lossy(&self.current).to_string(),
+            |s| String::from_utf8_lossy(&s).to_string(),
+        );
         self.names.push(decoded);
         self.current.clear();
     }
@@ -71,7 +74,7 @@ impl Default for Parser {
 }
 
 impl Parser {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             state_machine: VTParser::new(),

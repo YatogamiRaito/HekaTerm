@@ -42,7 +42,7 @@ impl BlobLease {
         storage.get_reader(self.inner.content_id, self.inner.lease_id)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn content_id(&self) -> ContentId {
         self.inner.content_id
     }

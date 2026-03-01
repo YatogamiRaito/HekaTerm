@@ -2,7 +2,7 @@ use crate::cli::CliOutputFormatKind;
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use serde::Serializer as _;
-use tabout::{tabulate_output, Alignment, Column};
+use tabout::{Alignment, Column, tabulate_output};
 use wezterm_client::client::Client;
 
 #[derive(Debug, Parser, Clone, Copy)]
@@ -96,7 +96,8 @@ impl ListClientsCommand {
                         duration_string(connected),
                         duration_string(idle),
                         info.active_workspace.as_deref().unwrap_or("").to_string(),
-                        info.focused_pane_id.map_or_else(String::new, |id| id.to_string()),
+                        info.focused_pane_id
+                            .map_or_else(String::new, |id| id.to_string()),
                         info.client_id
                             .ssh_auth_sock
                             .as_deref()

@@ -6,15 +6,16 @@ use codec::{ListPanesResponse, SpawnV2, SplitPane};
 use config::keyassignment::SpawnTabDomain;
 use config::{SshDomain, TlsDomainClient, UnixDomain};
 use mux::connui::{ConnectionUI, ConnectionUIParams};
-use mux::domain::{alloc_domain_id, Domain, DomainId, DomainState, SplitSource};
+use mux::domain::{Domain, DomainId, DomainState, SplitSource, alloc_domain_id};
 use mux::pane::{Pane, PaneId};
 use mux::tab::{SplitRequest, Tab, TabId};
 use mux::window::WindowId;
 use mux::{Mux, MuxNotification};
+use parking_lot::Mutex;
 use portable_pty::CommandBuilder;
 use promise::spawn::spawn_into_new_thread;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use wezterm_term::TerminalSize;
 
 pub struct ClientInner {
@@ -30,7 +31,7 @@ pub struct ClientInner {
 
 impl ClientInner {
     fn remote_to_local_window(&self, remote_window_id: WindowId) -> Option<WindowId> {
-        let map = self.remote_to_local_window.lock().unwrap();
+        let map = self.remote_to_local_window.lock();
         map.get(&remote_window_id).copied()
     }
 
@@ -39,12 +40,10 @@ impl ClientInner {
 
         self.remote_to_local_pane
             .lock()
-            .unwrap()
             .retain(|_remote_pane_id, local_pane_id| mux.get_pane(*local_pane_id).is_some());
 
         self.remote_to_local_tab
             .lock()
-            .unwrap()
             .retain(
                 |remote_tab_id, local_tab_id| match mux.get_tab(*local_tab_id) {
                     Some(tab) => {
@@ -67,7 +66,6 @@ impl ClientInner {
 
         self.remote_to_local_window
             .lock()
-            .unwrap()
             .retain(
                 |_remote_window_id, local_window_id| match mux.get_window(*local_window_id) {
                     Some(w) => {
@@ -90,7 +88,7 @@ impl ClientInner {
         remote_window_id: WindowId,
         local_window_id: WindowId,
     ) {
-        let mut map = self.remote_to_local_window.lock().unwrap();
+        let mut map = self.remote_to_local_window.lock();
         map.insert(remote_window_id, local_window_id);
         log::trace!(
             "record_remote_to_local_window_mapping: {remote_window_id} -> {local_window_id}"
@@ -98,7 +96,7 @@ impl ClientInner {
     }
 
     fn local_to_remote_tab(&self, local_tab_id: TabId) -> Option<TabId> {
-        let map = self.remote_to_local_tab.lock().unwrap();
+        let map = self.remote_to_local_tab.lock();
         for (remote, local) in map.iter() {
             if *local == local_tab_id {
                 return Some(*remote);
@@ -108,7 +106,7 @@ impl ClientInner {
     }
 
     fn local_to_remote_window(&self, local_window_id: WindowId) -> Option<WindowId> {
-        let map = self.remote_to_local_window.lock().unwrap();
+        let map = self.remote_to_local_window.lock();
         for (remote, local) in map.iter() {
             if *local == local_window_id {
                 return Some(*remote);
@@ -118,7 +116,7 @@ impl ClientInner {
     }
 
     pub fn remote_to_local_pane_id(&self, remote_pane_id: PaneId) -> Option<TabId> {
-        let mut pane_map = self.remote_to_local_pane.lock().unwrap();
+        let mut pane_map = self.remote_to_local_pane.lock();
 
         if let Some(id) = pane_map.get(&remote_pane_id) {
             return Some(*id);
@@ -131,27 +129,28 @@ impl ClientInner {
                 continue;
             }
             if let Some(pane) = pane.downcast_ref::<ClientPane>()
-                && pane.remote_pane_id() == remote_pane_id {
-                    let local_pane_id = pane.pane_id();
-                    pane_map.insert(remote_pane_id, local_pane_id);
-                    return Some(local_pane_id);
-                }
+                && pane.remote_pane_id() == remote_pane_id
+            {
+                let local_pane_id = pane.pane_id();
+                pane_map.insert(remote_pane_id, local_pane_id);
+                return Some(local_pane_id);
+            }
         }
         None
     }
     pub fn remove_old_pane_mapping(&self, remote_pane_id: PaneId) {
-        let mut pane_map = self.remote_to_local_pane.lock().unwrap();
+        let mut pane_map = self.remote_to_local_pane.lock();
         pane_map.remove(&remote_pane_id);
     }
 
     pub fn remove_old_tab_mapping(&self, remote_tab_id: TabId) {
-        let mut tab_map = self.remote_to_local_tab.lock().unwrap();
+        let mut tab_map = self.remote_to_local_tab.lock();
         let old = tab_map.remove(&remote_tab_id);
         log::trace!("remove_old_tab_mapping: {remote_tab_id} -> {old:?}");
     }
 
     fn record_remote_to_local_tab_mapping(&self, remote_tab_id: TabId, local_tab_id: TabId) {
-        let mut map = self.remote_to_local_tab.lock().unwrap();
+        let mut map = self.remote_to_local_tab.lock();
         let prior = map.insert(remote_tab_id, local_tab_id);
         log::trace!(
             "record_remote_to_local_tab_mapping: {} -> {} \
@@ -163,7 +162,7 @@ impl ClientInner {
     }
 
     pub fn remote_to_local_tab_id(&self, remote_tab_id: TabId) -> Option<TabId> {
-        let map = self.remote_to_local_tab.lock().unwrap();
+        let map = self.remote_to_local_tab.lock();
         map.get(&remote_tab_id).copied()
     }
 
@@ -180,7 +179,7 @@ pub enum ClientDomainConfig {
 }
 
 impl ClientDomainConfig {
-    #[must_use] 
+    #[must_use]
     pub fn name(&self) -> &str {
         match self {
             Self::Unix(unix) => &unix.name,
@@ -189,7 +188,7 @@ impl ClientDomainConfig {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn local_echo_threshold_ms(&self) -> Option<u64> {
         match self {
             Self::Unix(unix) => unix.local_echo_threshold_ms,
@@ -198,7 +197,7 @@ impl ClientDomainConfig {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn overlay_lag_indicator(&self) -> bool {
         match self {
             Self::Unix(unix) => unix.overlay_lag_indicator,
@@ -207,7 +206,7 @@ impl ClientDomainConfig {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn label(&self) -> String {
         match self {
             Self::Unix(unix) => format!("unix mux {}", unix.socket_path().display()),
@@ -222,7 +221,7 @@ impl ClientDomainConfig {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn connect_automatically(&self) -> bool {
         match self {
             Self::Unix(unix) => unix.connect_automatically,
@@ -233,7 +232,7 @@ impl ClientDomainConfig {
 }
 
 impl ClientInner {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         local_domain_id: DomainId,
         client: Client,
@@ -271,13 +270,11 @@ async fn update_remote_workspace(
 
 fn mux_notify_client_domain(local_domain_id: DomainId, notif: MuxNotification) -> bool {
     let mux = Mux::get();
-    let domain = match mux.get_domain(local_domain_id) {
-        Some(domain) => domain,
-        None => return false,
+    let Some(domain) = mux.get_domain(local_domain_id) else {
+        return false;
     };
-    let client_domain = match domain.downcast_ref::<ClientDomain>() {
-        Some(c) => c,
-        None => return false,
+    let Some(client_domain) = domain.downcast_ref::<ClientDomain>() else {
+        return false;
     };
 
     match notif {
@@ -310,13 +307,11 @@ fn mux_notify_client_domain(local_domain_id: DomainId, notif: MuxNotification) -
             // <https://github.com/wezterm/wezterm/issues/2638>
             promise::spawn::spawn_into_main_thread(async move {
                 let mux = Mux::get();
-                let domain = match mux.get_domain(local_domain_id) {
-                    Some(domain) => domain,
-                    None => return,
+                let Some(domain) = mux.get_domain(local_domain_id) else {
+                    return;
                 };
-                let domain = match domain.downcast_ref::<ClientDomain>() {
-                    Some(domain) => domain,
-                    None => return,
+                let Some(domain) = domain.downcast_ref::<ClientDomain>() else {
+                    return;
                 };
                 if let Some(remote_window_id) = domain.local_to_remote_window_id(window_id) {
                     if let Some(workspace) = mux
@@ -343,53 +338,55 @@ fn mux_notify_client_domain(local_domain_id: DomainId, notif: MuxNotification) -
         }
         MuxNotification::TabTitleChanged { tab_id, title } => {
             if let Some(remote_tab_id) = client_domain.local_to_remote_tab_id(tab_id)
-                && let Some(inner) = client_domain.inner() {
-                    promise::spawn::spawn(async move {
-                        inner
-                            .client
-                            .set_tab_title(codec::TabTitleChanged {
-                                tab_id: remote_tab_id,
-                                title,
-                            })
-                            .await
-                    })
-                    .detach();
-                }
+                && let Some(inner) = client_domain.inner()
+            {
+                promise::spawn::spawn(async move {
+                    inner
+                        .client
+                        .set_tab_title(codec::TabTitleChanged {
+                            tab_id: remote_tab_id,
+                            title,
+                        })
+                        .await
+                })
+                .detach();
+            }
         }
         MuxNotification::WindowTitleChanged {
             window_id,
             title: _,
         } => {
             if let Some(remote_window_id) = client_domain.local_to_remote_window_id(window_id)
-                && let Some(inner) = client_domain.inner() {
-                    promise::spawn::spawn_into_main_thread(async move {
-                        // De-bounce the title propagation.
-                        // There is a bit of a race condition with these async
-                        // updates that can trigger a cycle of WindowTitleChanged
-                        // PDUs being exchanged between client and server if the
-                        // title is changed twice in quick succession.
-                        // To avoid that, here on the client, we wait a second
-                        // and then report the now-current name of the window, rather
-                        // than propagating the title encoded in the MuxNotification.
-                        smol::Timer::after(std::time::Duration::from_secs(1)).await;
-                        if let Some(mux) = Mux::try_get() {
-                            let title = mux
-                                .get_window(window_id)
-                                .map(|win| win.get_title().to_string());
-                            if let Some(title) = title {
-                                inner
-                                    .client
-                                    .set_window_title(codec::WindowTitleChanged {
-                                        window_id: remote_window_id,
-                                        title,
-                                    })
-                                    .await?;
-                            }
+                && let Some(inner) = client_domain.inner()
+            {
+                promise::spawn::spawn_into_main_thread(async move {
+                    // De-bounce the title propagation.
+                    // There is a bit of a race condition with these async
+                    // updates that can trigger a cycle of WindowTitleChanged
+                    // PDUs being exchanged between client and server if the
+                    // title is changed twice in quick succession.
+                    // To avoid that, here on the client, we wait a second
+                    // and then report the now-current name of the window, rather
+                    // than propagating the title encoded in the MuxNotification.
+                    smol::Timer::after(std::time::Duration::from_secs(1)).await;
+                    if let Some(mux) = Mux::try_get() {
+                        let title = mux
+                            .get_window(window_id)
+                            .map(|win| win.get_title().to_string());
+                        if let Some(title) = title {
+                            inner
+                                .client
+                                .set_window_title(codec::WindowTitleChanged {
+                                    window_id: remote_window_id,
+                                    title,
+                                })
+                                .await?;
                         }
-                        anyhow::Result::<()>::Ok(())
-                    })
-                    .detach();
-                }
+                    }
+                    anyhow::Result::<()>::Ok(())
+                })
+                .detach();
+            }
         }
         _ => {}
     }
@@ -397,7 +394,7 @@ fn mux_notify_client_domain(local_domain_id: DomainId, notif: MuxNotification) -
 }
 
 impl ClientDomain {
-    #[must_use] 
+    #[must_use]
     pub fn new(config: ClientDomainConfig) -> Self {
         let local_domain_id = alloc_domain_id();
         let label = config.label();
@@ -411,7 +408,7 @@ impl ClientDomain {
     }
 
     fn inner(&self) -> Option<Arc<ClientInner>> {
-        self.inner.lock().unwrap().as_ref().map(Arc::clone)
+        self.inner.lock().as_ref().map(Arc::clone)
     }
 
     pub const fn connect_automatically(&self) -> bool {
@@ -420,7 +417,7 @@ impl ClientDomain {
 
     pub fn perform_detach(&self) {
         log::info!("detached domain {}", self.local_domain_id);
-        self.inner.lock().unwrap().take();
+        self.inner.lock().take();
         let mux = Mux::get();
         mux.domain_was_detached(self.local_domain_id);
     }
@@ -486,17 +483,19 @@ impl ClientDomain {
     pub fn process_remote_window_title_change(&self, remote_window_id: WindowId, title: String) {
         if let Some(inner) = self.inner()
             && let Some(local_window_id) = inner.remote_to_local_window(remote_window_id)
-                && let Some(mut window) = Mux::get().get_window_mut(local_window_id) {
-                    window.set_title(&title);
-                }
+            && let Some(mut window) = Mux::get().get_window_mut(local_window_id)
+        {
+            window.set_title(&title);
+        }
     }
 
     pub fn process_remote_tab_title_change(&self, remote_tab_id: TabId, title: String) {
         if let Some(inner) = self.inner()
             && let Some(local_tab_id) = inner.remote_to_local_tab_id(remote_tab_id)
-                && let Some(tab) = Mux::get().get_tab(local_tab_id) {
-                    tab.set_title(&title);
-                }
+            && let Some(tab) = Mux::get().get_tab(local_tab_id)
+        {
+            tab.set_title(&title);
+        }
     }
 
     fn process_pane_list(
@@ -516,29 +515,17 @@ impl ClientDomain {
         let mut remote_windows_to_forget: HashSet<WindowId> = inner
             .remote_to_local_window
             .lock()
-            .unwrap()
             .keys()
             .copied()
             .collect();
-        let mut remote_tabs_to_forget: HashSet<WindowId> = inner
-            .remote_to_local_tab
-            .lock()
-            .unwrap()
-            .keys()
-            .copied()
-            .collect();
-        let mut remote_panes_to_forget: HashSet<WindowId> = inner
-            .remote_to_local_pane
-            .lock()
-            .unwrap()
-            .keys()
-            .copied()
-            .collect();
+        let mut remote_tabs_to_forget: HashSet<WindowId> =
+            inner.remote_to_local_tab.lock().keys().copied().collect();
+        let mut remote_panes_to_forget: HashSet<WindowId> =
+            inner.remote_to_local_pane.lock().keys().copied().collect();
 
         for (tabroot, tab_title) in panes.tabs.into_iter().zip(panes.tab_titles.iter()) {
-            let root_size = match tabroot.root_size() {
-                Some(size) => size,
-                None => continue,
+            let Some(root_size) = tabroot.root_size() else {
+                continue;
             };
 
             if let Some((remote_window_id, remote_tab_id)) = tabroot.window_and_tab_ids() {
@@ -548,7 +535,9 @@ impl ClientDomain {
                 remote_tabs_to_forget.remove(&remote_tab_id);
 
                 if let Some(tab_id) = inner.remote_to_local_tab_id(remote_tab_id) {
-                    if let Some(t) = mux.get_tab(tab_id) { tab = t } else {
+                    if let Some(t) = mux.get_tab(tab_id) {
+                        tab = t
+                    } else {
                         // We likely decided that we hit EOF on the tab and
                         // removed it from the mux.  Let's add it back, but
                         // with a new id.
@@ -576,7 +565,9 @@ impl ClientDomain {
                     workspace.replace(entry.workspace.clone());
                     remote_panes_to_forget.remove(&entry.pane_id);
                     if let Some(pane_id) = inner.remote_to_local_pane_id(entry.pane_id) {
-                        if let Some(pane) = mux.get_pane(pane_id) { pane } else {
+                        if let Some(pane) = mux.get_pane(pane_id) {
+                            pane
+                        } else {
                             // We likely decided that we hit EOF on the tab and
                             // removed it from the mux.  Let's add it back, but
                             // with a new id.
@@ -674,19 +665,19 @@ impl ClientDomain {
                     remote_panes_to_forget={remote_panes_to_forget:?}"
         );
         if !remote_windows_to_forget.is_empty() {
-            let mut windows = inner.remote_to_local_window.lock().unwrap();
+            let mut windows = inner.remote_to_local_window.lock();
             for w in remote_windows_to_forget {
                 windows.remove(&w);
             }
         }
         if !remote_tabs_to_forget.is_empty() {
-            let mut tabs = inner.remote_to_local_tab.lock().unwrap();
+            let mut tabs = inner.remote_to_local_tab.lock();
             for t in remote_tabs_to_forget {
                 tabs.remove(&t);
             }
         }
         if !remote_panes_to_forget.is_empty() {
-            let mut panes = inner.remote_to_local_pane.lock().unwrap();
+            let mut panes = inner.remote_to_local_pane.lock();
             for p in remote_panes_to_forget {
                 panes.remove(&p);
             }
@@ -717,7 +708,7 @@ impl ClientDomain {
             threshold,
             overlay_lag_indicator,
         ));
-        *domain.inner.lock().unwrap() = Some(Arc::clone(&inner));
+        *domain.inner.lock() = Some(Arc::clone(&inner));
 
         Self::process_pane_list(inner, panes, primary_window_id)?;
 
@@ -987,7 +978,7 @@ impl Domain for ClientDomain {
     }
 
     fn state(&self) -> DomainState {
-        if self.inner.lock().unwrap().is_some() {
+        if self.inner.lock().is_some() {
             DomainState::Attached
         } else {
             DomainState::Detached

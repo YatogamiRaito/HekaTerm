@@ -5,10 +5,10 @@ use hdrhistogram::Histogram;
 use metrics::{Counter, Gauge, Key, KeyName, Metadata, Recorder, SharedString, Unit};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use tabout::{tabulate_output, Alignment, Column};
+use tabout::{Alignment, Column, tabulate_output};
 
 static ENABLE_STAT_PRINT: AtomicBool = AtomicBool::new(true);
 static INNER: std::sync::LazyLock<Arc<Mutex<Inner>>> = std::sync::LazyLock::new(make_inner);
@@ -303,7 +303,9 @@ impl Recorder for Stats {
 
     fn register_counter(&self, key: &Key, _metadata: &Metadata) -> Counter {
         let mut inner = self.inner.lock();
-        if let Some(existing) = inner.counters.get(key) { Counter::from_arc(existing.clone()) } else {
+        if let Some(existing) = inner.counters.get(key) {
+            Counter::from_arc(existing.clone())
+        } else {
             let counter = Arc::new(MyCounter {
                 value: AtomicUsize::new(0),
             });
@@ -319,13 +321,17 @@ impl Recorder for Stats {
     fn register_histogram(&self, key: &Key, _metadata: &Metadata) -> metrics::Histogram {
         let mut inner = self.inner.lock();
         if key.name().ends_with(".rate") {
-            if let Some(existing) = inner.throughput.get(key) { metrics::Histogram::from_arc(existing.clone()) } else {
+            if let Some(existing) = inner.throughput.get(key) {
+                metrics::Histogram::from_arc(existing.clone())
+            } else {
                 let tput = Arc::new(Throughput::new());
                 inner.throughput.insert(key.clone(), tput.clone());
 
                 metrics::Histogram::from_arc(tput)
             }
-        } else if let Some(existing) = inner.histograms.get(key) { metrics::Histogram::from_arc(existing.clone()) } else {
+        } else if let Some(existing) = inner.histograms.get(key) {
+            metrics::Histogram::from_arc(existing.clone())
+        } else {
             let scale = if key.name().ends_with(".size") {
                 1.0
             } else {

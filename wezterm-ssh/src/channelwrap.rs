@@ -12,9 +12,10 @@ pub enum ChannelWrap {
 #[cfg(feature = "ssh2")]
 fn has_signal(chan: &ssh2::Channel) -> Option<ssh2::ExitSignal> {
     if let Ok(sig) = chan.exit_signal()
-        && sig.exit_signal.is_some() {
-            return Some(sig);
-        }
+        && sig.exit_signal.is_some()
+    {
+        return Some(sig);
+    }
     None
 }
 

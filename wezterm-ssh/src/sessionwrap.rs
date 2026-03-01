@@ -1,6 +1,6 @@
 use crate::channelwrap::ChannelWrap;
 use crate::sftpwrap::SftpWrap;
-use filedescriptor::{AsRawSocketDescriptor, SocketDescriptor, POLLIN, POLLOUT};
+use filedescriptor::{AsRawSocketDescriptor, POLLIN, POLLOUT, SocketDescriptor};
 
 #[cfg(feature = "ssh2")]
 pub struct Ssh2Session {

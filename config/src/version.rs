@@ -20,7 +20,7 @@ pub fn wezterm_target_triple() -> &'static str {
         .unwrap_or(&"someone forgot to call assign_version_info")
 }
 
-#[must_use] 
+#[must_use]
 pub fn running_under_wsl() -> bool {
     #[cfg(unix)]
     unsafe {

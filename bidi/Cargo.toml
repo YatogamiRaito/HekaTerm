@@ -12,6 +12,7 @@ exclude = ["/data", "/tests"]
 [features]
 
 [dependencies]
+parking_lot.workspace = true
 log.workspace = true
 wezterm-dynamic.workspace = true
 

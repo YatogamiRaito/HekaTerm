@@ -15,6 +15,8 @@
 use utf8parse::Parser as Utf8Parser;
 mod enums;
 use crate::enums::*;
+mod simd;
+pub use simd::find_first_escape;
 mod transitions;
 
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -434,7 +436,7 @@ impl core::fmt::Display for CsiParam {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
             CsiParam::Integer(v) => {
-                write!(f, "{}", v)?;
+                write!(f, "{v}")?;
             }
             CsiParam::P(p) => {
                 write!(f, "{}", *p as char)?;
@@ -496,9 +498,10 @@ impl VTParser {
 
     fn finish_param(&mut self) {
         if let Some(val) = self.current_param.take()
-            && self.num_params < MAX_PARAMS {
-                self.params[self.num_params] = val;
-                self.num_params += 1;
+            && self.num_params < MAX_PARAMS
+        {
+            self.params[self.num_params] = val;
+            self.num_params += 1;
         }
     }
 
@@ -712,7 +715,7 @@ impl VTParser {
             match self.utf8_return_state {
                 State::Ground => actor.print(c),
                 State::OscString => self.osc.put(c),
-                state => panic!("unreachable state {:?}", state),
+                state => panic!("unreachable state {state:?}"),
             };
             self.state = self.utf8_return_state;
         }
@@ -750,8 +753,22 @@ impl VTParser {
     /// This may result in some number of calls to the methods on the
     /// provided `actor`.
     pub fn parse(&mut self, bytes: &[u8], actor: &mut dyn VTActor) {
-        for b in bytes {
-            self.parse_byte(*b, actor);
+        let mut idx = 0;
+        let len = bytes.len();
+        while idx < len {
+            if self.state == State::Ground {
+                let offset = simd::find_first_escape(&bytes[idx..]).unwrap_or(len - idx);
+                let end = idx + offset;
+                while idx < end {
+                    self.parse_byte(bytes[idx], actor);
+                    idx += 1;
+                }
+            }
+
+            if idx < len {
+                self.parse_byte(bytes[idx], actor);
+                idx += 1;
+            }
         }
     }
 }
@@ -842,9 +859,7 @@ mod test {
 
     #[test]
     fn test_osc_too_many_params() {
-        let fields = (0..MAX_OSC + 2)
-            .map(|i| i.to_string())
-            .collect::<Vec<_>>();
+        let fields = (0..MAX_OSC + 2).map(|i| i.to_string()).collect::<Vec<_>>();
         let input = format!("\x1b]{}\x07", fields.join(";"));
         let actions = parse_as_vec(input.as_bytes());
         assert_eq!(actions.len(), 1);

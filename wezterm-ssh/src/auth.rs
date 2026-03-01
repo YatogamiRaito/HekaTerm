@@ -1,6 +1,6 @@
 use crate::session::SessionEvent;
 use anyhow::Context;
-use smol::channel::{bounded, Sender};
+use smol::channel::{Sender, bounded};
 
 #[derive(Debug)]
 pub struct AuthenticationPrompt {
@@ -30,10 +30,11 @@ impl crate::sessioninner::SessionInner {
     #[cfg(feature = "ssh2")]
     fn agent_auth(&mut self, sess: &ssh2::Session, user: &str) -> anyhow::Result<bool> {
         if let Some(only) = self.config.get("identitiesonly")
-            && only == "yes" {
-                log::trace!("Skipping agent auth because identitiesonly=yes");
-                return Ok(false);
-            }
+            && only == "yes"
+        {
+            log::trace!("Skipping agent auth because identitiesonly=yes");
+            return Ok(false);
+        }
 
         let mut agent = sess.agent()?;
         if agent.connect().is_err() {
@@ -153,7 +154,9 @@ impl crate::sessioninner::SessionInner {
         });
 
         use libssh_rs::{AuthMethods, AuthStatus};
-        if sess.userauth_none(None)? == AuthStatus::Success { return Ok(()) }
+        if sess.userauth_none(None)? == AuthStatus::Success {
+            return Ok(());
+        }
 
         loop {
             let auth_methods = sess.userauth_list(None)?;

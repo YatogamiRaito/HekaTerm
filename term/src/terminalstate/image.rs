@@ -1,13 +1,13 @@
 use crate::{Position, StableRowIndex, TerminalState};
 use anyhow::Context;
-use humansize::{SizeFormatter, DECIMAL};
+use humansize::{DECIMAL, SizeFormatter};
 use num_traits::{One, Zero};
 use ordered_float::NotNan;
 use std::sync::Arc;
-use wezterm_cell::image::{ImageCell, ImageDataType};
 use wezterm_cell::Cell;
-use wezterm_surface::change::ImageData;
+use wezterm_cell::image::{ImageCell, ImageDataType};
 use wezterm_surface::TextureCoordinate;
+use wezterm_surface::change::ImageData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlacementInfo {
@@ -159,7 +159,9 @@ impl TerminalState {
         let mut remain_y = target_pixel_height;
         for y in 0..height_in_cells {
             let padding_bottom = cell_pixel_height.saturating_sub(remain_y) as u16;
-            let y_delta = (remain_y.min(cell_pixel_height) as f32) / y_delta_divisor as f32;
+            let y_delta =
+                NotNan::new((remain_y.min(cell_pixel_height) as f32) / y_delta_divisor as f32)
+                    .unwrap();
             remain_y = remain_y.saturating_sub(cell_pixel_height);
 
             let mut xpos = start_xpos;
@@ -177,7 +179,9 @@ impl TerminalState {
             let mut remain_x = target_pixel_width;
             for x in 0..width_in_cells {
                 let padding_right = cell_pixel_width.saturating_sub(remain_x) as u16;
-                let x_delta = (remain_x.min(cell_pixel_width) as f32) / x_delta_divisor as f32;
+                let x_delta =
+                    NotNan::new((remain_x.min(cell_pixel_width) as f32) / x_delta_divisor as f32)
+                        .unwrap();
                 remain_x = remain_x.saturating_sub(cell_pixel_width);
                 log::debug!(
                     "x_delta {} ({} px), y_delta {} ({} px), padding_right={}, padding_bottom={}",
@@ -198,7 +202,12 @@ impl TerminalState {
                     TextureCoordinate::new(xpos + x_delta, ypos + y_delta),
                     params.data.clone(),
                     params.z_index,
-                    (cell_padding_left, cell_padding_top, padding_right, padding_bottom),
+                    (
+                        cell_padding_left,
+                        cell_padding_top,
+                        padding_right,
+                        padding_bottom,
+                    ),
                     params.image_id,
                     params.placement_id,
                 ));
@@ -308,9 +317,5 @@ pub fn dimensions(data: &[u8]) -> anyhow::Result<ImageInfo> {
 
 /// Returns `1` if `b` is true, else `0`,
 fn one_or_zero<T: Zero + One>(b: bool) -> T {
-    if b {
-        T::one()
-    } else {
-        T::zero()
-    }
+    if b { T::one() } else { T::zero() }
 }

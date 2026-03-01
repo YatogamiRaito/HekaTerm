@@ -10,7 +10,6 @@ pub struct LineEditBuffer {
     cursor: usize,
 }
 
-
 impl LineEditBuffer {
     pub fn new(line: &str, cursor: usize) -> Self {
         let mut buffer = Self::default();
@@ -148,7 +147,8 @@ impl LineEditBuffer {
                     // We are now on the start of the next word
                 }
                 char_indices
-                    .get(char_position).map_or_else(|| self.line.len(), |(i, _)| *i)
+                    .get(char_position)
+                    .map_or_else(|| self.line.len(), |(i, _)| *i)
             }
             Movement::ForwardChar(rep) => {
                 let mut position = self.cursor;

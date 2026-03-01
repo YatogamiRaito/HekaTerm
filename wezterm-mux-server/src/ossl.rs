@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Error};
+use anyhow::{Context, Error, anyhow};
 use async_ossl::AsyncSslStream;
 use config::TlsDomainServer;
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod, SslStream, SslVerifyMode};
@@ -46,18 +46,14 @@ impl OpenSSLNetListener {
         let wanted_unix_name = std::env::var("USER")?;
 
         if wanted_unix_name == cn_str {
-            log::trace!(
-                "Peer certificate CN `{cn_str}` == $USER `{wanted_unix_name}`"
-            );
+            log::trace!("Peer certificate CN `{cn_str}` == $USER `{wanted_unix_name}`");
             Ok(())
         } else {
             // Some environments that are used by the author of this
             // program encode the CN in the form `user:unixname/DATA`
             let maybe_encoded = format!("user:{wanted_unix_name}/");
             if cn_str.starts_with(&maybe_encoded) {
-                log::trace!(
-                    "Peer certificate CN `{cn_str}` matches $USER `{wanted_unix_name}`"
-                );
+                log::trace!("Peer certificate CN `{cn_str}` matches $USER `{wanted_unix_name}`");
                 Ok(())
             } else {
                 anyhow::bail!("CN `{cn_str}` did not match $USER `{wanted_unix_name}`");

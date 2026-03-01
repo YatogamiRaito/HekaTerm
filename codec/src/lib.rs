@@ -10,8 +10,7 @@
 //! manage unknown enum variants.
 #![allow(dead_code)]
 
-
-use anyhow::{bail, Context as _, Error};
+use anyhow::{Context as _, Error, bail};
 use config::keyassignment::{PaneDirection, ScrollbackEraseMode};
 use mux::client::{ClientId, ClientInfo};
 use mux::pane::PaneId;
@@ -185,13 +184,15 @@ async fn decode_raw_async<R: Unpin + AsyncRead + std::fmt::Debug>(
         .await
         .context("decode_raw_async failed to read PDU serial")?;
     if let Some(max_serial) = max_serial
-        && serial > max_serial && max_serial > 0 {
-            return Err(CorruptResponse(format!(
-                "decode_raw_async: serial {serial} is implausibly large \
+        && serial > max_serial
+        && max_serial > 0
+    {
+        return Err(CorruptResponse(format!(
+            "decode_raw_async: serial {serial} is implausibly large \
                 (bigger than {max_serial})"
-            ))
-            .into());
-        }
+        ))
+        .into());
+    }
     let ident = read_u64_async(r)
         .await
         .context("decode_raw_async failed to read PDU ident")?;
@@ -506,7 +507,7 @@ impl Pdu {
     /// Returns true if this type of Pdu represents action taken
     /// directly by a user, rather than background traffic on
     /// a live connection
-    #[must_use] 
+    #[must_use]
     pub const fn is_user_input(&self) -> bool {
         matches!(
             self,
@@ -587,7 +588,7 @@ impl Pdu {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn pane_id(&self) -> Option<PaneId> {
         match self {
             Self::GetPaneRenderChangesResponse(p) => Some(p.pane_id),
@@ -729,17 +730,17 @@ pub struct SendKeyDown {
 pub struct InputSerial(u64);
 
 impl InputSerial {
-    #[must_use] 
+    #[must_use]
     pub const fn empty() -> Self {
         Self(0)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn now() -> Self {
         std::time::SystemTime::now().into()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn elapsed_millis(&self) -> u64 {
         let now = Self::now();
         now.0 - self.0
@@ -984,7 +985,7 @@ pub struct SerializedLines {
 impl SerializedLines {
     /// Reconsitute hyperlinks or other attributes that were decomposed for
     /// serialization, and return the line data.
-    #[must_use] 
+    #[must_use]
     pub fn extract_data(self) -> (Vec<(StableRowIndex, Line)>, Vec<SerializedImageCell>) {
         let lines = if self.hyperlinks.is_empty() {
             self.lines
@@ -998,11 +999,11 @@ impl SerializedLines {
                     if let Some((_, line)) = lines.get_mut(coord.line_idx)
                         && let Some(cells) =
                             line.cells_mut_for_attr_changes_only().get_mut(coord.cols)
-                        {
-                            for cell in cells {
-                                cell.attrs_mut().set_hyperlink(Some(Arc::clone(&url)));
-                            }
+                    {
+                        for cell in cells {
+                            cell.attrs_mut().set_hyperlink(Some(Arc::clone(&url)));
                         }
+                    }
                 }
             }
 
@@ -1192,7 +1193,9 @@ mod test {
     #[test]
     fn test_pdu_ping() {
         let mut encoded = Vec::new();
-        Pdu::Ping(Box::new(Ping {})).encode(&mut encoded, 0x40).unwrap();
+        Pdu::Ping(Box::new(Ping {}))
+            .encode(&mut encoded, 0x40)
+            .unwrap();
         assert_eq!(&encoded, &[2, 0x40, 1]);
         assert_eq!(
             DecodedPdu {
@@ -1206,8 +1209,12 @@ mod test {
     #[test]
     fn stream_decode() {
         let mut encoded = Vec::new();
-        Pdu::Ping(Box::new(Ping {})).encode(&mut encoded, 0x1).unwrap();
-        Pdu::Pong(Box::new(Pong {})).encode(&mut encoded, 0x2).unwrap();
+        Pdu::Ping(Box::new(Ping {}))
+            .encode(&mut encoded, 0x1)
+            .unwrap();
+        Pdu::Pong(Box::new(Pong {}))
+            .encode(&mut encoded, 0x2)
+            .unwrap();
         assert_eq!(encoded.len(), 6);
 
         let mut cursor = Cursor::new(encoded.as_slice());
@@ -1239,7 +1246,9 @@ mod test {
         let mut encoded = Vec::new();
         {
             let mut encoder = base91::Base91Encoder::new(&mut encoded);
-            Pdu::Ping(Box::new(Ping {})).encode(&mut encoder, 0x41).unwrap();
+            Pdu::Ping(Box::new(Ping {}))
+                .encode(&mut encoder, 0x41)
+                .unwrap();
         }
         assert_eq!(&encoded, &[60, 67, 75, 65]);
         let decoded = base91::decode(&encoded);
@@ -1255,7 +1264,9 @@ mod test {
     #[test]
     fn test_pdu_pong() {
         let mut encoded = Vec::new();
-        Pdu::Pong(Box::new(Pong {})).encode(&mut encoded, 0x42).unwrap();
+        Pdu::Pong(Box::new(Pong {}))
+            .encode(&mut encoded, 0x42)
+            .unwrap();
         assert_eq!(&encoded, &[2, 0x42, 2]);
         assert_eq!(
             DecodedPdu {

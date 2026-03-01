@@ -1,0 +1,1 @@
+   Compiling wezterm-gui v0.1.0 (/home/ebubekir/Projects/wezterm/wezterm-gui)

@@ -16,7 +16,7 @@ pub struct WslDomain {
 impl_lua_conversion_dynamic!(WslDomain);
 
 impl WslDomain {
-    #[must_use] 
+    #[must_use]
     pub const fn default_domains() -> Vec<Self> {
         #[allow(unused_mut)]
         let mut domains = vec![];

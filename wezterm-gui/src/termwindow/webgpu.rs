@@ -223,12 +223,13 @@ impl WebGpuState {
         dimensions: Dimensions,
         config: &ConfigHandle,
     ) -> anyhow::Result<Self> {
-        let backends = wgpu::Backends::all();
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        // WezTerm prefers all backends, but especially Vulkan/Metal/DX12
+        let mut backends = wgpu::Backends::all();
+        let mut instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends,
             ..Default::default()
         });
-        let surface = unsafe {
+        let mut surface = unsafe {
             instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&handle)?)?
         };
 
@@ -238,7 +239,7 @@ impl WebGpuState {
             for a in instance.enumerate_adapters(backends) {
                 if !a.is_surface_supported(&surface) {
                     let info = adapter_info_to_gpu_info(a.get_info());
-                    log::warn!("{} is not compatible with surface", info);
+                    log::warn!("{info} is not compatible with surface");
                     continue;
                 }
 
@@ -257,17 +258,20 @@ impl WebGpuState {
                 }
 
                 if let Some(driver) = &preference.driver
-                    && *driver != info.driver {
-                        continue;
-                    }
+                    && *driver != info.driver
+                {
+                    continue;
+                }
                 if let Some(vendor) = &preference.vendor
-                    && *vendor != info.vendor {
-                        continue;
-                    }
+                    && *vendor != info.vendor
+                {
+                    continue;
+                }
                 if let Some(device) = &preference.device
-                    && *device != info.device {
-                        continue;
-                    }
+                    && *device != info.device
+                {
+                    continue;
+                }
 
                 adapter.replace(a);
                 break;
@@ -296,6 +300,26 @@ impl WebGpuState {
                         },
                         compatible_surface: Some(&surface),
                         force_fallback_adapter: config.webgpu_force_fallback_adapter,
+                    })
+                    .await?,
+            );
+        }
+        if adapter.is_none() {
+            log::warn!("Primary WebGPU adapter request failed. Falling back to OpenGL/GLES...");
+            backends = wgpu::Backends::GL;
+            instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+                backends,
+                ..Default::default()
+            });
+            surface = unsafe {
+                instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&handle)?)?
+            };
+            adapter = Some(
+                instance
+                    .request_adapter(&wgpu::RequestAdapterOptions {
+                        power_preference: wgpu::PowerPreference::LowPower,
+                        compatible_surface: Some(&surface),
+                        force_fallback_adapter: true,
                     })
                     .await?,
             );

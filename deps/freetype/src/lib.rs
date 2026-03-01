@@ -21,12 +21,12 @@ pub type FT_UInt64 = u64;
 pub struct __BindgenUnionField<T>(::std::marker::PhantomData<T>);
 impl<T> __BindgenUnionField<T> {
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn new() -> Self {
         Self(::std::marker::PhantomData)
     }
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub unsafe fn as_ref(&self) -> &T {
         ::std::mem::transmute(self)
     }
@@ -2568,8 +2568,7 @@ impl FT_Orientation_ {
     pub const FT_ORIENTATION_FILL_RIGHT: Self = Self::FT_ORIENTATION_TRUETYPE;
 }
 impl FT_Orientation_ {
-    pub const FT_ORIENTATION_FILL_LEFT: Self =
-        Self::FT_ORIENTATION_POSTSCRIPT;
+    pub const FT_ORIENTATION_FILL_LEFT: Self = Self::FT_ORIENTATION_POSTSCRIPT;
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -2911,8 +2910,7 @@ extern "C" {
     ) -> FT_Error;
 }
 impl FT_Glyph_BBox_Mode_ {
-    pub const FT_GLYPH_BBOX_SUBPIXELS: Self =
-        Self::FT_GLYPH_BBOX_UNSCALED;
+    pub const FT_GLYPH_BBOX_SUBPIXELS: Self = Self::FT_GLYPH_BBOX_UNSCALED;
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]

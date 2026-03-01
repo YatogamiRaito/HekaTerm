@@ -1,5 +1,5 @@
-use base64::engine::{Engine, GeneralPurpose, GeneralPurposeConfig};
 use alloc::vec::Vec;
+use base64::engine::{Engine, GeneralPurpose, GeneralPurposeConfig};
 
 #[inline(always)]
 const fn get_engine() -> GeneralPurpose {
@@ -15,7 +15,7 @@ const fn get_engine() -> GeneralPurpose {
 /// This function is unsafe because it uses AVX2 intrinsics (via the logic structure).
 /// The caller must ensure that the `avx2` feature is supported by the CPU.
 #[target_feature(enable = "avx2")]
-#[must_use] 
+#[must_use]
 pub unsafe fn decode_32_bytes_avx2(chunk: &[u8]) -> Option<[u8; 24]> {
     // This provides the structural skeleton for the AVX2 decoder.
     // Full AVX2 base64 decoding (e.g. Wojciech Muła's algorithm) requires complex PSHUFB masks.

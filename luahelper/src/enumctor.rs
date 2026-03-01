@@ -30,7 +30,7 @@ where
         }
     }
 
-    fn call_impl<'lua>(variant: &str, lua: &'lua Lua, table: Value) -> mlua::Result<Value<'lua>> {
+    fn call_impl(variant: &str, lua: &Lua, table: Value) -> mlua::Result<Value> {
         let value = lua_value_to_dynamic(table)?;
 
         let mut obj = BTreeMap::new();
@@ -56,7 +56,7 @@ where
     T: std::fmt::Debug,
     T: 'static,
 {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(MetaMethod::Call, |lua, myself, table: Value| {
             Self::call_impl(&myself.variant, lua, table)
         });
@@ -108,7 +108,7 @@ impl<T> Default for Enum<T> {
 }
 
 impl<T> Enum<T> {
-    #[must_use] 
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             phantom: PhantomData,
@@ -123,7 +123,7 @@ where
     T: std::fmt::Debug,
     T: 'static,
 {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(MetaMethod::Call, |lua, _myself, table: Value| {
             let value = lua_value_to_dynamic(table)?;
             let _action = T::from_dynamic(
@@ -146,7 +146,9 @@ where
                     unknown_fields: UnknownFieldAction::Deny,
                     deprecated_fields: UnknownFieldAction::Ignore,
                 },
-            ).is_ok() {
+            )
+            .is_ok()
+            {
                 return field.into_lua(lua);
             }
 
@@ -176,7 +178,7 @@ where
                                 })?,
                             )?;
 
-                            t.set_metatable(Some(mt));
+                            let _ = t.set_metatable(Some(mt));
                             Ok(Value::Table(t))
                         }
                         wat => Err(mlua::Error::external(format!(

@@ -5,17 +5,14 @@ use std::fmt::Display;
 use std::str::FromStr;
 use wezterm_dynamic::{FromDynamic, ToDynamic};
 
-#[derive(Debug, Clone, Copy, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, FromDynamic, ToDynamic, Default)]
 pub enum SshBackend {
     Ssh2,
     #[default]
     LibSsh,
 }
 
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum SshMultiplexing {
     #[default]
     WezTerm,
@@ -23,9 +20,7 @@ pub enum SshMultiplexing {
     // TODO: Tmux-cc in the future?
 }
 
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum Shell {
     /// Unknown command shell: no assumptions can be made
     #[default]
@@ -36,7 +31,6 @@ pub enum Shell {
     Posix,
     // TODO: Cmd, PowerShell in the future?
 }
-
 
 #[derive(Default, Debug, Clone, FromDynamic, ToDynamic)]
 pub struct SshDomain {
@@ -99,7 +93,7 @@ pub struct SshDomain {
 impl_lua_conversion_dynamic!(SshDomain);
 
 impl SshDomain {
-    #[must_use] 
+    #[must_use]
     pub fn default_domains() -> Vec<Self> {
         let mut config = wezterm_ssh::Config::new();
         config.add_default_config_files();

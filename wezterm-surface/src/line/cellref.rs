@@ -17,14 +17,14 @@ pub enum CellRef<'a> {
 }
 
 impl CellRef<'_> {
-    #[must_use] 
+    #[must_use]
     pub const fn cell_index(&self) -> usize {
         match self {
             Self::ClusterRef { cell_index, .. } | Self::CellRef { cell_index, .. } => *cell_index,
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn str(&self) -> &str {
         match self {
             Self::CellRef { cell, .. } => cell.str(),
@@ -32,7 +32,7 @@ impl CellRef<'_> {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn width(&self) -> usize {
         match self {
             Self::CellRef { cell, .. } => cell.width(),
@@ -40,7 +40,7 @@ impl CellRef<'_> {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn attrs(&self) -> &CellAttributes {
         match self {
             Self::CellRef { cell, .. } => cell.attrs(),
@@ -48,7 +48,7 @@ impl CellRef<'_> {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn presentation(&self) -> Presentation {
         match self {
             Self::CellRef { cell, .. } => cell.presentation(),
@@ -59,7 +59,7 @@ impl CellRef<'_> {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_cell(&self) -> Cell {
         match self {
             Self::CellRef { cell, .. } => (*cell).clone(),
@@ -69,7 +69,7 @@ impl CellRef<'_> {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn same_contents(&self, other: &Self) -> bool {
         self.str() == other.str() && self.width() == other.width() && self.attrs() == other.attrs()
     }

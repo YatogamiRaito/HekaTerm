@@ -1,7 +1,7 @@
 //! Working with pseudo-terminals
 
 use crate::{Child, CommandBuilder, MasterPty, PtyPair, PtySize, PtySystem, SlavePty};
-use anyhow::{bail, Error};
+use anyhow::{Error, bail};
 use filedescriptor::FileDescriptor;
 use libc::{self, winsize};
 use std::cell::RefCell;
@@ -162,9 +162,10 @@ pub fn close_random_fds() {
                 .map(|e| e.file_name())
                 .and_then(|s| s.into_string().ok())
                 .and_then(|n| n.parse::<libc::c_int>().ok())
-                && num > 2 {
-                    fds.push(num);
-                }
+                && num > 2
+            {
+                fds.push(num);
+            }
         }
         for fd in fds {
             unsafe {
@@ -202,14 +203,7 @@ impl PtyFd {
 
     fn get_size(&self) -> Result<PtySize, Error> {
         let mut size: winsize = unsafe { mem::zeroed() };
-        if unsafe {
-            libc::ioctl(
-                self.0.as_raw_fd(),
-                libc::TIOCGWINSZ as _,
-                &raw mut size,
-            )
-        } != 0
-        {
+        if unsafe { libc::ioctl(self.0.as_raw_fd(), libc::TIOCGWINSZ as _, &raw mut size) } != 0 {
             bail!(
                 "failed to ioctl(TIOCGWINSZ): {:?}",
                 io::Error::last_os_error()
@@ -249,7 +243,11 @@ impl PtyFd {
                     }
 
                     let empty_set: libc::sigset_t = std::mem::zeroed();
-                    libc::sigprocmask(libc::SIG_SETMASK, &raw const empty_set, std::ptr::null_mut());
+                    libc::sigprocmask(
+                        libc::SIG_SETMASK,
+                        &raw const empty_set,
+                        std::ptr::null_mut(),
+                    );
 
                     // Establish ourselves as a session leader.
                     if libc::setsid() == -1 {

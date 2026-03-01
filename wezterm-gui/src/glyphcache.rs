@@ -6,21 +6,22 @@ use ::window::bitmaps::atlas::{Atlas, OutOfTextureSpace, Sprite};
 use ::window::bitmaps::{BitmapImage, Image, ImageTexture, Texture2d};
 use ::window::color::SrgbaPixel;
 use ::window::{Point, Rect};
+use ahash::AHashMap as HashMap;
 use anyhow::Context;
 use config::{AllowSquareGlyphOverflow, TextStyle};
 use euclid::num::Zero;
+use flume::{Receiver, RecvTimeoutError, Sender, TryRecvError, bounded};
 use image::{
     AnimationDecoder, DynamicImage, Frame, Frames, ImageDecoder, ImageFormat, ImageResult, Limits,
 };
 use lfucache::LfuCache;
 use ordered_float::NotNan;
+use parking_lot::MutexGuard;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::io::Seek;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TryRecvError};
-use std::sync::{Arc, LazyLock, MutexGuard};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use termwiz::color::RgbColor;
 use termwiz::image::{ImageData, ImageDataType};
@@ -234,7 +235,7 @@ struct FrameDecoder {}
 
 impl FrameDecoder {
     pub fn start(lease: BlobLease) -> anyhow::Result<Receiver<DecodedFrame>> {
-        let (tx, rx) = sync_channel(2);
+        let (tx, rx) = bounded(2);
 
         let buf_reader = lease.get_reader().context("lease.get_reader()")?;
         let reader = image::ImageReader::new(buf_reader)
@@ -247,11 +248,11 @@ impl FrameDecoder {
         std::thread::spawn(move || {
             if let Err(err) = Self::run_decoder_thread(reader, format, tx)
                 && err
-                    .downcast_ref::<std::sync::mpsc::SendError<DecodedFrame>>()
+                    .downcast_ref::<flume::SendError<DecodedFrame>>()
                     .is_none()
-                {
-                    log::error!("Error decoding image: {err:#}");
-                }
+            {
+                log::error!("Error decoding image: {err:#}");
+            }
         });
 
         Ok(rx)
@@ -260,7 +261,7 @@ impl FrameDecoder {
     fn run_decoder_thread(
         reader: image::ImageReader<BoxedReader>,
         format: ImageFormat,
-        tx: SyncSender<DecodedFrame>,
+        tx: Sender<DecodedFrame>,
     ) -> anyhow::Result<()> {
         let start = Instant::now();
         let limits = Limits::default();
@@ -307,14 +308,13 @@ impl FrameDecoder {
             }
         };
 
-        let frame = frames
-            .next()
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Unable to decode image data. Either it is corrupt, or \
+        let frame = frames.next().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Unable to decode image data. Either it is corrupt, or \
                     the Image format is not fully supported by \
-                    https://github.com/image-rs/image/blob/master/README.md#supported-image-formats")
-            })?;
+                    https://github.com/image-rs/image/blob/master/README.md#supported-image-formats"
+            )
+        })?;
         let frame = frame.context("first frame result")?;
 
         let mut decoded_frames = vec![];
@@ -829,12 +829,8 @@ impl GlyphCache {
                 scale,
             }
         } else {
-            let raw_im = Image::with_rgba32(
-                glyph.width,
-                glyph.height,
-                4 * glyph.width,
-                &glyph.data,
-            );
+            let raw_im =
+                Image::with_rgba32(glyph.width, glyph.height, 4 * glyph.width, &glyph.data);
 
             let bearing_x = glyph.bearing_x * scale * metrics_only_scale;
             // No metrics_only_scale adjustment to bearing_y is needed because
@@ -1049,7 +1045,10 @@ impl GlyphCache {
                         if data.len() == expected_byte_size {
                             data
                         } else {
-                            report_frame_error(format!("frame data is corrupted: expected size {expected_byte_size} but have {}", data.len()));
+                            report_frame_error(format!(
+                                "frame data is corrupted: expected size {expected_byte_size} but have {}",
+                                data.len()
+                            ));
                             vec![0u8; expected_byte_size]
                         }
                     }

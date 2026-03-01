@@ -97,9 +97,10 @@ impl Compose {
 
                     self.state.feed(xsym);
                     if self.state.status() == ComposeStatus::Composed
-                        && let Some(s) = self.state.utf8() {
-                            self.composition = s;
-                        }
+                        && let Some(s) = self.state.utf8()
+                    {
+                        self.composition = s;
+                    }
 
                     self.state.reset();
                     self.state.feed(xsym);
@@ -424,10 +425,16 @@ impl KeyboardWithFallback {
 
         let kc = match kc {
             Some(kc) => kc,
-            None => if let Some(kc) = keysym_to_keycode(ksym.into()).or_else(|| keysym_to_keycode(xsym.into())) { kc } else {
-                log::trace!("keysym_to_keycode for {ksym:?} and {xsym:?} -> None");
-                return None;
-            },
+            None => {
+                if let Some(kc) =
+                    keysym_to_keycode(ksym.into()).or_else(|| keysym_to_keycode(xsym.into()))
+                {
+                    kc
+                } else {
+                    log::trace!("keysym_to_keycode for {ksym:?} and {xsym:?} -> None");
+                    return None;
+                }
+            }
         };
 
         let event = KeyEvent {

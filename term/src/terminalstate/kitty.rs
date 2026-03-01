@@ -4,8 +4,8 @@ use crate::{StableRowIndex, TerminalState};
 use ::image::{
     DynamicImage, GenericImage, GenericImageView, ImageBuffer, RgbImage, Rgba, RgbaImage,
 };
+use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use anyhow::Context;
-use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
@@ -382,16 +382,20 @@ impl TerminalState {
         verbosity: KittyImageVerbosity,
     ) -> anyhow::Result<()> {
         let image_id = match frame.image_number {
-            Some(no) => if let Some(id) = self.kitty_img.number_to_id.get(&no) { *id } else {
-                self.kitty_send_response(
-                    verbosity,
-                    false,
-                    frame.image_id,
-                    frame.image_number,
-                    "ENOENT".to_string(),
-                );
-                anyhow::bail!("no such image_number {no}");
-            },
+            Some(no) => {
+                if let Some(id) = self.kitty_img.number_to_id.get(&no) {
+                    *id
+                } else {
+                    self.kitty_send_response(
+                        verbosity,
+                        false,
+                        frame.image_id,
+                        frame.image_number,
+                        "ENOENT".to_string(),
+                    );
+                    anyhow::bail!("no such image_number {no}");
+                }
+            }
             None => frame.image_id.ok_or_else(|| {
                 self.kitty_send_response(
                     verbosity,
@@ -554,7 +558,7 @@ impl TerminalState {
             (background_pixel & 0xff) as u8,
         ]);
 
-        let anim = if let Some(anim) = self.kitty_img.id_to_data.get(&image_id) { anim } else {
+        let Some(anim) = self.kitty_img.id_to_data.get(&image_id) else {
             self.kitty_send_response(
                 verbosity,
                 false,
@@ -741,11 +745,8 @@ impl TerminalState {
 
         let img = match transmit.format {
             None | Some(KittyImageFormat::Rgba | KittyImageFormat::Rgb) => {
-                let (width, height) = match (transmit.width, transmit.height) {
-                    (Some(w), Some(h)) => (w, h),
-                    _ => {
-                        anyhow::bail!("missing width/height info for kitty img");
-                    }
+                let (Some(width), Some(height)) = (transmit.width, transmit.height) else {
+                    anyhow::bail!("missing width/height info for kitty img");
                 };
 
                 check_image_dimensions(width, height)?;

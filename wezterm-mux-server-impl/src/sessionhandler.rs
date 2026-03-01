@@ -1,12 +1,11 @@
 use crate::PKI;
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use codec::{
-    DecodedPdu, ErrorResponse, GetClientListResponse, GetCodecVersionResponse, GetImageCellResponse,
-    GetLinesResponse, GetPaneDirectionResponse, GetPaneRenderChangesResponse,
-    GetPaneRenderableDimensionsResponse, GetTlsCredsResponse, InputSerial, LivenessResponse,
-    ListPanesResponse, MovePaneToNewTab, MovePaneToNewTabResponse, NotifyAlert, Pdu, Pong,
+    CODEC_VERSION, DecodedPdu, ErrorResponse, GetClientListResponse, GetCodecVersionResponse,
+    GetImageCellResponse, GetLinesResponse, GetPaneDirectionResponse, GetPaneRenderChangesResponse,
+    GetPaneRenderableDimensionsResponse, GetTlsCredsResponse, InputSerial, ListPanesResponse,
+    LivenessResponse, MovePaneToNewTab, MovePaneToNewTabResponse, NotifyAlert, Pdu, Pong,
     SearchScrollbackResponse, SetPalette, SpawnResponse, SpawnV2, SplitPane, UnitResponse,
-    CODEC_VERSION,
 };
 use config::TermConfig;
 use mux::client::ClientId;
@@ -15,14 +14,15 @@ use mux::pane::{CachePolicy, Pane, PaneId};
 use mux::renderable::{RenderableDimensions, StableCursorPosition};
 use mux::tab::TabId;
 use mux::{Mux, MuxNotification};
+use parking_lot::Mutex;
 use promise::spawn::spawn_into_main_thread;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 use termwiz::surface::SequenceNo;
 use url::Url;
-use wezterm_term::terminal::Alert;
 use wezterm_term::StableRowIndex;
+use wezterm_term::terminal::Alert;
 
 #[derive(Clone)]
 pub struct PduSender {
@@ -155,7 +155,7 @@ fn maybe_push_pane_changes(
     sender: PduSender,
     per_pane: Arc<Mutex<PerPane>>,
 ) -> anyhow::Result<()> {
-    let mut per_pane = per_pane.lock().unwrap();
+    let mut per_pane = per_pane.lock();
     if let Some(resp) = per_pane.compute_changes(pane, None) {
         sender.send(DecodedPdu {
             pdu: Pdu::GetPaneRenderChangesResponse(Box::new(resp)),
@@ -220,7 +220,7 @@ impl Drop for SessionHandler {
 }
 
 impl SessionHandler {
-    #[must_use] 
+    #[must_use]
     pub fn new(to_write_tx: PduSender) -> Self {
         Self {
             to_write_tx,
@@ -258,9 +258,10 @@ impl SessionHandler {
         let serial = decoded.serial;
 
         if let Some(client_id) = &self.client_id
-            && decoded.pdu.is_user_input() {
-                Mux::get().client_had_input(client_id);
-            }
+            && decoded.pdu.is_user_input()
+        {
+            Mux::get().client_had_input(client_id);
+        }
 
         let send_response = move |result: anyhow::Result<Pdu>| {
             let pdu = match result {
@@ -382,9 +383,9 @@ impl SessionHandler {
                         move || {
                             let mux = Mux::get();
                             let clients = mux.iter_clients();
-                            Ok(Pdu::GetClientListResponse(Box::new(GetClientListResponse {
-                                clients,
-                            })))
+                            Ok(Pdu::GetClientListResponse(Box::new(
+                                GetClientListResponse { clients },
+                            )))
                         },
                         send_response,
                     );
@@ -537,7 +538,9 @@ impl SessionHandler {
                         .ok_or_else(|| anyhow!("no such pane {pane_id}"))?;
 
                     pane.search(pattern, range, limit).await.map(|results| {
-                        Pdu::SearchScrollbackResponse(Box::new(SearchScrollbackResponse { results }))
+                        Pdu::SearchScrollbackResponse(Box::new(SearchScrollbackResponse {
+                            results,
+                        }))
                     })
                 }
 
@@ -609,9 +612,9 @@ impl SessionHandler {
                                 .get_pane_direction(direction, true)
                                 .map(|pane_index| panes[pane_index].pane.pane_id());
 
-                            Ok(Pdu::GetPaneDirectionResponse(Box::new(GetPaneDirectionResponse {
-                                pane_id,
-                            })))
+                            Ok(Pdu::GetPaneDirectionResponse(Box::new(
+                                GetPaneDirectionResponse { pane_id },
+                            )))
                         },
                         send_response,
                     );
@@ -683,7 +686,7 @@ impl SessionHandler {
                             // For a key press, we want to always send back the
                             // cursor position so that the predictive echo doesn't
                             // leave the cursor in the wrong place
-                            let mut per_pane = per_pane.lock().unwrap();
+                            let mut per_pane = per_pane.lock();
                             if let Some(resp) = per_pane.compute_changes(&pane, Some(input_serial))
                             {
                                 sender.send(DecodedPdu {
@@ -755,13 +758,13 @@ impl SessionHandler {
                                 .ok_or_else(|| anyhow!("no such pane {pane_id}"))?;
                             let cursor_position = pane.get_cursor_position();
                             let dimensions = pane.get_dimensions();
-                            Ok(Pdu::GetPaneRenderableDimensionsResponse(
-                                Box::new(GetPaneRenderableDimensionsResponse {
+                            Ok(Pdu::GetPaneRenderableDimensionsResponse(Box::new(
+                                GetPaneRenderableDimensionsResponse {
                                     pane_id,
                                     cursor_position,
                                     dimensions,
-                                }),
-                            ))
+                                },
+                            )))
                         },
                         send_response,
                     );
@@ -844,14 +847,15 @@ impl SessionHandler {
                             let (_, lines) = pane.get_lines(line_idx..line_idx + 1);
                             'found_data: for line in lines {
                                 if let Some(cell) = line.get_cell(cell_idx)
-                                    && let Some(images) = cell.attrs().images() {
-                                        for im in images {
-                                            if im.image_data().hash() == data_hash {
-                                                data.replace(im.image_data().clone());
-                                                break 'found_data;
-                                            }
+                                    && let Some(images) = cell.attrs().images()
+                                {
+                                    for im in images {
+                                        if im.image_data().hash() == data_hash {
+                                            data.replace(im.image_data().clone());
+                                            break 'found_data;
                                         }
                                     }
+                                }
                             }
                             Ok(Pdu::GetImageCellResponse(Box::new(GetImageCellResponse {
                                 pane_id,
@@ -868,13 +872,15 @@ impl SessionHandler {
                 match std::env::current_exe().context("resolving current_exe") {
                     Err(err) => send_response(Err(err)),
                     Ok(executable_path) => {
-                        send_response(Ok(Pdu::GetCodecVersionResponse(Box::new(GetCodecVersionResponse {
-                            codec_vers: CODEC_VERSION,
-                            version_string: config::wezterm_version().to_owned(),
-                            executable_path,
-                            config_file_path: std::env::var_os("WEZTERM_CONFIG_FILE")
-                                .map(Into::into),
-                        }))));
+                        send_response(Ok(Pdu::GetCodecVersionResponse(Box::new(
+                            GetCodecVersionResponse {
+                                codec_vers: CODEC_VERSION,
+                                version_string: config::wezterm_version().to_owned(),
+                                executable_path,
+                                config_file_path: std::env::var_os("WEZTERM_CONFIG_FILE")
+                                    .map(Into::into),
+                            },
+                        ))));
                     }
                 }
             }
@@ -943,16 +949,18 @@ impl SessionHandler {
                                 .get_pane(pane_id)
                                 .ok_or_else(|| anyhow!("no such pane {pane_id}"))?;
 
-                            if let Some(config) = pane.get_config() { match config.downcast_ref::<TermConfig>() {
-                                Some(tc) => tc.set_client_palette(palette),
-                                None => {
-                                    log::error!(
-                                        "pane {pane_id} doesn't \
+                            if let Some(config) = pane.get_config() {
+                                match config.downcast_ref::<TermConfig>() {
+                                    Some(tc) => tc.set_client_palette(palette),
+                                    None => {
+                                        log::error!(
+                                            "pane {pane_id} doesn't \
                                         have TermConfig as its config! \
                                         Ignoring client palette update"
-                                    );
+                                        );
+                                    }
                                 }
-                            } } else {
+                            } else {
                                 let config = TermConfig::new();
                                 config.set_client_palette(palette);
                                 pane.set_config(Arc::new(config));
@@ -983,13 +991,8 @@ impl SessionHandler {
                                 .resolve_pane_id(pane_id)
                                 .ok_or_else(|| anyhow!("pane_id {pane_id} invalid"))?;
 
-                            let tab = match mux.get_tab(tab_id) {
-                                Some(tab) => tab,
-                                None => {
-                                    return Err(anyhow!(
-                                        "Failed to retrieve tab with ID {tab_id}"
-                                    ))
-                                }
+                            let Some(tab) = mux.get_tab(tab_id) else {
+                                return Err(anyhow!("Failed to retrieve tab with ID {tab_id}"));
                             };
 
                             tab.adjust_pane_size(direction, amount);
@@ -1134,8 +1137,10 @@ async fn move_pane(
         )
         .await?;
 
-    Ok::<Pdu, anyhow::Error>(Pdu::MovePaneToNewTabResponse(Box::new(MovePaneToNewTabResponse {
-        tab_id: tab.tab_id(),
-        window_id,
-    })))
+    Ok::<Pdu, anyhow::Error>(Pdu::MovePaneToNewTabResponse(Box::new(
+        MovePaneToNewTabResponse {
+            tab_id: tab.tab_id(),
+            window_id,
+        },
+    )))
 }

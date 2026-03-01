@@ -1,5 +1,6 @@
+use parking_lot::Mutex;
 use std::cell::RefCell;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use smithay_client_toolkit::compositor::SurfaceData;
@@ -15,10 +16,10 @@ use wezterm_input_types::MousePress;
 
 use crate::wayland::SurfaceUserData;
 
+use super::WaylandConnection;
 use super::copy_and_paste::CopyAndPaste;
 use super::drag_and_drop::DragAndDrop;
 use super::state::WaylandState;
-use super::WaylandConnection;
 
 impl PointerHandler for WaylandState {
     fn pointer_frame(
@@ -28,12 +29,7 @@ impl PointerHandler for WaylandState {
         pointer: &WlPointer,
         events: &[PointerEvent],
     ) {
-        let mut pstate = pointer
-            .data::<PointerUserData>()
-            .unwrap()
-            .state
-            .lock()
-            .unwrap();
+        let mut pstate = pointer.data::<PointerUserData>().unwrap().state.lock();
 
         for evt in events {
             if let PointerEventKind::Enter { .. } = &evt.kind {
@@ -49,7 +45,7 @@ impl PointerHandler for WaylandState {
                 .surface_to_pending
                 .get(self.active_surface_id.borrow().as_ref().unwrap())
             {
-                let mut pending = pending.lock().unwrap();
+                let mut pending = pending.lock();
                 if pending.queue(evt) {
                     WaylandConnection::with_window_inner(pending.window_id, move |inner| {
                         inner.dispatch_pending_mouse();
@@ -141,9 +137,8 @@ impl PendingMouse {
                         _ => None,
                     }
                 }
-                let button = match linux_button(button) {
-                    Some(button) => button,
-                    None => return false,
+                let Some(button) = linux_button(button) else {
+                    return false;
                 };
                 let changed = self.button.is_empty();
                 let button_state = match evt.kind {
@@ -169,7 +164,7 @@ impl PendingMouse {
     }
 
     pub(super) fn next_button(pending: &Arc<Mutex<Self>>) -> Option<(MousePress, ButtonState)> {
-        let mut pending = pending.lock().unwrap();
+        let mut pending = pending.lock();
         if pending.button.is_empty() {
             None
         } else {
@@ -178,15 +173,15 @@ impl PendingMouse {
     }
 
     pub(super) fn coords(pending: &Arc<Mutex<Self>>) -> Option<(f64, f64)> {
-        pending.lock().unwrap().surface_coords.take()
+        pending.lock().surface_coords.take()
     }
 
     pub(super) fn scroll(pending: &Arc<Mutex<Self>>) -> Option<(f64, f64)> {
-        pending.lock().unwrap().scroll.take()
+        pending.lock().scroll.take()
     }
 
     pub(super) fn in_window(pending: &Arc<Mutex<Self>>) -> bool {
-        pending.lock().unwrap().in_window
+        pending.lock().in_window
     }
 }
 

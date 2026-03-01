@@ -11,3 +11,4 @@ publish = false
 git2 = { workspace=true, default-features = false }
 
 [dependencies]
+parking_lot.workspace = true

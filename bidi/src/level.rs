@@ -10,12 +10,12 @@ pub const MAX_DEPTH: usize = 125;
 pub struct Level(pub i8);
 
 impl Level {
-    #[must_use] 
+    #[must_use]
     pub const fn direction(self) -> Direction {
         Direction::with_level(self.0)
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn as_bidi_class(self) -> BidiClass {
         if self.0 % 2 == 1 {
             BidiClass::RightToLeft
@@ -24,12 +24,12 @@ impl Level {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn removed_by_x9(self) -> bool {
         self.0 == NO_LEVEL
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn max(self, other: Self) -> Self {
         Self(self.0.max(other.0))
     }

@@ -26,7 +26,7 @@ const fn pack(action: Action, state: State) -> u16 {
 
 const fn anywhere_or(i: u8, state: State) -> u16 {
     use Action::{Execute, None};
-    use State::{Ground, Escape, SosPmString, DcsEntry, OscString, CsiEntry};
+    use State::{CsiEntry, DcsEntry, Escape, Ground, OscString, SosPmString};
     match i {
         0x18 => pack(Execute, Ground),
         0x1a => pack(Execute, Ground),
@@ -66,8 +66,10 @@ const fn ground(i: u8) -> u16 {
 }
 
 const fn escape(i: u8) -> u16 {
-    use Action::{Execute, Ignore, Collect, EscDispatch, None};
-    use State::{Escape, EscapeIntermediate, Ground, CsiEntry, OscString, DcsEntry, SosPmString, ApcString};
+    use Action::{Collect, EscDispatch, Execute, Ignore, None};
+    use State::{
+        ApcString, CsiEntry, DcsEntry, Escape, EscapeIntermediate, Ground, OscString, SosPmString,
+    };
     match i {
         0x00..=0x17 => pack(Execute, Escape),
         0x19 => pack(Execute, Escape),
@@ -91,7 +93,7 @@ const fn escape(i: u8) -> u16 {
 }
 
 const fn escape_intermediate(i: u8) -> u16 {
-    use Action::{Execute, Collect, Ignore, EscDispatch};
+    use Action::{Collect, EscDispatch, Execute, Ignore};
     use State::{EscapeIntermediate, Ground};
     match i {
         0x00..=0x17 => pack(Execute, EscapeIntermediate),
@@ -105,8 +107,8 @@ const fn escape_intermediate(i: u8) -> u16 {
 }
 
 const fn csi_entry(i: u8) -> u16 {
-    use Action::{Execute, Ignore, Collect, None, Param, CsiDispatch};
-    use State::{CsiEntry, CsiIntermediate, CsiIgnore, CsiParam, Ground};
+    use Action::{Collect, CsiDispatch, Execute, Ignore, None, Param};
+    use State::{CsiEntry, CsiIgnore, CsiIntermediate, CsiParam, Ground};
     match i {
         0x00..=0x17 => pack(Execute, CsiEntry),
         0x19 => pack(Execute, CsiEntry),
@@ -123,8 +125,8 @@ const fn csi_entry(i: u8) -> u16 {
 }
 
 const fn csi_param(i: u8) -> u16 {
-    use Action::{Execute, Param, Ignore, None, Collect, CsiDispatch};
-    use State::{CsiParam, CsiIgnore, CsiIntermediate, Ground};
+    use Action::{Collect, CsiDispatch, Execute, Ignore, None, Param};
+    use State::{CsiIgnore, CsiIntermediate, CsiParam, Ground};
     match i {
         0x00..=0x17 => pack(Execute, CsiParam),
         0x19 => pack(Execute, CsiParam),
@@ -139,8 +141,8 @@ const fn csi_param(i: u8) -> u16 {
 }
 
 const fn csi_intermediate(i: u8) -> u16 {
-    use Action::{Execute, Collect, Ignore, None, CsiDispatch};
-    use State::{CsiIntermediate, CsiIgnore, Ground};
+    use Action::{Collect, CsiDispatch, Execute, Ignore, None};
+    use State::{CsiIgnore, CsiIntermediate, Ground};
     match i {
         0x00..=0x17 => pack(Execute, CsiIntermediate),
         0x19 => pack(Execute, CsiIntermediate),
@@ -168,7 +170,7 @@ const fn csi_ignore(i: u8) -> u16 {
 }
 
 const fn dcs_entry(i: u8) -> u16 {
-    use Action::{Ignore, None, Collect, Param};
+    use Action::{Collect, Ignore, None, Param};
     use State::{DcsEntry, DcsIgnore, DcsIntermediate, DcsParam, DcsPassthrough};
     match i {
         0x00..=0x17 => pack(Ignore, DcsEntry),
@@ -186,8 +188,8 @@ const fn dcs_entry(i: u8) -> u16 {
 }
 
 const fn dcs_param(i: u8) -> u16 {
-    use Action::{Ignore, Param, None, Collect};
-    use State::{DcsParam, DcsIgnore, DcsIntermediate, DcsPassthrough};
+    use Action::{Collect, Ignore, None, Param};
+    use State::{DcsIgnore, DcsIntermediate, DcsParam, DcsPassthrough};
     match i {
         0x00..=0x17 => pack(Ignore, DcsParam),
         0x19 => pack(Ignore, DcsParam),
@@ -204,8 +206,8 @@ const fn dcs_param(i: u8) -> u16 {
 }
 
 const fn dcs_intermediate(i: u8) -> u16 {
-    use Action::{Ignore, Collect, None};
-    use State::{DcsIntermediate, DcsIgnore, DcsPassthrough};
+    use Action::{Collect, Ignore, None};
+    use State::{DcsIgnore, DcsIntermediate, DcsPassthrough};
     match i {
         0x00..=0x17 => pack(Ignore, DcsIntermediate),
         0x19 => pack(Ignore, DcsIntermediate),
@@ -219,7 +221,7 @@ const fn dcs_intermediate(i: u8) -> u16 {
 }
 
 const fn dcs_passthrough(i: u8) -> u16 {
-    use Action::{Put, Ignore};
+    use Action::{Ignore, Put};
     use State::DcsPassthrough;
     match i {
         0x00..=0x17 => pack(Put, DcsPassthrough),
@@ -245,7 +247,7 @@ const fn dcs_ignore(i: u8) -> u16 {
 
 const fn osc_string(i: u8) -> u16 {
     use Action::{Ignore, OscPut, Utf8};
-    use State::{OscString, Ground, Utf8Sequence};
+    use State::{Ground, OscString, Utf8Sequence};
     match i {
         0x00..=0x06 => pack(Ignore, OscString),
         // Using BEL in place of ST is a deviation from

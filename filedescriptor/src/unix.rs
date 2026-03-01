@@ -30,9 +30,9 @@ impl<T: IntoRawFd> IntoRawFileDescriptor for T {
 }
 
 impl<T: FromRawFd> FromRawFileDescriptor for T {
-    unsafe fn from_raw_file_descriptor(fd: RawFileDescriptor) -> Self { unsafe {
-        Self::from_raw_fd(fd)
-    }}
+    unsafe fn from_raw_file_descriptor(fd: RawFileDescriptor) -> Self {
+        unsafe { Self::from_raw_fd(fd) }
+    }
 }
 
 impl<T: AsRawFd> AsRawSocketDescriptor for T {
@@ -48,9 +48,9 @@ impl<T: IntoRawFd> IntoRawSocketDescriptor for T {
 }
 
 impl<T: FromRawFd> FromRawSocketDescriptor for T {
-    unsafe fn from_socket_descriptor(fd: SocketDescriptor) -> Self { unsafe {
-        Self::from_raw_fd(fd)
-    }}
+    unsafe fn from_socket_descriptor(fd: SocketDescriptor) -> Self {
+        unsafe { Self::from_raw_fd(fd) }
+    }
 }
 
 impl Drop for OwnedHandle {
@@ -168,41 +168,41 @@ impl OwnedHandle {
     }
 
     #[inline]
-    pub(crate) unsafe fn dup2_impl<F: AsRawFileDescriptor>(fd: &F, dest_fd: RawFd) -> Result<Self> { unsafe {
-        let fd = fd.as_raw_file_descriptor();
+    pub(crate) unsafe fn dup2_impl<F: AsRawFileDescriptor>(fd: &F, dest_fd: RawFd) -> Result<Self> {
+        unsafe {
+            let fd = fd.as_raw_file_descriptor();
 
-        #[cfg(not(target_os = "linux"))]
-        return Self::non_atomic_dup2(fd, dest_fd);
+            #[cfg(not(target_os = "linux"))]
+            return Self::non_atomic_dup2(fd, dest_fd);
 
-        #[cfg(target_os = "linux")]
-        {
-            let duped = libc::dup3(fd, dest_fd, libc::O_CLOEXEC);
+            #[cfg(target_os = "linux")]
+            {
+                let duped = libc::dup3(fd, dest_fd, libc::O_CLOEXEC);
 
-            if duped == -1 {
-                let err = std::io::Error::last_os_error();
-                if err.raw_os_error() == Some(libc::EINVAL) {
-                    // We may be running on eg: WSL or an old kernel that
-                    // doesn't support O_CLOEXEC; fall back.
-                    Self::non_atomic_dup2(fd, dest_fd)
+                if duped == -1 {
+                    let err = std::io::Error::last_os_error();
+                    if err.raw_os_error() == Some(libc::EINVAL) {
+                        // We may be running on eg: WSL or an old kernel that
+                        // doesn't support O_CLOEXEC; fall back.
+                        Self::non_atomic_dup2(fd, dest_fd)
+                    } else {
+                        Err(Error::Dup2 {
+                            src_fd: fd.into(),
+                            dest_fd: dest_fd.into(),
+                            source: err,
+                        })
+                    }
                 } else {
-                    Err(Error::Dup2 {
-                        src_fd: fd.into(),
-                        dest_fd: dest_fd.into(),
-                        source: err,
+                    Ok(Self {
+                        handle: duped,
+                        handle_type: (),
                     })
                 }
-            } else {
-                Ok(Self {
-                    handle: duped,
-                    handle_type: (),
-                })
             }
         }
-    }}
-
-    pub(crate) const fn probe_handle_type(_handle: RawFileDescriptor) -> HandleType {
-        
     }
+
+    pub(crate) const fn probe_handle_type(_handle: RawFileDescriptor) -> HandleType {}
 }
 
 impl std::io::Read for FileDescriptor {
@@ -249,11 +249,13 @@ impl IntoRawFd for FileDescriptor {
 }
 
 impl FromRawFd for FileDescriptor {
-    unsafe fn from_raw_fd(fd: RawFd) -> Self { unsafe {
-        Self {
-            handle: OwnedHandle::from_raw_fd(fd),
+    unsafe fn from_raw_fd(fd: RawFd) -> Self {
+        unsafe {
+            Self {
+                handle: OwnedHandle::from_raw_fd(fd),
+            }
         }
-    }}
+    }
 }
 
 impl FileDescriptor {
@@ -293,9 +295,9 @@ impl FileDescriptor {
     /// references the same object at the kernel level.
     /// # Safety
     /// `dest_fd` must be a valid file descriptor or one that can be safely overwritten.
-    pub unsafe fn dup2<F: AsRawFileDescriptor>(f: &F, dest_fd: RawFd) -> Result<Self> { unsafe {
-        OwnedHandle::dup2_impl(f, dest_fd).map(|handle| Self { handle })
-    }}
+    pub unsafe fn dup2<F: AsRawFileDescriptor>(f: &F, dest_fd: RawFd) -> Result<Self> {
+        unsafe { OwnedHandle::dup2_impl(f, dest_fd).map(|handle| Self { handle }) }
+    }
 
     /// Helper function to unset the close-on-exec flag for a raw descriptor
     fn no_cloexec(fd: RawFd) -> Result<()> {
@@ -440,7 +442,7 @@ pub fn socketpair_impl() -> Result<(FileDescriptor, FileDescriptor)> {
     }
 }
 
-pub use libc::{pollfd, POLLERR, POLLHUP, POLLIN, POLLOUT};
+pub use libc::{POLLERR, POLLHUP, POLLIN, POLLOUT, pollfd};
 use std::time::Duration;
 
 #[cfg(not(target_os = "macos"))]
@@ -450,8 +452,7 @@ pub fn poll_impl(pfd: &mut [pollfd], duration: Option<Duration>) -> Result<usize
         libc::poll(
             pfd.as_mut_ptr(),
             pfd.len() as _,
-            duration
-                .map_or(-1, |wait| wait.as_millis() as libc::c_int),
+            duration.map_or(-1, |wait| wait.as_millis() as libc::c_int),
         )
     };
     if poll_result < 0 {
@@ -465,7 +466,7 @@ pub fn poll_impl(pfd: &mut [pollfd], duration: Option<Duration>) -> Result<usize
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
-    use libc::{fd_set, timeval, FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, POLLERR, POLLIN, POLLOUT};
+    use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, POLLERR, POLLIN, POLLOUT, fd_set, timeval};
     use std::os::unix::io::RawFd;
 
     struct FdSet {

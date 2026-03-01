@@ -4,7 +4,7 @@ use core::hash::{Hash, Hasher};
 use serde::{Deserialize, Serialize};
 use wezterm_dynamic::{FromDynamic, ToDynamic};
 
-use crate::allocate::{HashMap, String, ToString, ToOwned};
+use crate::allocate::{HashMap, String, ToOwned, ToString};
 
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
@@ -17,7 +17,7 @@ pub struct Hyperlink {
 }
 
 impl Hyperlink {
-    #[must_use] 
+    #[must_use]
     pub fn uri(&self) -> &str {
         &self.uri
     }
@@ -31,7 +31,7 @@ impl Hyperlink {
         self.implicit.hash(hasher);
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn params(&self) -> &HashMap<String, String> {
         &self.params
     }
@@ -45,7 +45,7 @@ impl Hyperlink {
     }
 
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn is_implicit(&self) -> bool {
         self.implicit
     }

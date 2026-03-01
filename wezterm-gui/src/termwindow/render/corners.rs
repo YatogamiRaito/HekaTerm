@@ -1,4 +1,4 @@
-use crate::customglyph::{Poly, PolyCommand, BlockCoord, BlockAlpha, PolyStyle};
+use crate::customglyph::{BlockAlpha, BlockCoord, Poly, PolyCommand, PolyStyle};
 
 pub const TOP_LEFT_ROUNDED_CORNER: &[Poly] = &[Poly {
     path: &[PolyCommand::Oval {

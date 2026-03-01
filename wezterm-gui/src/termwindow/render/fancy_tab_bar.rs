@@ -1,6 +1,9 @@
-use crate::customglyph::{Poly, PolyCommand, BlockCoord, BlockAlpha, PolyStyle};
+use crate::customglyph::{BlockAlpha, BlockCoord, Poly, PolyCommand, PolyStyle};
 use crate::tabbar::{TabBarItem, TabEntry};
-use crate::termwindow::box_model::{ComputedElement, ElementColors, BorderColor, Element, BoxDimension, ElementContent, SizedPoly, VerticalAlign, Corners, Float, DisplayType, LayoutContext};
+use crate::termwindow::box_model::{
+    BorderColor, BoxDimension, ComputedElement, Corners, DisplayType, Element, ElementColors,
+    ElementContent, Float, LayoutContext, SizedPoly, VerticalAlign,
+};
 use crate::termwindow::render::corners::{TOP_LEFT_ROUNDED_CORNER, TOP_RIGHT_ROUNDED_CORNER};
 
 use crate::termwindow::render::window_buttons::window_button_element;
@@ -303,14 +306,15 @@ impl crate::TermWindow {
                 _ => 0.,
             })
             .sum();
-        let max_tab_width = 1.5f32.mul_add(-(metrics.cell_size.width as f32), self.dimensions.pixel_width as f32 / num_tabs)
+        let max_tab_width = 1.5f32
+            .mul_add(
+                -(metrics.cell_size.width as f32),
+                self.dimensions.pixel_width as f32 / num_tabs,
+            )
             .max(0.);
 
         // Reserve space for the native titlebar buttons
-        if self
-            .config
-            .window_decorations
-            .contains(::window::WindowDecorations::INTEGRATED_BUTTONS)
+        if self.use_integrated_title_buttons()
             && self.config.integrated_title_button_style == IntegratedTitleButtonStyle::MacOsNative
             && !self.window_state.contains(window::WindowState::FULL_SCREEN)
         {
@@ -365,10 +369,7 @@ impl crate::TermWindow {
             );
         }
 
-        let window_buttons_at_left = self
-            .config
-            .window_decorations
-            .contains(window::WindowDecorations::INTEGRATED_BUTTONS)
+        let window_buttons_at_left = self.use_integrated_title_buttons()
             && (self.config.integrated_title_button_alignment
                 == IntegratedTitleButtonAlignment::Left
                 || self.config.integrated_title_button_style

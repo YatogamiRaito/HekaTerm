@@ -41,7 +41,7 @@ impl EnvEntry {
 
 #[cfg(unix)]
 fn get_shell() -> String {
-    use nix::unistd::{access, AccessFlags};
+    use nix::unistd::{AccessFlags, access};
     use std::ffi::CStr;
     use std::str;
 
@@ -105,7 +105,7 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
     {
         use std::os::windows::ffi::OsStringExt;
         use winapi::um::processenv::ExpandEnvironmentStringsW;
-        use winreg::enums::{RegType, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+        use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RegType};
         use winreg::types::FromRegValue;
         use winreg::{RegKey, RegValue};
 
@@ -224,7 +224,7 @@ impl CommandBuilder {
     }
 
     /// Create a new builder instance from a pre-built argument vector
-    #[must_use] 
+    #[must_use]
     pub fn from_argv(args: Vec<OsString>) -> Self {
         Self {
             args,
@@ -246,14 +246,14 @@ impl CommandBuilder {
         self.controlling_tty = controlling_tty;
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn get_controlling_tty(&self) -> bool {
         self.controlling_tty
     }
 
     /// Create a new builder instance that will run some idea of a default
     /// program.  Such a builder will panic if `arg` is called on it.
-    #[must_use] 
+    #[must_use]
     pub fn new_default_prog() -> Self {
         Self {
             args: vec![],
@@ -266,7 +266,7 @@ impl CommandBuilder {
     }
 
     /// Returns true if this builder was created via `new_default_prog`
-    #[must_use] 
+    #[must_use]
     pub const fn is_default_prog(&self) -> bool {
         self.args.is_empty()
     }
@@ -274,7 +274,10 @@ impl CommandBuilder {
     /// Append an argument to the current command line.
     /// Will panic if called on a builder created via `new_default_prog`.
     pub fn arg<S: AsRef<OsStr>>(&mut self, arg: S) {
-        assert!(!self.is_default_prog(), "attempted to add args to a default_prog builder");
+        assert!(
+            !self.is_default_prog(),
+            "attempted to add args to a default_prog builder"
+        );
         self.args.push(arg.as_ref().to_owned());
     }
 
@@ -285,7 +288,10 @@ impl CommandBuilder {
     /// env and cwd information.
     /// You will not typically use this method in your own code.
     pub fn replace_default_prog(&mut self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) {
-        assert!(self.is_default_prog(), "attempted to replace_default_prog on a non-default_prog builder");
+        assert!(
+            self.is_default_prog(),
+            "attempted to replace_default_prog on a non-default_prog builder"
+        );
 
         for arg in args {
             self.args.push(arg.as_ref().to_owned());
@@ -303,7 +309,7 @@ impl CommandBuilder {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn get_argv(&self) -> &Vec<OsString> {
         &self.args
     }
@@ -367,7 +373,7 @@ impl CommandBuilder {
         self.cwd.take();
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn get_cwd(&self) -> Option<&OsString> {
         self.cwd.as_ref()
     }
@@ -432,7 +438,7 @@ impl CommandBuilder {
     }
 
     fn search_path(&self, exe: &OsStr, cwd: &OsStr) -> anyhow::Result<OsString> {
-        use nix::unistd::{access, AccessFlags};
+        use nix::unistd::{AccessFlags, access};
 
         let exe_path: &Path = exe.as_ref();
         if exe_path.is_relative() {
@@ -516,7 +522,8 @@ impl CommandBuilder {
 
         let home = self.get_home_dir()?;
         let dir: &OsStr = self
-            .cwd.as_deref()
+            .cwd
+            .as_deref()
             .filter(|dir| std::path::Path::new(dir).is_dir())
             .unwrap_or(home.as_ref());
         let shell = self.get_shell();
@@ -556,7 +563,7 @@ impl CommandBuilder {
     /// We take the contents of the $SHELL env var first, then
     /// fall back to looking it up from the password database.
     pub fn get_shell(&self) -> String {
-        use nix::unistd::{access, AccessFlags};
+        use nix::unistd::{AccessFlags, access};
 
         if let Some(shell) = self.get_env("SHELL").and_then(OsStr::to_str) {
             match access(shell, AccessFlags::X_OK) {

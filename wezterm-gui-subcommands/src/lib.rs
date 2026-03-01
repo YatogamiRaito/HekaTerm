@@ -13,9 +13,7 @@ pub fn name_equals_value(arg: &str) -> Result<(String, String), String> {
         let left = left.trim();
         let right = right[1..].trim();
         if left.is_empty() || right.is_empty() {
-            return Err(format!(
-                "Got empty name/value `{arg}`; expected name=value"
-            ));
+            return Err(format!("Got empty name/value `{arg}`; expected name=value"));
         }
         Ok((left.to_string(), right.to_string()))
     } else {

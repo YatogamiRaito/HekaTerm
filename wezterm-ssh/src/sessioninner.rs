@@ -9,13 +9,13 @@ use crate::sftp::dir::{Dir, DirId, DirRequest};
 use crate::sftp::file::{File, FileId, FileRequest};
 use crate::sftp::{OpenWithMode, SftpChannelResult, SftpRequest};
 use crate::sftpwrap::SftpWrap;
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use camino::Utf8PathBuf;
 use filedescriptor::{
-    poll, pollfd, socketpair, AsRawSocketDescriptor, FileDescriptor, POLLIN, POLLOUT,
+    AsRawSocketDescriptor, FileDescriptor, POLLIN, POLLOUT, poll, pollfd, socketpair,
 };
 use portable_pty::ExitStatus;
-use smol::channel::{bounded, Receiver, Sender, TryRecvError};
+use smol::channel::{Receiver, Sender, TryRecvError, bounded};
 use socket2::{Domain, Socket, Type};
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
@@ -104,11 +104,13 @@ impl SessionInner {
         let hostname = self
             .config
             .get("hostname")
-            .ok_or_else(|| anyhow!("hostname not present in config"))?.clone();
+            .ok_or_else(|| anyhow!("hostname not present in config"))?
+            .clone();
         let user = self
             .config
             .get("user")
-            .ok_or_else(|| anyhow!("username not present in config"))?.clone();
+            .ok_or_else(|| anyhow!("username not present in config"))?
+            .clone();
         let port = self
             .config
             .get("port")
@@ -141,8 +143,12 @@ impl SessionInner {
                 _userdata: *mut std::os::raw::c_void,
             ) {
                 use std::ffi::CStr;
-                let function = unsafe { CStr::from_ptr(function) }.to_string_lossy().to_string();
-                let message = unsafe { CStr::from_ptr(message) }.to_string_lossy().to_string();
+                let function = unsafe { CStr::from_ptr(function) }
+                    .to_string_lossy()
+                    .to_string();
+                let message = unsafe { CStr::from_ptr(message) }
+                    .to_string_lossy()
+                    .to_string();
 
                 // The message typically has "function: message" prefixed, which
                 // looks redundant when logged with the function prefix by the
@@ -179,13 +185,12 @@ impl SessionInner {
             }
         }
         if let Some(kh) = self.config.get("userknownhostsfile")
-            && let Some(file) = kh.split_whitespace().next() {
-                sess.set_option(libssh_rs::SshOption::KnownHosts(Some(file.to_string())))?;
-            }
+            && let Some(file) = kh.split_whitespace().next()
+        {
+            sess.set_option(libssh_rs::SshOption::KnownHosts(Some(file.to_string())))?;
+        }
         if let Some(types) = self.config.get("pubkeyacceptedtypes") {
-            sess.set_option(libssh_rs::SshOption::PublicKeyAcceptedTypes(
-                types.clone(),
-            ))?;
+            sess.set_option(libssh_rs::SshOption::PublicKeyAcceptedTypes(types.clone()))?;
         }
         if let Some(bind_addr) = self.config.get("bindaddress") {
             sess.set_option(libssh_rs::SshOption::BindAddress(bind_addr.clone()))?;
@@ -231,7 +236,12 @@ impl SessionInner {
             .try_send(SessionEvent::Authenticated)
             .context("notifying user that session is authenticated")?;
 
-        if self.config.get("forwardagent").map(std::string::String::as_str) == Some("yes") {
+        if self
+            .config
+            .get("forwardagent")
+            .map(std::string::String::as_str)
+            == Some("yes")
+        {
             if self.identity_agent().is_some() {
                 sess.enable_accept_agent_forward(true);
             } else {
@@ -254,11 +264,13 @@ impl SessionInner {
         let hostname = self
             .config
             .get("hostname")
-            .ok_or_else(|| anyhow!("hostname not present in config"))?.clone();
+            .ok_or_else(|| anyhow!("hostname not present in config"))?
+            .clone();
         let user = self
             .config
             .get("user")
-            .ok_or_else(|| anyhow!("username not present in config"))?.clone();
+            .ok_or_else(|| anyhow!("username not present in config"))?
+            .clone();
         let port = self
             .config
             .get("port")
@@ -284,7 +296,9 @@ impl SessionInner {
             .with_context(|| format!("ssh handshake with {remote_address}"))?;
 
         self.tx_event
-            .try_send(SessionEvent::Banner(sess.banner().map(std::string::ToString::to_string)))
+            .try_send(SessionEvent::Banner(
+                sess.banner().map(std::string::ToString::to_string),
+            ))
             .context("notifying user of banner")?;
 
         self.host_verification(&sess, &hostname, port, &remote_address)
@@ -315,7 +329,11 @@ impl SessionInner {
         port: u16,
         verbose: bool,
     ) -> anyhow::Result<(Socket, Option<KillOnDropChild>)> {
-        match self.config.get("proxycommand").map(std::string::String::as_str) {
+        match self
+            .config
+            .get("proxycommand")
+            .map(std::string::String::as_str)
+        {
             Some("none") | None => {}
             Some(proxy_command) => {
                 let mut cmd;
@@ -343,7 +361,11 @@ impl SessionInner {
                     use std::os::unix::io::{FromRawFd, IntoRawFd};
 
                     let raw = a.into_raw_fd();
-                    let dest = match self.config.get("proxyusefdpass").map(std::string::String::as_str) {
+                    let dest = match self
+                        .config
+                        .get("proxyusefdpass")
+                        .map(std::string::String::as_str)
+                    {
                         Some("yes") => raw.recv_fd()?,
                         _ => raw,
                     };
@@ -389,7 +411,11 @@ impl SessionInner {
     /// Used to restrict `to_socket_addrs` results to the address
     /// family specified by the config
     fn filter_sock_addr(&self, addr: &std::net::SocketAddr) -> bool {
-        match self.config.get("addressfamily").map(std::string::String::as_str) {
+        match self
+            .config
+            .get("addressfamily")
+            .map(std::string::String::as_str)
+        {
             Some("inet") => addr.is_ipv4(),
             Some("inet6") => addr.is_ipv6(),
             None | Some("any" | _) => true,
@@ -411,16 +437,15 @@ impl SessionInner {
                 // explicitly trigger a disconnect if there is an error with
                 // the ignore packet.
                 if let Some(duration) = self.keep_alive
-                    && self.last_keep_alive.elapsed() >= duration {
-                        log::trace!("sending keep alive");
-                        self.last_keep_alive = Instant::now();
-                        let ignore_me = [0x42; 128];
-                        if let Err(err) = sess.sess.send_ignore(&ignore_me) {
-                            log::warn!(
-                                "Error sending IGNORE packet: {err:#}. Is peer disconnected?"
-                            );
-                        }
+                    && self.last_keep_alive.elapsed() >= duration
+                {
+                    log::trace!("sending keep alive");
+                    self.last_keep_alive = Instant::now();
+                    let ignore_me = [0x42; 128];
+                    if let Err(err) = sess.sess.send_ignore(&ignore_me) {
+                        log::warn!("Error sending IGNORE packet: {err:#}. Is peer disconnected?");
                     }
+                }
                 Ok(())
             }
         }
@@ -504,7 +529,9 @@ impl SessionInner {
                             }
                         }
                     } else if info.exited && state.buf.is_empty() {
-                        log::trace!("channel {channel_id} exited and we have no data to send to fd {fd_num}: close it!");
+                        log::trace!(
+                            "channel {channel_id} exited and we have no data to send to fd {fd_num}: close it!"
+                        );
                         state.fd.take();
                     } else {
                         // We can write our buffered output
@@ -531,23 +558,23 @@ impl SessionInner {
         let mut dead = vec![];
         for (id, chan) in &mut self.channels {
             if chan.exit.is_some()
-                && let Some(status) = chan.channel.exit_status() {
-                    log::trace!("channel {id} has exit status {status:?}");
-                    chan.exited = true;
-                    let exit = chan.exit.take().unwrap();
-                    smol::block_on(exit.send(status)).ok();
-                }
+                && let Some(status) = chan.channel.exit_status()
+            {
+                log::trace!("channel {id} has exit status {status:?}");
+                chan.exited = true;
+                let exit = chan.exit.take().unwrap();
+                smol::block_on(exit.send(status)).ok();
+            }
 
             let stdin = &mut chan.descriptors[0];
-            if stdin.fd.is_some() && !stdin.buf.is_empty()
+            if stdin.fd.is_some()
+                && !stdin.buf.is_empty()
                 && let Err(err) = write_from_buf(&mut chan.channel.writer(), &mut stdin.buf)
                     .context("writing to channel")
-                {
-                    log::trace!(
-                        "Failed to write data to channel {id} stdin: {err:#}, closing pipe"
-                    );
-                    stdin.fd.take();
-                }
+            {
+                log::trace!("Failed to write data to channel {id} stdin: {err:#}, closing pipe");
+                stdin.fd.take();
+            }
 
             for (idx, out) in chan
                 .descriptors
@@ -895,11 +922,16 @@ impl SessionInner {
     pub fn exec(&mut self, sess: &mut SessionWrap, exec: Exec) -> anyhow::Result<ExecResult> {
         let mut channel = sess.open_session()?;
 
-        if self.config.get("forwardagent").map(std::string::String::as_str) == Some("yes")
+        if self
+            .config
+            .get("forwardagent")
+            .map(std::string::String::as_str)
+            == Some("yes")
             && self.identity_agent().is_some()
-                && let Err(err) = channel.request_auth_agent_forwarding() {
-                    log::error!("Failed to request agent forwarding: {err:#}");
-                }
+            && let Err(err) = channel.request_auth_agent_forwarding()
+        {
+            log::error!("Failed to request agent forwarding: {err:#}");
+        }
 
         if let Some(env) = &exec.env {
             for (key, val) in env {

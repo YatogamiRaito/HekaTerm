@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use config::{configuration, wezterm_version};
 use http_req::request::{HttpVersion, Request};
 use http_req::uri::Uri;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -11,7 +11,7 @@ use termwiz::cell::{Hyperlink, Underline};
 use termwiz::color::AnsiColor;
 use termwiz::escape::csi::{Cursor, Sgr};
 use termwiz::escape::osc::{ITermDimension, ITermFileData, ITermProprietary};
-use termwiz::escape::{OneBased, OperatingSystemCommand, CSI};
+use termwiz::escape::{CSI, OneBased, OperatingSystemCommand};
 use wezterm_toast_notification::persistent_toast_notification_with_click_to_open_url;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -62,7 +62,6 @@ pub fn get_nightly_release_info() -> anyhow::Result<Release> {
     get_github_release_info("https://api.github.com/repos/wezterm/wezterm/releases/tags/nightly")
 }
 
-
 pub fn load_last_release_info_and_set_banner() {
     if !configuration().check_for_updates {
         return;
@@ -87,7 +86,10 @@ pub fn load_last_release_info_and_set_banner() {
 
 fn set_banner_from_release_info(latest: &Release) {
     let mux = crate::Mux::get();
-    let url = format!("https://github.com/YatogamiRaito/HekaTerm/releases/tag/{}", latest.tag_name);
+    let url = format!(
+        "https://github.com/YatogamiRaito/HekaTerm/releases/tag/{}",
+        latest.tag_name
+    );
 
     let icon = ITermFileData {
         name: None,
@@ -168,39 +170,43 @@ fn update_checker() {
         let socks = wezterm_client::discovery::discover_gui_socks();
 
         if configuration().check_for_updates
-            && let Ok(latest) = get_latest_release_info() {
-                schedule_set_banner_from_release_info(&latest);
-                let current = wezterm_version();
-                if latest.tag_name.as_str() > current || force_ui {
-                    log::info!(
-                        "latest release {} is newer than current build {}",
-                        latest.tag_name,
-                        current
+            && let Ok(latest) = get_latest_release_info()
+        {
+            schedule_set_banner_from_release_info(&latest);
+            let current = wezterm_version();
+            if latest.tag_name.as_str() > current || force_ui {
+                log::info!(
+                    "latest release {} is newer than current build {}",
+                    latest.tag_name,
+                    current
+                );
+
+                let url = format!(
+                    "https://github.com/YatogamiRaito/HekaTerm/releases/tag/{}",
+                    latest.tag_name
+                );
+
+                if force_ui || socks.is_empty() || socks[0] == my_sock {
+                    persistent_toast_notification_with_click_to_open_url(
+                        "HekaTerm Update Available",
+                        "Click to see what's new",
+                        &url,
                     );
-
-                    let url = format!("https://github.com/YatogamiRaito/HekaTerm/releases/tag/{}", latest.tag_name);
-
-                    if force_ui || socks.is_empty() || socks[0] == my_sock {
-                        persistent_toast_notification_with_click_to_open_url(
-                            "HekaTerm Update Available",
-                            "Click to see what's new",
-                            &url,
-                        );
-                    }
-                }
-
-                config::create_user_owned_dirs(update_file_name.parent().unwrap()).ok();
-
-                // Record the time of this check
-                if let Ok(f) = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&update_file_name)
-                {
-                    serde_json::to_writer_pretty(f, &latest).ok();
                 }
             }
+
+            config::create_user_owned_dirs(update_file_name.parent().unwrap()).ok();
+
+            // Record the time of this check
+            if let Ok(f) = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&update_file_name)
+            {
+                serde_json::to_writer_pretty(f, &latest).ok();
+            }
+        }
 
         std::thread::sleep(Duration::from_secs(
             configuration().check_for_updates_interval_seconds,
@@ -210,7 +216,8 @@ fn update_checker() {
 
 pub fn start_update_checker() {
     static CHECKER_STARTED: AtomicBool = AtomicBool::new(false);
-    if CHECKER_STARTED.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed) == Ok(false)
+    if CHECKER_STARTED.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+        == Ok(false)
     {
         std::thread::Builder::new()
             .name("update_checker".into())

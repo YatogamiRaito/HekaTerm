@@ -1,10 +1,11 @@
 #[cfg(unix)]
 use libc::{mode_t, umask};
 #[cfg(unix)]
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 #[cfg(unix)]
-static SAVED_UMASK: std::sync::LazyLock<Mutex<Option<libc::mode_t>>> = std::sync::LazyLock::new(|| Mutex::new(None));
+static SAVED_UMASK: std::sync::LazyLock<Mutex<Option<libc::mode_t>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
 
 /// Unfortunately, novice unix users can sometimes be running
 /// with an overly permissive umask so we take care to install
@@ -32,7 +33,7 @@ impl UmaskSaver {
 
         #[cfg(unix)]
         {
-            SAVED_UMASK.lock().unwrap().replace(me.mask);
+            SAVED_UMASK.lock().replace(me.mask);
         }
 
         me
@@ -44,7 +45,7 @@ impl UmaskSaver {
     /// used in a program.
     #[cfg(unix)]
     pub fn saved_umask() -> Option<mode_t> {
-        *SAVED_UMASK.lock().unwrap()
+        *SAVED_UMASK.lock()
     }
 }
 
@@ -53,7 +54,7 @@ impl Drop for UmaskSaver {
         #[cfg(unix)]
         unsafe {
             umask(self.mask);
-            SAVED_UMASK.lock().unwrap().take();
+            SAVED_UMASK.lock().take();
         }
     }
 }

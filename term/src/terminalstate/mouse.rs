@@ -1,6 +1,6 @@
-use crate::input::{MouseEvent, MouseButton, KeyModifiers, KeyCode, MouseEventKind};
-use crate::terminalstate::MouseEncoding;
 use crate::TerminalState;
+use crate::input::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crate::terminalstate::MouseEncoding;
 use anyhow::bail;
 use std::io::Write;
 

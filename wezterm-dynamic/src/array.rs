@@ -45,7 +45,7 @@ fn take(array: Array) -> Vec<Value> {
 }
 
 impl Array {
-    #[must_use] 
+    #[must_use]
     pub const fn new() -> Self {
         Self { inner: Vec::new() }
     }

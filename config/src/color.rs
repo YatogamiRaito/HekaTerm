@@ -108,9 +108,7 @@ impl From<ColorSpec> for ColorAttribute {
     fn from(val: ColorSpec) -> Self {
         match val {
             ColorSpec::AnsiColor(c) => Self::PaletteIndex(c.into()),
-            ColorSpec::Color(RgbaColor { color }) => {
-                Self::TrueColorWithDefaultFallback(color)
-            }
+            ColorSpec::Color(RgbaColor { color }) => Self::TrueColorWithDefaultFallback(color),
             ColorSpec::Default => Self::Default,
         }
     }
@@ -180,7 +178,7 @@ pub struct Palette {
 impl_lua_conversion_dynamic!(Palette);
 
 impl Palette {
-    #[must_use] 
+    #[must_use]
     pub fn overlay_with(&self, other: &Self) -> Self {
         macro_rules! overlay {
             ($name:ident) => {
@@ -335,7 +333,7 @@ pub struct TabBarColor {
 }
 
 impl TabBarColor {
-    #[must_use] 
+    #[must_use]
     pub fn as_cell_attributes(&self) -> CellAttributes {
         let mut attr = CellAttributes::default();
         attr.set_intensity(self.intensity)
@@ -425,7 +423,7 @@ impl TabBarColors {
             .unwrap_or_else(default_inactive_tab_edge_hover)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn overlay_with(&self, other: &Self) -> Self {
         macro_rules! overlay {
             ($name:ident) => {

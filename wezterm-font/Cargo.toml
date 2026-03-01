@@ -14,8 +14,10 @@ vendor-noto-emoji = []
 vendor-nerd-font-symbols = []
 
 [dependencies]
+parking_lot.workspace = true
 anyhow.workspace = true
 ahash.workspace = true
+flume.workspace = true
 cairo-rs.workspace = true
 config.workspace = true
 encoding_rs.workspace = true

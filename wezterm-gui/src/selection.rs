@@ -3,8 +3,8 @@
 use mux::pane::Pane;
 use std::cmp::Ordering;
 use std::ops::Range;
-use termwiz::surface::line::DoubleClickRange;
 use termwiz::surface::SequenceNo;
+use termwiz::surface::line::DoubleClickRange;
 use wezterm_term::{SemanticZone, StableRowIndex};
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
@@ -180,7 +180,10 @@ impl SelectionRange {
 
     /// Computes the selection range for the line around the specified coords
     pub fn line_around(start: SelectionCoordinate, pane: &dyn Pane) -> Self {
-        for logical in pane.get_logical_lines(std::ops::Range { start: start.y, end: start.y + 1 }) {
+        for logical in pane.get_logical_lines(std::ops::Range {
+            start: start.y,
+            end: start.y + 1,
+        }) {
             if logical.contains_y(start.y) {
                 return Self {
                     start: SelectionCoordinate::x_y(0, logical.first_row),
@@ -196,9 +199,8 @@ impl SelectionRange {
     }
 
     pub fn zone_around(start: SelectionCoordinate, pane: &dyn mux::pane::Pane) -> Self {
-        let zones = match pane.get_semantic_zones() {
-            Ok(z) => z,
-            Err(_) => return Self { start, end: start },
+        let Ok(zones) = pane.get_semantic_zones() else {
+            return Self { start, end: start };
         };
 
         fn find_zone(start: &SelectionCoordinate, zone: &SemanticZone) -> Ordering {
@@ -237,7 +239,10 @@ impl SelectionRange {
 
     /// Computes the selection range for the word around the specified coords
     pub fn word_around(start: SelectionCoordinate, pane: &dyn Pane) -> Self {
-        for logical in pane.get_logical_lines(std::ops::Range { start: start.y, end: start.y + 1 }) {
+        for logical in pane.get_logical_lines(std::ops::Range {
+            start: start.y,
+            end: start.y + 1,
+        }) {
             if !logical.contains_y(start.y) {
                 continue;
             }

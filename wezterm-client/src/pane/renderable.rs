@@ -1,12 +1,16 @@
 use crate::domain::ClientInner;
 use crate::pane::clientpane::ClientPane;
 use anyhow::anyhow;
-use codec::{InputSerial, GetPaneRenderChangesResponse, GetLines, GetPaneRenderChanges, SerializedLines, GetImageCell, GetImageCellResponse};
-use config::{configuration, ConfigHandle};
+use codec::{
+    GetImageCell, GetImageCellResponse, GetLines, GetPaneRenderChanges,
+    GetPaneRenderChangesResponse, InputSerial, SerializedLines,
+};
+use config::{ConfigHandle, configuration};
 use lru::LruCache;
+use mux::Mux;
 use mux::pane::PaneId;
 use mux::renderable::{RenderableDimensions, StableCursorPosition};
-use mux::Mux;
+use parking_lot::Mutex;
 use promise::BrokenPromise;
 use rangeset::RangeSet;
 use ratelim::RateLimiter;
@@ -14,13 +18,13 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::ops::Range;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use termwiz::cell::{Cell, CellAttributes, Underline};
 use termwiz::color::AnsiColor;
 use termwiz::image::{ImageCell, ImageData};
-use termwiz::surface::{SequenceNo, SEQ_ZERO};
+use termwiz::surface::{SEQ_ZERO, SequenceNo};
 use url::Url;
 use wezterm_term::{KeyCode, KeyModifiers, Line, StableRowIndex};
 
@@ -392,8 +396,11 @@ impl RenderableInner {
                 to_fetch.add(stable_row);
                 let entry = match prior {
                     Some(LineEntry::Fetching(_)) | None => LineEntry::Fetching(now),
-                    Some(LineEntry::LineAndFetching(old, ..) | LineEntry::Stale(old) |
-LineEntry::Line(old)) => LineEntry::LineAndFetching(old, now),
+                    Some(
+                        LineEntry::LineAndFetching(old, ..)
+                        | LineEntry::Stale(old)
+                        | LineEntry::Line(old),
+                    ) => LineEntry::LineAndFetching(old, now),
                 };
                 log::trace!(
                     "row {} {:?} -> {:?} due to dirty and IN viewport",
@@ -408,9 +415,7 @@ LineEntry::Line(old)) => LineEntry::LineAndFetching(old, now),
             if self.fetch_limiter.non_blocking_admittance_check(1) {
                 self.schedule_fetch_lines(to_fetch, now);
             } else {
-                log::warn!(
-                    "exceeded fetch throttle, drop {to_fetch:?} and mark stale"
-                );
+                log::warn!("exceeded fetch throttle, drop {to_fetch:?} and mark stale");
                 for r in to_fetch.iter() {
                     for stable_row in r.clone() {
                         self.make_stale(stable_row);
@@ -434,8 +439,9 @@ LineEntry::Line(old)) => LineEntry::LineAndFetching(old, now),
 
     fn make_stale(&mut self, stable_row: StableRowIndex) {
         match self.lines.pop(&stable_row) {
-            Some(LineEntry::Stale(old) | LineEntry::Line(old) |
-LineEntry::LineAndFetching(old, _)) => {
+            Some(
+                LineEntry::Stale(old) | LineEntry::Line(old) | LineEntry::LineAndFetching(old, _),
+            ) => {
                 self.lines.put(stable_row, LineEntry::Stale(old));
             }
             Some(LineEntry::Fetching(_)) | None => {}
@@ -572,9 +578,7 @@ LineEntry::LineAndFetching(old, _)) => {
                 }
             }
         }
-        log::trace!(
-            "Generate PaneOutput event for local_pane_id={local_pane_id}"
-        );
+        log::trace!("Generate PaneOutput event for local_pane_id={local_pane_id}");
         mux.notify(mux::MuxNotification::PaneOutput(local_pane_id));
         Ok(())
     }
@@ -632,7 +636,8 @@ LineEntry::LineAndFetching(old, _)) => {
     }
 }
 
-static IMAGE_LRU: std::sync::LazyLock<Mutex<LruCache<[u8;32], Arc<ImageData>>>> = std::sync::LazyLock::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(128).unwrap())));
+static IMAGE_LRU: std::sync::LazyLock<Mutex<LruCache<[u8; 32], Arc<ImageData>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(128).unwrap())));
 
 pub async fn hydrate_lines(
     client: Arc<ClientInner>,
@@ -648,7 +653,7 @@ pub async fn hydrate_lines(
     let mut requests = HashMap::new();
     let mut data_by_hash = HashMap::new();
     for im in &image_cells {
-        if let Some(data) = IMAGE_LRU.lock().unwrap().get(&im.data_hash) {
+        if let Some(data) = IMAGE_LRU.lock().get(&im.data_hash) {
             data_by_hash.insert(im.data_hash, Arc::clone(data));
         } else {
             requests
@@ -667,10 +672,7 @@ pub async fn hydrate_lines(
             Ok(GetImageCellResponse {
                 data: Some(data), ..
             }) => {
-                IMAGE_LRU
-                    .lock()
-                    .unwrap()
-                    .put(data.hash(), Arc::clone(&data));
+                IMAGE_LRU.lock().put(data.hash(), Arc::clone(&data));
                 data_by_hash.insert(data.hash(), data);
             }
             Ok(GetImageCellResponse { data: None, .. }) => {
@@ -691,18 +693,24 @@ pub async fn hydrate_lines(
     for im in image_cells {
         if let Some(data) = data_by_hash.get(&im.data_hash)
             && let Some(line) = line_by_idx.get_mut(&im.line_idx)
-                && let Some(cell) = line.cells_mut_for_attr_changes_only().get_mut(im.cell_idx) {
-                    cell.attrs_mut()
-                        .attach_image(Box::new(ImageCell::with_z_index(
-                            im.top_left,
-                            im.bottom_right,
-                            Arc::clone(data),
-                            im.z_index,
-                            (im.padding_left, im.padding_top, im.padding_right, im.padding_bottom),
-                            im.image_id,
-                            im.placement_id,
-                        )));
-                }
+            && let Some(cell) = line.cells_mut_for_attr_changes_only().get_mut(im.cell_idx)
+        {
+            cell.attrs_mut()
+                .attach_image(Box::new(ImageCell::with_z_index(
+                    im.top_left,
+                    im.bottom_right,
+                    Arc::clone(data),
+                    im.z_index,
+                    (
+                        im.padding_left,
+                        im.padding_top,
+                        im.padding_right,
+                        im.padding_bottom,
+                    ),
+                    im.image_id,
+                    im.placement_id,
+                )));
+        }
     }
 
     line_by_idx.into_iter().collect()
@@ -750,27 +758,29 @@ impl RenderableState {
                 }
             };
 
-            if inner.client.overlay_lag_indicator && idx == inner.dimensions.physical_top
-                && inner.is_tardy() {
-                    let status = format!(
-                        "wezterm: {:.0?}⏳since last response",
-                        inner.last_recv_time.elapsed()
-                    );
-                    // Right align it in the tab
-                    let col = inner
-                        .dimensions
-                        .cols
-                        .saturating_sub(wezterm_term::unicode_column_width(&status, None));
+            if inner.client.overlay_lag_indicator
+                && idx == inner.dimensions.physical_top
+                && inner.is_tardy()
+            {
+                let status = format!(
+                    "wezterm: {:.0?}⏳since last response",
+                    inner.last_recv_time.elapsed()
+                );
+                // Right align it in the tab
+                let col = inner
+                    .dimensions
+                    .cols
+                    .saturating_sub(wezterm_term::unicode_column_width(&status, None));
 
-                    let mut attr = CellAttributes::default();
-                    attr.set_foreground(AnsiColor::White);
-                    attr.set_background(AnsiColor::Blue);
+                let mut attr = CellAttributes::default();
+                attr.set_foreground(AnsiColor::White);
+                attr.set_background(AnsiColor::Blue);
 
-                    result
-                        .last_mut()
-                        .unwrap()
-                        .overlay_text_with_attribute(col, &status, attr, SEQ_ZERO);
-                }
+                result
+                    .last_mut()
+                    .unwrap()
+                    .overlay_text_with_attribute(col, &status, attr, SEQ_ZERO);
+            }
 
             inner.lines.put(idx, entry);
         }

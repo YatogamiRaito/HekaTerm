@@ -1,10 +1,10 @@
 //! An abstraction over a terminal device
 
-use crate::caps::probed::ProbeCapabilities;
 use crate::caps::Capabilities;
+use crate::caps::probed::ProbeCapabilities;
 use crate::input::InputEvent;
 use crate::surface::Change;
-use crate::{format_err, Result};
+use crate::{Result, format_err};
 use num_traits::NumCast;
 use std::fmt::Display;
 use std::time::Duration;

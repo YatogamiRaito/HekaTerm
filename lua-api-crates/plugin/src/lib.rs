@@ -4,6 +4,7 @@ use config::lua::mlua::{self, Lua, Value};
 use git2::build::CheckoutBuilder;
 use git2::{Remote, Repository};
 use luahelper::to_lua;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use tempfile::TempDir;
 use wezterm_dynamic::{FromDynamic, ToDynamic};
@@ -32,7 +33,7 @@ fn compute_repo_dir(url: &str) -> String {
             }
             '-' | '_' => dir.push(c),
             c if c.is_alphanumeric() => dir.push(c),
-            c => dir.push_str(&format!("u{}", c as u32)),
+            c => write!(&mut dir, "u{}", c as u32).unwrap(),
         }
     }
     if dir.ends_with("sZs") {
@@ -182,7 +183,7 @@ impl RepoSpec {
     }
 }
 
-fn require_plugin(lua: &Lua, url: String) -> anyhow::Result<Value<'_>> {
+fn require_plugin(lua: &Lua, url: String) -> anyhow::Result<Value> {
     let spec = RepoSpec::parse(url)?;
 
     if !spec.is_checked_out() {
@@ -190,7 +191,7 @@ fn require_plugin(lua: &Lua, url: String) -> anyhow::Result<Value<'_>> {
     }
 
     let require: mlua::Function = lua.globals().get("require")?;
-    match require.call::<_, Value>(spec.component.clone()) {
+    match require.call::<Value>(spec.component.clone()) {
         Ok(value) => Ok(value),
         Err(err) => {
             log::error!(

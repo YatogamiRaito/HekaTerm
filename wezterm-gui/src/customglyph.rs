@@ -162,11 +162,7 @@ impl BlockCoord {
         /// For interior points, adjust so that we get the middle of the row;
         /// in AA modes with 1px wide strokes this gives better results.
         fn hint(v: f32) -> f32 {
-            if v.fract() == 0. {
-                v - 0.5
-            } else {
-                v
-            }
+            if v.fract() == 0. { v - 0.5 } else { v }
         }
         match self {
             Self::Zero => 0.,
@@ -626,7 +622,7 @@ impl PolyCommand {
                 if let Some(oval) = tiny_skia::Rect::from_xywh(x, y, w, h) {
                     pb.push_oval(oval);
                 } else {
-                    log::error!("Can't push oval, values: {:?}", self);
+                    log::error!("Can't push oval, values: {self:?}");
                 }
             }
             Self::Circle {
@@ -666,7 +662,10 @@ impl PolyStyle {
             | PolyStyle::Outline
             | PolyStyle::OutlineHeavy
             | PolyStyle::OutlineAlpha => {
-                let mut stroke = Stroke { width, ..Default::default() };
+                let mut stroke = Stroke {
+                    width,
+                    ..Default::default()
+                };
                 if self == PolyStyle::OutlineHeavy {
                     stroke.width *= 3.01; // NOTE: Changing this makes block cursor disproportionate at different font sizes and resolutions
                 } else if self == PolyStyle::OutlineThin {
@@ -5032,7 +5031,10 @@ impl GlyphCache {
             style,
         } in polys
         {
-            let mut paint = Paint { blend_mode, ..Default::default() };
+            let mut paint = Paint {
+                blend_mode,
+                ..Default::default()
+            };
             let intensity = intensity.to_scale();
             paint.set_color(
                 tiny_skia::Color::from_rgba(intensity, intensity, intensity, intensity).unwrap(),

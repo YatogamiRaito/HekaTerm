@@ -104,7 +104,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     mux_mod.set(
         "spawn_window",
-        lua.create_async_function(|_, spawn: SpawnWindow| async move { spawn.spawn().await })?,
+        lua.create_async_function(|_, spawn: SpawnWindow| async move {
+            promise::spawn::spawn(async move { spawn.spawn().await }).await
+        })?,
     )?;
 
     mux_mod.set(
@@ -127,7 +129,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 LuaValue::Nil => Ok(Some(MuxDomain(mux.default_domain().domain_id()))),
                 LuaValue::String(s) => match s.to_str() {
                     Ok(name) => Ok(mux
-                        .get_domain_by_name(name)
+                        .get_domain_by_name(name.as_ref())
                         .map(|dom| MuxDomain(dom.domain_id()))),
                     Err(err) => Err(mlua::Error::external(format!(
                         "invalid domain identifier passed to mux.get_domain: {err:#}"
@@ -196,8 +198,7 @@ impl CommandBuilderFrag {
     }
 }
 
-#[derive(Debug, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, FromDynamic, ToDynamic, Default)]
 enum HandySplitDirection {
     Left,
     #[default]
@@ -206,7 +207,6 @@ enum HandySplitDirection {
     Bottom,
 }
 impl_lua_conversion_dynamic!(HandySplitDirection);
-
 
 #[derive(Debug, FromDynamic, ToDynamic)]
 struct SpawnWindow {
@@ -278,8 +278,10 @@ impl SpawnTab {
 
         {
             let window = window.resolve(&mux)?;
-            size = window
-                .get_by_idx(0).map_or_else(|| config::configuration().initial_size(0, None), |tab| tab.get_size());
+            size = window.get_by_idx(0).map_or_else(
+                || config::configuration().initial_size(0, None),
+                |tab| tab.get_size(),
+            );
 
             pane = window
                 .get_active()

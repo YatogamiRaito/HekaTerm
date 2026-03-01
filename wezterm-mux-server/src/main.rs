@@ -1,8 +1,8 @@
 use clap::{Parser, ValueHint};
 use config::configuration;
+use mux::Mux;
 use mux::activity::Activity;
 use mux::domain::{Domain, LocalDomain};
-use mux::Mux;
 use portable_pty::cmdbuilder::CommandBuilder;
 use std::ffi::OsString;
 use std::process::Command;
@@ -100,7 +100,9 @@ fn run() -> anyhow::Result<()> {
 
     config.update_ulimit()?;
     if let Some(value) = &config.default_ssh_auth_sock {
-        unsafe { std::env::set_var("SSH_AUTH_SOCK", value); }
+        unsafe {
+            std::env::set_var("SSH_AUTH_SOCK", value);
+        }
     }
 
     #[cfg(unix)]
@@ -198,10 +200,14 @@ fn run() -> anyhow::Result<()> {
         "WEZTERM_UNIX_SOCKET",
         "_",
     ] {
-        unsafe { std::env::remove_var(name); }
+        unsafe {
+            std::env::remove_var(name);
+        }
     }
     for name in &config::configuration().mux_env_remove {
-        unsafe { std::env::remove_var(name); }
+        unsafe {
+            std::env::remove_var(name);
+        }
     }
 
     wezterm_blob_leases::register_storage(Arc::new(
@@ -253,7 +259,7 @@ fn run() -> anyhow::Result<()> {
 async fn trigger_mux_startup(lua: Option<Rc<mlua::Lua>>) -> anyhow::Result<()> {
     if let Some(lua) = lua {
         let args = lua.pack_multi(())?;
-        config::lua::emit_event(&lua, ("mux-startup".to_string(), args)).await?;
+        config::lua::emit_event((*lua).clone(), ("mux-startup".to_string(), args)).await?;
     }
     Ok(())
 }
@@ -310,7 +316,9 @@ mod ossl;
 pub fn spawn_listener() -> anyhow::Result<()> {
     let config = configuration();
     for unix_dom in &config.unix_domains {
-        unsafe { std::env::set_var("WEZTERM_UNIX_SOCKET", unix_dom.socket_path()); }
+        unsafe {
+            std::env::set_var("WEZTERM_UNIX_SOCKET", unix_dom.socket_path());
+        }
         let mut listener = wezterm_mux_server_impl::local::LocalListener::with_domain(unix_dom)?;
         thread::spawn(move || {
             listener.run();

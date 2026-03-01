@@ -53,7 +53,7 @@ block2 = "0.6"
 bstr = "1.0"
 bytemuck = { version="1.4", features=["derive"]}
 bytes = "1.11"
-cairo-rs = {version="0.18", default-features=false} # See patch.crates-io section
+cairo-rs = {version="0.20", default-features=false} # See patch.crates-io section
 camino = "1.0"
 cassowary = "0.3"
 cc = {version="1.0", features = ["parallel"]}
@@ -66,14 +66,14 @@ clipboard-win = "2.2"
 cocoa = "=0.25.0"
 codec = { path = "codec" }
 color-funcs = { path = "lua-api-crates/color-funcs" }
-colorgrad = "0.6"
+colorgrad = { version = "0.8.0", features = ["preset"] }
 config = { path = "config" }
 core-foundation = "=0.10.0"
 core-graphics = "=0.24.0"
 core-text = "=21.0.0"
 criterion = "0.5"
 crossbeam = "0.8"
-csscolorparser = "0.6"
+csscolorparser = "0.8"
 deltae = "0.3"
 dhat = "0.3"
 dirs-next = "2.0"
@@ -85,7 +85,7 @@ emojis = "0.6"
 encoding_rs = "0.8"
 enum-display-derive = "0.1"
 env-bootstrap = { path = "env-bootstrap" }
-env_logger = "0.11"
+env_logger = "0.11.9"
 euclid = {version="0.22", default-features=false}
 fancy-regex = {version="0.14", default-features=false, features=[]}
 fastrand = "2.0"
@@ -106,9 +106,7 @@ futures-util = "0.3"
 gethostname = "0.5"
 getrandom = "0.3.1"
 git2 = { version = "0.20", default-features = false, features = ["https"] }
-gl_generator = "0.14"
-glium = { version = "0.35", default-features = false }
-governor = {version="0.5", default-features=false, features=["std"]}
+governor = {version="0.10.4", default-features=false, features=["std"]}
 guillotiere = "0.6"
 harfbuzz = { path = "deps/harfbuzz" }
 heapless = "0.8"
@@ -141,7 +139,7 @@ memchr = "2"
 metrics = "0.23"
 miniz_oxide = "0.8"
 mio = "0.8"
-mlua = "0.9"
+mlua = "0.11.6"
 mux = { path = "mux" }
 mux-lua = { path = "lua-api-crates/mux" }
 names = { version = "0.12", default-features = false }
@@ -158,8 +156,8 @@ objc2-core-graphics = "0.3"
 objc2-foundation = "0.3"
 objc2-user-notifications = "0.3"
 openssl = "0.10.57"
-ordered-float = {version="4.1", default-features=false}
-parking_lot = "0.12"
+ordered-float = {version="5.1.0", default-features=false}
+parking_lot = { version = "0.12", features = ["serde"] }
 passfd = "0.1.6"
 percent-encoding = "2.3"
 pest = "2.7"
@@ -183,7 +181,7 @@ rayon = "1.10"
 rcgen = "0.13"
 regex = "1"
 reqwest = "0.12"
-resize = "0.5"
+resize = "0.8.9"
 rstest = "0.21"
 rusqlite = "0.32"
 serde = {version="1.0", default-features=false, features = ["derive"]}
@@ -281,4 +279,4 @@ zvariant = "4.0"
 [patch.crates-io]
 # We use our own vendored cairo, which has minimal deps and should just
 # build via cargo.
-cairo-sys-rs = {path="deps/cairo", version="0.18.0"}
+cairo-sys-rs = {path="deps/cairo", version="0.20.0"}

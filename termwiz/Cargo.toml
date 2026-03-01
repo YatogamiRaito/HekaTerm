@@ -11,6 +11,7 @@ keywords = ["terminal", "readline", "console", "curses"]
 readme = "README.md"
 
 [dependencies]
+parking_lot.workspace = true
 anyhow.workspace = true
 bitflags = "2.0"
 cassowary = {workspace=true, optional=true}

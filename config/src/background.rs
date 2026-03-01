@@ -1,4 +1,4 @@
-use crate::{default_one_point_oh, Config, Dimension, HsbTransform, PixelUnit, RgbaColor};
+use crate::{Config, Dimension, HsbTransform, PixelUnit, RgbaColor, default_one_point_oh};
 use luahelper::impl_lua_conversion_dynamic;
 use termwiz::color::SrgbaTuple;
 use wezterm_dynamic::{FromDynamic, FromDynamicOptions, ToDynamic, Value};
@@ -30,12 +30,14 @@ impl FromDynamic for ImageFileSourceWrap {
         value: &Value,
         options: FromDynamicOptions,
     ) -> Result<Self, wezterm_dynamic::Error> {
-        if let Value::String(path) = value { Ok(Self {
-            inner: ImageFileSource {
-                path: path.clone(),
-                speed: 1.0,
-            },
-        }) } else {
+        if let Value::String(path) = value {
+            Ok(Self {
+                inner: ImageFileSource {
+                    path: path.clone(),
+                    speed: 1.0,
+                },
+            })
+        } else {
             let inner = ImageFileSource::from_dynamic(value, options)?;
             Ok(Self { inner })
         }
@@ -96,7 +98,7 @@ pub struct BackgroundLayer {
 }
 
 impl BackgroundLayer {
-    #[must_use] 
+    #[must_use]
     pub fn with_legacy(cfg: &Config) -> Option<Self> {
         let source = if let Some(gradient) = &cfg.window_background_gradient {
             BackgroundSource::Gradient(gradient.clone())
@@ -131,8 +133,7 @@ impl BackgroundLayer {
 }
 
 /// <https://developer.mozilla.org/en-US/docs/Web/CSS/background-size>
-#[derive(Debug, Copy, Clone)]
-#[derive(Default)]
+#[derive(Debug, Copy, Clone, Default)]
 pub enum BackgroundSize {
     /// Scales image as large as possible without cropping or stretching.
     /// If the container is larger than the image, tiles the image unless
@@ -153,11 +154,13 @@ impl FromDynamic for BackgroundSize {
         value: &Value,
         options: FromDynamicOptions,
     ) -> Result<Self, wezterm_dynamic::Error> {
-        if let Value::String(label) = value { match label.as_str() {
-            "Contain" => return Ok(Self::Contain),
-            "Cover" => return Ok(Self::Cover),
-            _ => {}
-        } }
+        if let Value::String(label) = value {
+            match label.as_str() {
+                "Contain" => return Ok(Self::Contain),
+                "Cover" => return Ok(Self::Cover),
+                _ => {}
+            }
+        }
         match PixelUnit::from_dynamic(value, options) {
             Ok(pix) => Ok(Self::Dimension(pix.into())),
             Err(_) => Err(wezterm_dynamic::Error::Message(format!(
@@ -183,9 +186,7 @@ impl ToDynamic for BackgroundSize {
     }
 }
 
-
-#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, Default)]
 pub enum BackgroundHorizontalAlignment {
     #[default]
     Left,
@@ -193,9 +194,7 @@ pub enum BackgroundHorizontalAlignment {
     Right,
 }
 
-
-#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, Default)]
 pub enum BackgroundVerticalAlignment {
     #[default]
     Top,
@@ -203,9 +202,7 @@ pub enum BackgroundVerticalAlignment {
     Bottom,
 }
 
-
-#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Eq, Default)]
 pub enum BackgroundRepeat {
     /// Repeat as much as possible to cover the area.
     /// The last image will be clipped if it doesn't fit.
@@ -238,9 +235,7 @@ pub enum BackgroundRepeat {
     NoRepeat,
 }
 
-
-#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, Default)]
 pub enum BackgroundAttachment {
     #[default]
     Fixed,
@@ -249,7 +244,7 @@ pub enum BackgroundAttachment {
 }
 
 impl BackgroundAttachment {
-    #[must_use] 
+    #[must_use]
     pub const fn scroll_factor(&self) -> Option<f32> {
         match self {
             Self::Fixed => None,
@@ -259,15 +254,12 @@ impl BackgroundAttachment {
     }
 }
 
-
-#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, Default)]
 pub enum BackgroundOrigin {
     #[default]
     BorderBox,
     PaddingBox,
 }
-
 
 #[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Eq, Default)]
 pub enum SystemBackdrop {
@@ -279,7 +271,7 @@ pub enum SystemBackdrop {
     Tabbed,
 }
 
-#[must_use] 
+#[must_use]
 pub fn default_win32_acrylic_accent_color() -> RgbaColor {
     SrgbaTuple(0.156863, 0.156863, 0.156863, 0.003922).into()
 }
@@ -301,8 +293,7 @@ pub enum BlendMode {
     Oklab,
 }
 
-#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Default)]
 pub enum GradientOrientation {
     #[default]
     Horizontal,
@@ -316,7 +307,6 @@ pub enum GradientOrientation {
         cy: Option<f64>,
     },
 }
-
 
 #[derive(Debug, Copy, Clone, FromDynamic, ToDynamic, PartialEq, Eq)]
 pub enum GradientPreset {
@@ -361,46 +351,46 @@ pub enum GradientPreset {
 }
 
 impl GradientPreset {
-    fn build(self) -> colorgrad::Gradient {
+    fn build(self) -> Box<dyn colorgrad::Gradient> {
         match self {
-            Self::Blues => colorgrad::blues(),
-            Self::BrBg => colorgrad::br_bg(),
-            Self::BuGn => colorgrad::bu_gn(),
-            Self::BuPu => colorgrad::bu_pu(),
-            Self::Cividis => colorgrad::cividis(),
-            Self::Cool => colorgrad::cool(),
-            Self::CubeHelixDefault => colorgrad::cubehelix_default(),
-            Self::GnBu => colorgrad::gn_bu(),
-            Self::Greens => colorgrad::greens(),
-            Self::Greys => colorgrad::greys(),
-            Self::Inferno => colorgrad::inferno(),
-            Self::Magma => colorgrad::magma(),
-            Self::OrRd => colorgrad::or_rd(),
-            Self::Oranges => colorgrad::oranges(),
-            Self::PiYg => colorgrad::pi_yg(),
-            Self::Plasma => colorgrad::plasma(),
-            Self::PrGn => colorgrad::pr_gn(),
-            Self::PuBu => colorgrad::pu_bu(),
-            Self::PuBuGn => colorgrad::pu_bu_gn(),
-            Self::PuOr => colorgrad::pu_or(),
-            Self::PuRd => colorgrad::pu_rd(),
-            Self::Purples => colorgrad::purples(),
-            Self::Rainbow => colorgrad::rainbow(),
-            Self::RdBu => colorgrad::rd_bu(),
-            Self::RdGy => colorgrad::rd_gy(),
-            Self::RdPu => colorgrad::rd_pu(),
-            Self::RdYlBu => colorgrad::rd_yl_bu(),
-            Self::RdYlGn => colorgrad::rd_yl_gn(),
-            Self::Reds => colorgrad::reds(),
-            Self::Sinebow => colorgrad::sinebow(),
-            Self::Spectral => colorgrad::spectral(),
-            Self::Turbo => colorgrad::turbo(),
-            Self::Viridis => colorgrad::viridis(),
-            Self::Warm => colorgrad::warm(),
-            Self::YlGn => colorgrad::yl_gn(),
-            Self::YlGnBu => colorgrad::yl_gn_bu(),
-            Self::YlOrBr => colorgrad::yl_or_br(),
-            Self::YlOrRd => colorgrad::yl_or_rd(),
+            Self::Blues => Box::new(colorgrad::preset::blues()),
+            Self::BrBg => Box::new(colorgrad::preset::br_bg()),
+            Self::BuGn => Box::new(colorgrad::preset::bu_gn()),
+            Self::BuPu => Box::new(colorgrad::preset::bu_pu()),
+            Self::Cividis => Box::new(colorgrad::preset::cividis()),
+            Self::Cool => Box::new(colorgrad::preset::cool()),
+            Self::CubeHelixDefault => Box::new(colorgrad::preset::cubehelix_default()),
+            Self::GnBu => Box::new(colorgrad::preset::gn_bu()),
+            Self::Greens => Box::new(colorgrad::preset::greens()),
+            Self::Greys => Box::new(colorgrad::preset::greys()),
+            Self::Inferno => Box::new(colorgrad::preset::inferno()),
+            Self::Magma => Box::new(colorgrad::preset::magma()),
+            Self::OrRd => Box::new(colorgrad::preset::or_rd()),
+            Self::Oranges => Box::new(colorgrad::preset::oranges()),
+            Self::PiYg => Box::new(colorgrad::preset::pi_yg()),
+            Self::Plasma => Box::new(colorgrad::preset::plasma()),
+            Self::PrGn => Box::new(colorgrad::preset::pr_gn()),
+            Self::PuBu => Box::new(colorgrad::preset::pu_bu()),
+            Self::PuBuGn => Box::new(colorgrad::preset::pu_bu_gn()),
+            Self::PuOr => Box::new(colorgrad::preset::pu_or()),
+            Self::PuRd => Box::new(colorgrad::preset::pu_rd()),
+            Self::Purples => Box::new(colorgrad::preset::purples()),
+            Self::Rainbow => Box::new(colorgrad::preset::rainbow()),
+            Self::RdBu => Box::new(colorgrad::preset::rd_bu()),
+            Self::RdGy => Box::new(colorgrad::preset::rd_gy()),
+            Self::RdPu => Box::new(colorgrad::preset::rd_pu()),
+            Self::RdYlBu => Box::new(colorgrad::preset::rd_yl_bu()),
+            Self::RdYlGn => Box::new(colorgrad::preset::rd_yl_gn()),
+            Self::Reds => Box::new(colorgrad::preset::reds()),
+            Self::Sinebow => Box::new(colorgrad::preset::sinebow()),
+            Self::Spectral => Box::new(colorgrad::preset::spectral()),
+            Self::Turbo => Box::new(colorgrad::preset::turbo()),
+            Self::Viridis => Box::new(colorgrad::preset::viridis()),
+            Self::Warm => Box::new(colorgrad::preset::warm()),
+            Self::YlGn => Box::new(colorgrad::preset::yl_gn()),
+            Self::YlGnBu => Box::new(colorgrad::preset::yl_gn_bu()),
+            Self::YlOrBr => Box::new(colorgrad::preset::yl_or_br()),
+            Self::YlOrRd => Box::new(colorgrad::preset::yl_or_rd()),
         }
     }
 }
@@ -434,27 +424,34 @@ pub struct Gradient {
 impl_lua_conversion_dynamic!(Gradient);
 
 impl Gradient {
-    pub fn build(&self) -> anyhow::Result<colorgrad::Gradient> {
-        use colorgrad::{BlendMode as CGMode, Interpolation as CGInterp};
-        let g = if let Some(p) = &self.preset { p.build() } else {
-            let colors: Vec<&str> = self.colors.iter().map(std::string::String::as_str).collect();
-            let mut g = colorgrad::CustomGradient::new();
+    pub fn build(&self) -> anyhow::Result<Box<dyn colorgrad::Gradient>> {
+        use colorgrad::BlendMode as CGMode;
+        let g: Box<dyn colorgrad::Gradient> = if let Some(p) = &self.preset {
+            p.build()
+        } else {
+            let colors: Vec<&str> = self
+                .colors
+                .iter()
+                .map(std::string::String::as_str)
+                .collect();
+            let mut g = colorgrad::GradientBuilder::new();
             g.html_colors(&colors);
             g.mode(match self.blend {
                 BlendMode::Rgb => CGMode::Rgb,
                 BlendMode::LinearRgb => CGMode::LinearRgb,
-                BlendMode::Hsv => CGMode::Hsv,
+                BlendMode::Hsv => CGMode::Oklab,
                 BlendMode::Oklab => CGMode::Oklab,
             });
-            g.interpolation(match self.interpolation {
-                Interpolation::Linear => CGInterp::Linear,
-                Interpolation::Basis => CGInterp::Basis,
-                Interpolation::CatmullRom => CGInterp::CatmullRom,
-            });
-            g.build()?
+            match self.interpolation {
+                Interpolation::Linear => Box::new(g.build::<colorgrad::LinearGradient>()?),
+                Interpolation::Basis => Box::new(g.build::<colorgrad::BasisGradient>()?),
+                Interpolation::CatmullRom => Box::new(g.build::<colorgrad::CatmullRomGradient>()?),
+            }
         };
         match (self.segment_size, self.segment_smoothness) {
-            (Some(size), Some(smoothness)) => Ok(g.sharp(size, smoothness)),
+            (Some(size), Some(smoothness)) => Ok(Box::new(
+                g.sharp(size.try_into().unwrap_or(u16::MAX), smoothness as f32),
+            )),
             (None, None) => Ok(g),
             _ => anyhow::bail!(
                 "Gradient must either specify both segment_size and segment_smoothness, or neither"

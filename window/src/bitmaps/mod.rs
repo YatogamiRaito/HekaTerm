@@ -1,8 +1,8 @@
 use crate::color::{LinearRgba, SrgbaPixel};
 use crate::{Point, Rect, Size};
-use downcast_rs::{impl_downcast, Downcast};
-use glium::texture::SrgbTexture2d;
+use downcast_rs::{Downcast, impl_downcast};
 use std::cell::RefCell;
+use std::fmt::Write as _;
 
 pub mod atlas;
 
@@ -42,42 +42,6 @@ pub trait Texture2d: Downcast {
     }
 }
 impl_downcast!(Texture2d);
-
-impl Texture2d for SrgbTexture2d {
-    fn write(&self, rect: Rect, im: &dyn BitmapImage) {
-        let (im_width, im_height) = im.image_dimensions();
-
-        let source = glium::texture::RawImage2d {
-            data: std::borrow::Cow::Borrowed(im.pixels()),
-            width: im_width as u32,
-            height: im_height as u32,
-            format: glium::texture::ClientFormat::U8U8U8U8,
-        };
-
-        Self::write(
-            self,
-            glium::Rect {
-                left: rect.min_x() as u32,
-                bottom: rect.min_y() as u32,
-                width: rect.size.width as u32,
-                height: rect.size.height as u32,
-            },
-            source,
-        );
-    }
-
-    fn read(&self, _rect: Rect, _im: &mut dyn BitmapImage) {
-        unimplemented!();
-    }
-
-    fn width(&self) -> usize {
-        Self::width(self) as usize
-    }
-
-    fn height(&self) -> usize {
-        Self::height(self) as usize
-    }
-}
 
 /// A bitmap in big endian rbga32 color format with abstract
 /// storage filled in by the trait implementation.
@@ -330,7 +294,7 @@ impl From<Image> for Vec<u8> {
 impl Image {
     /// Create a new bgra32 image buffer with the specified dimensions.
     /// The buffer is initialized to all zeroes.
-    #[must_use] 
+    #[must_use]
     pub fn new(width: usize, height: usize) -> Self {
         let size = height * width * 4;
         let mut data = vec![0; size];
@@ -342,7 +306,7 @@ impl Image {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn from_raw(width: usize, height: usize, data: Vec<u8>) -> Self {
         Self {
             data,
@@ -353,7 +317,7 @@ impl Image {
 
     /// Create a new bgra32 image buffer with the specified dimensions.
     /// The buffer is populated with the source data in rgba32 format.
-    #[must_use] 
+    #[must_use]
     pub fn with_rgba32(width: usize, height: usize, stride: usize, data: &[u8]) -> Self {
         let mut image = Self::new(width, height);
         for y in 0..height {
@@ -376,7 +340,7 @@ impl Image {
 
     /// Creates a new image with the contents of the current image, but
     /// resized to the specified dimensions.
-    #[must_use] 
+    #[must_use]
     pub fn resize(&self, width: usize, height: usize) -> Self {
         let mut dest = Self::new(width, height);
         let algo = if (width * height) < (self.width * self.height) {
@@ -384,19 +348,26 @@ impl Image {
         } else {
             resize::Type::Mitchell
         };
+        let src =
+            unsafe { std::slice::from_raw_parts(self.data.as_ptr().cast(), self.data.len() / 4) };
+        let dst = unsafe {
+            std::slice::from_raw_parts_mut(dest.data.as_mut_ptr().cast(), dest.data.len() / 4)
+        };
         resize::new(
             self.width,
             self.height,
             width,
             height,
-            resize::Pixel::RGBA,
+            resize::Pixel::RGBA8,
             algo,
         )
-        .resize(&self.data, &mut dest.data);
+        .unwrap()
+        .resize(src, dst)
+        .unwrap();
         dest
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn scale_by(&self, scale: f64) -> Self {
         let width = (self.width as f64 * scale) as usize;
         let height = (self.height as f64 * scale) as usize;
@@ -410,7 +381,7 @@ impl Image {
             let row = self.horizontal_pixel_range(0, self.width, y);
             let mut line = String::new();
             for p in row {
-                line.push_str(&format!("{:08x} ", *p));
+                write!(&mut line, "{:08x} ", *p).unwrap();
             }
             log::info!("{line}");
         }
@@ -437,7 +408,7 @@ pub struct ImageTexture {
 }
 
 impl ImageTexture {
-    #[must_use] 
+    #[must_use]
     pub fn new(width: usize, height: usize) -> Self {
         let im = Image::new(width, height);
         Self {

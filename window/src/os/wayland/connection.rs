@@ -4,7 +4,7 @@ use std::os::fd::AsRawFd;
 use std::rc::Rc;
 use std::sync::atomic::AtomicUsize;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Token};
 use wayland_client::backend::WaylandError;
@@ -15,13 +15,12 @@ use crate::screen::{ScreenInfo, Screens};
 use crate::spawn::SPAWN_QUEUE;
 use crate::{Appearance, Connection, ConnectionOps, ScreenRect};
 
-use super::state::WaylandState;
 use super::WaylandWindowInner;
+use super::state::WaylandState;
 
 pub struct WaylandConnection {
     pub(crate) should_terminate: RefCell<bool>,
     pub(crate) next_window_id: AtomicUsize,
-    pub(super) gl_connection: RefCell<Option<Rc<crate::egl::GlConnection>>>,
     pub(super) connection: WConnection,
     pub(super) event_queue: RefCell<EventQueue<WaylandState>>,
     pub(super) wayland_state: RefCell<WaylandState>,
@@ -38,7 +37,6 @@ impl WaylandConnection {
             connection: conn,
             should_terminate: RefCell::new(false),
             next_window_id: AtomicUsize::new(1),
-            gl_connection: RefCell::new(None),
             event_queue: RefCell::new(event_queue),
             wayland_state: RefCell::new(wayland_state),
         };
@@ -86,8 +84,9 @@ impl WaylandConnection {
                 let mut wayland_state = self.wayland_state.borrow_mut();
                 if let Err(err) = event_q.dispatch_pending(&mut wayland_state) {
                     // TODO: show the protocol error in the display
-                    return Err(err)
-                        .with_context(|| "error during event_q.dispatch protcol_error".to_string());
+                    return Err(err).with_context(|| {
+                        "error during event_q.dispatch protcol_error".to_string()
+                    });
                 }
             }
 
@@ -105,17 +104,18 @@ impl WaylandConnection {
                 }
 
                 if let Some(guard) = event_q.prepare_read()
-                    && let Err(err) = guard.read() {
-                        log::trace!("Event Q error: {err:?}");
-                        if let WaylandError::Protocol(perr) = err {
-                            return Err(perr.into());
-                            // TODO
-                            // return Err(perr).with_context(|| {
-                            //     format!("error during event_q.read protocol_error={:?}",
-                            //             perr)
-                            // })
-                        }
+                    && let Err(err) = guard.read()
+                {
+                    log::trace!("Event Q error: {err:?}");
+                    if let WaylandError::Protocol(perr) = err {
+                        return Err(perr.into());
+                        // TODO
+                        // return Err(perr).with_context(|| {
+                        //     format!("error during event_q.read protocol_error={:?}",
+                        //             perr)
+                        // })
                     }
+                }
             }
         }
 
@@ -191,9 +191,10 @@ impl ConnectionOps for WaylandConnection {
         log::trace!("Getting screens for wayland connection");
 
         if let Some(output_manager) = &self.wayland_state.borrow().output_manager
-            && let Some(screens) = output_manager.screens() {
-                return Ok(screens);
-            }
+            && let Some(screens) = output_manager.screens()
+        {
+            return Ok(screens);
+        }
 
         let mut by_name = HashMap::new();
         let mut virtual_rect: ScreenRect = euclid::rect(0, 0, 0, 0);
@@ -202,9 +203,8 @@ impl ConnectionOps for WaylandConnection {
         let output_state = &self.wayland_state.borrow().output;
 
         for output in output_state.outputs() {
-            let info = match output_state.info(&output) {
-                Some(i) => i,
-                None => continue,
+            let Some(info) = output_state.info(&output) else {
+                continue;
             };
             let name = match info.name {
                 Some(n) => n.clone(),
@@ -215,7 +215,9 @@ impl ConnectionOps for WaylandConnection {
                 .modes
                 .iter()
                 .find(|mode| mode.current)
-                .map_or((info.physical_size.0, info.physical_size.1), |mode| mode.dimensions);
+                .map_or((info.physical_size.0, info.physical_size.1), |mode| {
+                    mode.dimensions
+                });
 
             let rect = euclid::rect(
                 info.location.0 as isize,

@@ -10,6 +10,7 @@ license = "MIT"
 std = ["thiserror/std", "dep:strsim", "ordered-float/std"]
 
 [dependencies]
+parking_lot.workspace = true
 log.workspace = true
 ordered-float = {workspace = true, features=["libm"]}
 strsim = {workspace = true, optional=true}

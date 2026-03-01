@@ -201,7 +201,8 @@ fn build_map() -> AHashMap<WPARAM, PhysKeyCode> {
     .collect()
 }
 
-static MAP: std::sync::LazyLock<AHashMap<WPARAM, PhysKeyCode>> = std::sync::LazyLock::new(|| build_map());
+static MAP: std::sync::LazyLock<AHashMap<WPARAM, PhysKeyCode>> =
+    std::sync::LazyLock::new(|| build_map());
 
 pub fn vkey_to_phys(vkey: WPARAM) -> Option<PhysKeyCode> {
     MAP.get(&vkey).copied()

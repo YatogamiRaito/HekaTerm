@@ -3,6 +3,7 @@ use crate::locator::{new_locator, FontLocator};
 use crate::parser::ParsedFont;
 use crate::rasterizer::{new_rasterizer, FontRasterizer};
 use crate::shaper::{new_shaper, FontShaper};
+use ahash::AHashMap;
 use anyhow::{Context, Error};
 use config::{
     configuration, BoldBrightening, ConfigHandle, DisplayPixelGeometry, FontAttributes,
@@ -10,12 +11,12 @@ use config::{
 };
 use rangeset::RangeSet;
 use std::cell::RefCell;
-use ahash::AHashMap;
 use std::collections::HashSet;
 
+use flume::{unbounded, Sender};
+use parking_lot::Mutex;
 use std::rc::{Rc, Weak};
-use std::sync::mpsc::{channel, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use thiserror::Error;
@@ -49,7 +50,8 @@ pub fn alloc_font_id() -> LoadedFontId {
     FONT_ID.fetch_add(1, ::std::sync::atomic::Ordering::Relaxed)
 }
 
-static LAST_WARNING: std::sync::LazyLock<Mutex<Option<(Instant, usize)>>> = std::sync::LazyLock::new(|| Mutex::new(None));
+static LAST_WARNING: std::sync::LazyLock<Mutex<Option<(Instant, usize)>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
 
 pub struct LoadedFont {
     rasterizers: RefCell<AHashMap<FallbackIdx, Box<dyn FontRasterizer>>>,
@@ -123,7 +125,7 @@ impl LoadedFont {
         ctx: crate::shaper::ShapeContext,
     ) -> anyhow::Result<Vec<GlyphInfo>> {
         loop {
-            let (tx, rx) = channel();
+            let (tx, rx) = unbounded();
 
             let (async_resolve, res) = match self.shape_impl(
                 text,
@@ -156,12 +158,7 @@ impl LoadedFont {
         filter_out_synthetic: FS,
         ctx: crate::shaper::ShapeContext,
     ) -> anyhow::Result<Vec<GlyphInfo>> {
-        let (_async_resolve, res) = self.shape_impl(
-            text,
-            completion,
-            filter_out_synthetic,
-            ctx,
-        )?;
+        let (_async_resolve, res) = self.shape_impl(text, completion, filter_out_synthetic, ctx)?;
         Ok(res)
     }
 
@@ -175,7 +172,7 @@ impl LoadedFont {
         let mut no_glyphs = vec![];
 
         {
-            let mut pending = self.pending_fallback.lock().unwrap();
+            let mut pending = self.pending_fallback.lock();
             if !pending.is_empty() {
                 match self.insert_fallback_handles(pending.split_off(0)) {
                     Ok(true) => return Err(ClearShapeCache {})?,
@@ -187,13 +184,10 @@ impl LoadedFont {
             }
         }
 
-        let result = self.shaper.borrow().shape(
-            text,
-            self.font_size,
-            self.dpi,
-            &mut no_glyphs,
-            ctx,
-        );
+        let result =
+            self.shaper
+                .borrow()
+                .shape(text, self.font_size, self.dpi, &mut no_glyphs, ctx);
 
         no_glyphs.retain(|&c| c != '\u{FE0F}' && c != '\u{FE0E}');
         filter_out_synthetic(&mut no_glyphs);
@@ -367,7 +361,7 @@ impl FallbackResolveInfo {
         });
 
         if !extra_handles.is_empty() {
-            let mut pending = self.pending.lock().unwrap();
+            let mut pending = self.pending.lock();
             pending.append(&mut extra_handles);
             (self.completion)();
         }
@@ -383,7 +377,6 @@ impl FallbackResolveInfo {
             let show_warning = self.config.warn_about_missing_glyphs
                 && LAST_WARNING
                     .lock()
-                    .unwrap()
                     .map(|(instant, generation)| {
                         generation != current_gen
                             || instant.elapsed() > Duration::from_secs(60 * 60)
@@ -393,7 +386,6 @@ impl FallbackResolveInfo {
             if show_warning {
                 LAST_WARNING
                     .lock()
-                    .unwrap()
                     .replace((Instant::now(), self.config.generation()));
                 let url = "https://github.com/YatogamiRaito/HekaTerm/";
                 log::warn!(
@@ -520,7 +512,7 @@ impl FontConfigInner {
         let mut fallback = self.fallback_channel.borrow_mut();
 
         if fallback.is_none() {
-            let (tx, rx) = channel::<FallbackResolveInfo>();
+            let (tx, rx) = unbounded::<FallbackResolveInfo>();
 
             std::thread::spawn(move || {
                 for info in rx {
@@ -608,11 +600,9 @@ impl FontConfigInner {
 
         let shaper = new_shaper(&config, &handles)?;
 
-        let metrics = shaper.metrics(font_size, dpi).with_context(|| {
-            format!(
-                "obtaining metrics for font_size={font_size} @ dpi {dpi}"
-            )
-        })?;
+        let metrics = shaper
+            .metrics(font_size, dpi)
+            .with_context(|| format!("obtaining metrics for font_size={font_size} @ dpi {dpi}"))?;
 
         let loaded = Rc::new(LoadedFont {
             rasterizers: RefCell::new(AHashMap::new()),
@@ -744,7 +734,7 @@ impl FontConfigInner {
                 if let Some(idx) =
                     ParsedFont::best_matching_index(attr, &named_candidates, pixel_size)
                 {
-                if let Some(&p) = named_candidates.get(idx) {
+                    if let Some(&p) = named_candidates.get(idx) {
                         loaded.insert(attr.clone());
                         handles.push(p.clone().synthesize(attr));
                     }
@@ -805,9 +795,7 @@ impl FontConfigInner {
 
                 let explanation = if is_primary {
                     // This is the primary font selection
-                    format!(
-                        "Unable to load a font specified by your font={attr} configuration"
-                    )
+                    format!("Unable to load a font specified by your font={attr} configuration")
                 } else if derived_from_primary {
                     // it came from font_rules and may have been derived from
                     // their primary font (we can't know for sure)
@@ -817,9 +805,7 @@ impl FontConfigInner {
                         and italic fonts based on your primary font configuration"
                     )
                 } else {
-                    format!(
-                        "Unable to load a font matching one of your font_rules: {attr}"
-                    )
+                    format!("Unable to load a font matching one of your font_rules: {attr}")
                 };
 
                 config::show_error(&format!(
@@ -856,11 +842,9 @@ impl FontConfigInner {
 
         let (mut shaper, mut handles) = self.resolve_font_helper(style, &config, pixel_size)?;
 
-        let mut metrics = shaper.metrics(font_size, dpi).with_context(|| {
-            format!(
-                "obtaining metrics for font_size={font_size} @ dpi {dpi}"
-            )
-        })?;
+        let mut metrics = shaper
+            .metrics(font_size, dpi)
+            .with_context(|| format!("obtaining metrics for font_size={font_size} @ dpi {dpi}"))?;
 
         if let Some(def_font) = def_font {
             let def_metrics = def_font.metrics();

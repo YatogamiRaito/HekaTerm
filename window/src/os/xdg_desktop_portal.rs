@@ -6,8 +6,8 @@ use crate::{Appearance, Connection, ConnectionOps};
 use anyhow::Context;
 use futures_lite::future::FutureExt;
 use futures_util::stream::StreamExt;
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::Instant;
 use zbus::proxy;
 use zvariant::OwnedValue;
@@ -55,13 +55,13 @@ struct State {
     last_update: Instant,
 }
 
-static STATE: std::sync::LazyLock<Mutex<State>> = std::sync::LazyLock::new(|| Mutex::new(
-          State {
-              appearance: CachedAppearance::Unknown,
-              subscribe_running: false,
-              last_update: Instant::now(),
-          }
-   ));
+static STATE: std::sync::LazyLock<Mutex<State>> = std::sync::LazyLock::new(|| {
+    Mutex::new(State {
+        appearance: CachedAppearance::Unknown,
+        subscribe_running: false,
+        last_update: Instant::now(),
+    })
+});
 
 pub async fn read_setting(namespace: &str, key: &str) -> anyhow::Result<OwnedValue> {
     let connection = zbus::ConnectionBuilder::session()?.build().await?;
@@ -100,7 +100,7 @@ fn value_to_appearance(value: OwnedValue) -> anyhow::Result<Appearance> {
 
 pub async fn get_appearance() -> anyhow::Result<Option<Appearance>> {
     {
-        let state = STATE.lock().unwrap();
+        let state = STATE.lock();
 
         match &state.appearance {
             CachedAppearance::Some(_)
@@ -122,14 +122,14 @@ pub async fn get_appearance() -> anyhow::Result<Option<Appearance>> {
 
     match read_setting("org.freedesktop.appearance", "color-scheme").await {
         Ok(value) => {
-            let mut state = STATE.lock().unwrap();
+            let mut state = STATE.lock();
             let appearance = value_to_appearance(value).context("value_to_appearance")?;
             state.appearance = CachedAppearance::Some(appearance);
             state.last_update = Instant::now();
             Ok(Some(appearance))
         }
         Err(err) => {
-            let mut state = STATE.lock().unwrap();
+            let mut state = STATE.lock();
             // Cache that we didn't get any value, so we can avoid
             // repeating this query again later
             state.appearance = CachedAppearance::None;
@@ -146,7 +146,7 @@ pub async fn run_signal_loop(stream: &mut SettingChangedStream<'_>) -> Result<()
     if let Ok(value) =
         value_to_appearance(read_setting("org.freedesktop.appearance", "color-scheme").await?)
     {
-        let mut state = STATE.lock().unwrap();
+        let mut state = STATE.lock();
         if state.appearance != CachedAppearance::Some(value) {
             state.appearance = CachedAppearance::Some(value);
             state.last_update = Instant::now();
@@ -158,16 +158,17 @@ pub async fn run_signal_loop(stream: &mut SettingChangedStream<'_>) -> Result<()
 
     while let Some(signal) = stream.next().await {
         let args = signal.args()?;
-        if args.namespace == "org.freedesktop.appearance" && args.key == "color-scheme"
-            && let Ok(appearance) = value_to_appearance(args.value) {
-                let mut state = STATE.lock().unwrap();
-                state.appearance = CachedAppearance::Some(appearance);
-                state.last_update = Instant::now();
-                drop(state);
-                let conn =
-                    Connection::get().ok_or_else(|| anyhow::anyhow!("connection is dead"))?;
-                conn.advise_of_appearance_change(appearance);
-            }
+        if args.namespace == "org.freedesktop.appearance"
+            && args.key == "color-scheme"
+            && let Ok(appearance) = value_to_appearance(args.value)
+        {
+            let mut state = STATE.lock();
+            state.appearance = CachedAppearance::Some(appearance);
+            state.last_update = Instant::now();
+            drop(state);
+            let conn = Connection::get().ok_or_else(|| anyhow::anyhow!("connection is dead"))?;
+            conn.advise_of_appearance_change(appearance);
+        }
     }
     Result::<(), anyhow::Error>::Ok(())
 }
@@ -180,9 +181,9 @@ pub fn subscribe() {
             .context("make proxy")?;
         let mut stream = proxy.receive_SettingChanged().await?;
 
-        STATE.lock().unwrap().subscribe_running = true;
+        STATE.lock().subscribe_running = true;
         let res = run_signal_loop(&mut stream).await;
-        STATE.lock().unwrap().subscribe_running = false;
+        STATE.lock().subscribe_running = false;
 
         res
     })

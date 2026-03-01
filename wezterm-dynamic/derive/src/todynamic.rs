@@ -102,91 +102,92 @@ fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStrea
             }
         }
     } else {
-        let variants = enumeration.variants
-        .iter()
-        .map(|variant| {
-            let ident = &variant.ident;
-            let literal = ident.to_string();
-            match &variant.fields {
-                Fields::Unit => Ok(quote!(
-                    Self::#ident => Value::String(#literal.to_string()),
-                )),
-                Fields::Named(fields) => {
-                    let var_fields = fields
-                        .named
-                        .iter()
-                        .map(|f| f.ident.as_ref().unwrap())
-                        .collect::<Vec<_>>();
-                    let placements = fields
-                        .named
-                        .iter()
-                        .map(|f| {
-                            let ident = f.ident.as_ref().unwrap();
-                            let name = ident.to_string();
-                            quote!(
-                                place.insert(#name.to_dynamic(), #ident.to_dynamic());
-                            )
-                        })
-                        .collect::<Vec<_>>();
-
-                    Ok(quote!(
-                        Self::#ident { #( #var_fields, )* } => {
-                            let mut place = wezterm_dynamic::Object::default();
-
-                            #( #placements )*
-
-                            let mut obj = wezterm_dynamic::Object::default();
-                            obj.insert(#literal.to_dynamic(), Value::Object(place));
-                            Value::Object(obj)
-                        }
-                    ))
-                }
-                Fields::Unnamed(fields) => {
-                    let var_fields = fields
-                        .unnamed
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, _f)| Ident::new(&format!("f{idx}"), Span::call_site()))
-                        .collect::<Vec<_>>();
-
-                    let hint = var_fields.len();
-
-                    if hint == 1 {
-                        Ok(quote!(
-                            Self::#ident(f) => {
-                                let mut obj = wezterm_dynamic::Object::default();
-                                obj.insert(#literal.to_dynamic(), f.to_dynamic());
-                                Value::Object(obj)
-                            }
-                        ))
-                    } else {
-                        let placements = fields
-                            .unnamed
+        let variants = enumeration
+            .variants
+            .iter()
+            .map(|variant| {
+                let ident = &variant.ident;
+                let literal = ident.to_string();
+                match &variant.fields {
+                    Fields::Unit => Ok(quote!(
+                        Self::#ident => Value::String(#literal.to_string()),
+                    )),
+                    Fields::Named(fields) => {
+                        let var_fields = fields
+                            .named
                             .iter()
-                            .zip(var_fields.iter())
-                            .map(|(_f, ident)| {
+                            .map(|f| f.ident.as_ref().unwrap())
+                            .collect::<Vec<_>>();
+                        let placements = fields
+                            .named
+                            .iter()
+                            .map(|f| {
+                                let ident = f.ident.as_ref().unwrap();
+                                let name = ident.to_string();
                                 quote!(
-                                    place.push(#ident.to_dynamic());
+                                    place.insert(#name.to_dynamic(), #ident.to_dynamic());
                                 )
                             })
                             .collect::<Vec<_>>();
 
                         Ok(quote!(
-                            Self::#ident ( #( #var_fields, )* ) => {
-                                let mut place = Vec::with_capacity(#hint);
+                            Self::#ident { #( #var_fields, )* } => {
+                                let mut place = wezterm_dynamic::Object::default();
 
                                 #( #placements )*
 
                                 let mut obj = wezterm_dynamic::Object::default();
-                                obj.insert(#literal.to_dynamic(), Value::Array(place.into()));
+                                obj.insert(#literal.to_dynamic(), Value::Object(place));
                                 Value::Object(obj)
                             }
                         ))
                     }
+                    Fields::Unnamed(fields) => {
+                        let var_fields = fields
+                            .unnamed
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, _f)| Ident::new(&format!("f{idx}"), Span::call_site()))
+                            .collect::<Vec<_>>();
+
+                        let hint = var_fields.len();
+
+                        if hint == 1 {
+                            Ok(quote!(
+                                Self::#ident(f) => {
+                                    let mut obj = wezterm_dynamic::Object::default();
+                                    obj.insert(#literal.to_dynamic(), f.to_dynamic());
+                                    Value::Object(obj)
+                                }
+                            ))
+                        } else {
+                            let placements = fields
+                                .unnamed
+                                .iter()
+                                .zip(var_fields.iter())
+                                .map(|(_f, ident)| {
+                                    quote!(
+                                        place.push(#ident.to_dynamic());
+                                    )
+                                })
+                                .collect::<Vec<_>>();
+
+                            Ok(quote!(
+                                Self::#ident ( #( #var_fields, )* ) => {
+                                    let mut place = Vec::with_capacity(#hint);
+
+                                    #( #placements )*
+
+                                    let mut obj = wezterm_dynamic::Object::default();
+                                    obj.insert(#literal.to_dynamic(), Value::Array(place.into()));
+                                    Value::Object(obj)
+                                }
+                            ))
+                        }
+                    }
                 }
-            }
-        })
-        .collect::<Result<Vec<_>>>()?;
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         quote! {
             impl wezterm_dynamic::ToDynamic for #ident {

@@ -14,6 +14,7 @@ readme = "README.md"
 use_serde = ["termwiz/use_serde", "wezterm-cell/use_serde", "wezterm-escape-parser/use_serde", "wezterm-surface/use_serde"]
 
 [dependencies]
+parking_lot.workspace = true
 anyhow.workspace = true
 ahash.workspace = true
 bitflags.workspace = true
@@ -38,6 +39,7 @@ wezterm-dynamic = {workspace = true, features=["std"]}
 wezterm-cell = {workspace = true, features=["std", "use_image"]}
 wezterm-escape-parser = {workspace = true, features=["std", "use_image"]}
 wezterm-surface = {workspace = true, features=["std", "appdata", "use_image"]}
+flume.workspace = true
 
 [dev-dependencies]
 env_logger.workspace = true

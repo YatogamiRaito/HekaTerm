@@ -133,7 +133,7 @@ impl std::io::Write for Base91Encoder<'_> {
 
 /// A convenience function that wraps `Base91Encoder`; it encodes a slice of data
 /// and returns a vector holding the base91 encoded data.
-#[must_use] 
+#[must_use]
 pub fn encode(buf: &[u8]) -> Vec<u8> {
     let mut result = Vec::with_capacity((buf.len() * 123) / 100);
     {
@@ -219,7 +219,7 @@ impl std::io::Write for Base91Decoder<'_> {
 
 /// A convenience function that wraps `Base91Decoder`; it decodes a slice of data
 /// and returns a vector holding the unencoded binary data.
-#[must_use] 
+#[must_use]
 pub fn decode(buf: &[u8]) -> Vec<u8> {
     let mut result = Vec::with_capacity(buf.len());
     {

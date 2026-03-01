@@ -53,7 +53,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 struct NerdFonts {}
 
 impl mlua::UserData for NerdFonts {
-    fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(
             mlua::MetaMethod::Index,
             |_, _, key: String| -> mlua::Result<Option<String>> {
@@ -147,7 +147,7 @@ fn format(_: &Lua, items: Vec<FormatItem>) -> mlua::Result<String> {
     format_as_escapes(items).map_err(mlua::Error::external)
 }
 
-#[must_use] 
+#[must_use]
 pub fn pad_right(mut result: String, width: usize) -> String {
     let mut len = unicode_column_width(&result, None);
     while len < width {
@@ -158,7 +158,7 @@ pub fn pad_right(mut result: String, width: usize) -> String {
     result
 }
 
-#[must_use] 
+#[must_use]
 pub fn pad_left(mut result: String, width: usize) -> String {
     let mut len = unicode_column_width(&result, None);
     while len < width {
@@ -169,7 +169,7 @@ pub fn pad_left(mut result: String, width: usize) -> String {
     result
 }
 
-#[must_use] 
+#[must_use]
 pub fn truncate_left(s: &str, max_width: usize) -> String {
     let mut result = vec![];
     let mut len = 0;
@@ -187,7 +187,7 @@ pub fn truncate_left(s: &str, max_width: usize) -> String {
     result.join("")
 }
 
-#[must_use] 
+#[must_use]
 pub fn truncate_right(s: &str, max_width: usize) -> String {
     let mut result = String::new();
     let mut len = 0;
@@ -202,11 +202,7 @@ pub fn truncate_right(s: &str, max_width: usize) -> String {
     result
 }
 
-fn permute_mods<'lua>(
-    lua: &'lua Lua,
-    item: mlua::Table,
-    allow_none: bool,
-) -> mlua::Result<Vec<mlua::Value<'lua>>> {
+fn permute_mods(lua: &Lua, item: mlua::Table, allow_none: bool) -> mlua::Result<Vec<mlua::Value>> {
     use wezterm_input_types::Modifiers;
 
     let mut result = vec![];
@@ -233,35 +229,29 @@ fn permute_mods<'lua>(
     Ok(result)
 }
 
-fn permute_any_mods<'lua>(
-    lua: &'lua Lua,
-    item: mlua::Table,
-) -> mlua::Result<Vec<mlua::Value<'lua>>> {
+fn permute_any_mods(lua: &Lua, item: mlua::Table) -> mlua::Result<Vec<mlua::Value>> {
     permute_mods(lua, item, false)
 }
 
-fn permute_any_or_no_mods<'lua>(
-    lua: &'lua Lua,
-    item: mlua::Table,
-) -> mlua::Result<Vec<mlua::Value<'lua>>> {
+fn permute_any_or_no_mods(lua: &Lua, item: mlua::Table) -> mlua::Result<Vec<mlua::Value>> {
     permute_mods(lua, item, true)
 }
 
 static CAPS: std::sync::LazyLock<Capabilities> = std::sync::LazyLock::new(|| {
-        let data = include_bytes!("../../../termwiz/data/xterm-256color");
-        let db = terminfo::Database::from_buffer(&data[..]).unwrap();
-        Capabilities::new_with_hints(
-            ProbeHints::new_from_env()
-                .term(Some("xterm-256color".into()))
-                .terminfo_db(Some(db))
-                .color_level(Some(ColorLevel::TrueColor))
-                .colorterm(None)
-                .colorterm_bce(None)
-                .term_program(Some("WezTerm".into()))
-                .term_program_version(Some(config::wezterm_version().into())),
-        )
-        .expect("cannot fail to make internal Capabilities")
-    });
+    let data = include_bytes!("../../../termwiz/data/xterm-256color");
+    let db = terminfo::Database::from_buffer(&data[..]).unwrap();
+    Capabilities::new_with_hints(
+        ProbeHints::new_from_env()
+            .term(Some("xterm-256color".into()))
+            .terminfo_db(Some(db))
+            .color_level(Some(ColorLevel::TrueColor))
+            .colorterm(None)
+            .colorterm_bce(None)
+            .term_program(Some("WezTerm".into()))
+            .term_program_version(Some(config::wezterm_version().into())),
+    )
+    .expect("cannot fail to make internal Capabilities")
+});
 
 pub fn new_wezterm_terminfo_renderer() -> TerminfoRenderer {
     TerminfoRenderer::new(CAPS.clone())

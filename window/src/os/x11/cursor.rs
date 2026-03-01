@@ -1,17 +1,17 @@
+use crate::MouseCursor;
 use crate::os::x11::xcb_util::XcbImage;
 use crate::x11::XConnection;
-use crate::MouseCursor;
-use anyhow::{ensure, Context};
+use anyhow::{Context, ensure};
 use config::ConfigHandle;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::ffi::OsStr;
-use std::io::prelude::*;
 use std::io::SeekFrom;
+use std::io::prelude::*;
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
-use xcb::x::Cursor;
 use xcb::Xid;
+use xcb::x::Cursor;
 
 // X11 classic Cursor glyphs
 pub const HAND1: u16 = 58;
@@ -105,19 +105,22 @@ fn cursor_size(xcursor_size: &Option<u32>, map: &HashMap<String, String>) -> u32
     }
 
     if let Ok(size) = std::env::var("XCURSOR_SIZE")
-        && let Ok(size) = size.parse::<u32>() {
-            return size;
-        }
+        && let Ok(size) = size.parse::<u32>()
+    {
+        return size;
+    }
 
     if let Some(size) = map.get("Xcursor.size")
-        && let Ok(size) = size.parse::<u32>() {
-            return size;
-        }
+        && let Ok(size) = size.parse::<u32>()
+    {
+        return size;
+    }
 
     if let Some(dpi) = map.get("Xft.dpi")
-        && let Ok(dpi) = dpi.parse::<u32>() {
-            return dpi * 16 / 72;
-        }
+        && let Ok(dpi) = dpi.parse::<u32>()
+    {
+        return dpi * 16 / 72;
+    }
 
     // Probably a good default?
     24
@@ -137,34 +140,34 @@ impl CursorInfo {
             && let Ok(vers) = conn.send_and_wait_request(&xcb::render::QueryVersion {
                 client_major_version: xcb::render::MAJOR_VERSION,
                 client_minor_version: xcb::render::MINOR_VERSION,
-            }) {
-                // 0.5 and later have the required support
-                if (vers.major_version(), vers.minor_version()) >= (0, 5) {
-                    size.replace(cursor_size(&config.xcursor_size, &conn.xrm.borrow()));
-                    theme = config
-                        .xcursor_theme.clone()
-                        .or_else(|| conn.xrm.borrow().get("Xcursor.theme").cloned());
+            })
+        {
+            // 0.5 and later have the required support
+            if (vers.major_version(), vers.minor_version()) >= (0, 5) {
+                size.replace(cursor_size(&config.xcursor_size, &conn.xrm.borrow()));
+                theme = config
+                    .xcursor_theme
+                    .clone()
+                    .or_else(|| conn.xrm.borrow().get("Xcursor.theme").cloned());
 
-                    // Locate the Pictformat corresponding to ARGB32
-                    if let Ok(formats) =
-                        conn.send_and_wait_request(&xcb::render::QueryPictFormats {})
-                    {
-                        for fmt in formats.formats() {
-                            if fmt.depth() == 32 {
-                                let direct = fmt.direct();
-                                if direct.alpha_shift == 24
-                                    && direct.red_shift == 16
-                                    && direct.green_shift == 8
-                                    && direct.blue_shift == 0
-                                {
-                                    pict_format_id.replace(fmt.id());
-                                    break;
-                                }
+                // Locate the Pictformat corresponding to ARGB32
+                if let Ok(formats) = conn.send_and_wait_request(&xcb::render::QueryPictFormats {}) {
+                    for fmt in formats.formats() {
+                        if fmt.depth() == 32 {
+                            let direct = fmt.direct();
+                            if direct.alpha_shift == 24
+                                && direct.red_shift == 16
+                                && direct.green_shift == 8
+                                && direct.blue_shift == 0
+                            {
+                                pict_format_id.replace(fmt.id());
+                                break;
                             }
                         }
                     }
                 }
             }
+        }
         let icon_path = icon_path();
         log::trace!("icon_path is {icon_path:?}");
 
@@ -326,9 +329,7 @@ impl CursorInfo {
             for dir in &self.icon_path {
                 for name in names {
                     let candidate = dir.join(&theme).join("cursors").join(name);
-                    log::trace!(
-                        "candidate for theme={theme} {cursor:?} is {candidate:?}"
-                    );
+                    log::trace!("candidate for theme={theme} {cursor:?} is {candidate:?}");
                     if let Ok(file) = std::fs::File::open(&candidate) {
                         match self.parse_cursor_file(conn, file) {
                             Ok(cursor_id) => {

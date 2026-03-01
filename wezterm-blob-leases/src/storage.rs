@@ -1,6 +1,7 @@
 use crate::{ContentId, Error, LeaseId};
+use parking_lot::Mutex;
 use std::io::{BufRead, Seek};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 static STORAGE: Mutex<Option<Arc<dyn BlobStorage + Send + Sync + 'static>>> = Mutex::new(None);
 
@@ -53,19 +54,18 @@ pub trait BlobStorage {
 pub fn register_storage(
     storage: Arc<dyn BlobStorage + Send + Sync + 'static>,
 ) -> Result<(), Error> {
-    STORAGE.lock().unwrap().replace(storage);
+    STORAGE.lock().replace(storage);
     Ok(())
 }
 
 pub fn get_storage() -> Result<Arc<dyn BlobStorage + Send + Sync + 'static>, Error> {
     STORAGE
         .lock()
-        .unwrap()
         .as_ref()
         .map(std::clone::Clone::clone)
         .ok_or(Error::StorageNotInit)
 }
 
 pub fn clear_storage() {
-    STORAGE.lock().unwrap().take();
+    STORAGE.lock().take();
 }

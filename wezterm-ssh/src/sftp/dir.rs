@@ -1,6 +1,6 @@
 use super::{Metadata, SessionRequest, SessionSender, SftpChannelResult, SftpRequest};
 use camino::Utf8PathBuf;
-use smol::channel::{bounded, Sender};
+use smol::channel::{Sender, bounded};
 use std::fmt;
 
 pub type DirId = usize;

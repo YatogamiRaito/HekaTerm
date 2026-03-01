@@ -227,7 +227,7 @@ pub struct SrgbaPixel(u32);
 
 impl SrgbaPixel {
     /// Create a pixel with the provided sRGBA values in u8 format
-    #[must_use] 
+    #[must_use]
     pub const fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
         #[allow(clippy::cast_lossless)]
         let word = (blue as u32) << 24 | (green as u32) << 16 | (red as u32) << 8 | alpha as u32;
@@ -236,7 +236,7 @@ impl SrgbaPixel {
 
     /// Returns the unpacked sRGBA components as u8
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn as_rgba(self) -> (u8, u8, u8, u8) {
         let host = u32::from_be(self.0);
         (
@@ -248,25 +248,25 @@ impl SrgbaPixel {
     }
 
     /// Returns RGBA channels in linear f32 format
-    #[must_use] 
+    #[must_use]
     pub fn to_linear(self) -> LinearRgba {
         let (r, g, b, a) = self.as_rgba();
         LinearRgba::with_srgba(r, g, b, a)
     }
 
     /// Create a pixel with the provided big-endian u32 SRGBA data
-    #[must_use] 
+    #[must_use]
     pub const fn with_srgba_u32(word: u32) -> Self {
         Self(word)
     }
 
     /// Returns the underlying big-endian u32 SRGBA data
-    #[must_use] 
+    #[must_use]
     pub const fn as_srgba32(self) -> u32 {
         self.0
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_srgba_tuple(self) -> (f32, f32, f32, f32) {
         let u8tuple = self.as_rgba();
         let SrgbaTuple(r, g, b, a) = u8tuple.into();
@@ -280,13 +280,13 @@ impl SrgbaPixel {
 pub struct SrgbaTuple(pub f32, pub f32, pub f32, pub f32);
 
 impl SrgbaTuple {
-    #[must_use] 
+    #[must_use]
     pub fn premultiply(self) -> Self {
         let Self(r, g, b, a) = self;
         Self(r * a, g * a, b * a, a)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn demultiply(self) -> Self {
         let Self(r, g, b, a) = self;
         if a == 0. {
@@ -296,12 +296,12 @@ impl SrgbaTuple {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn to_tuple_rgba(self) -> (f32, f32, f32, f32) {
         (self.0, self.1, self.2, self.3)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_rgba_u8(self) -> (u8, u8, u8, u8) {
         let (r, g, b, a) = (self.0, self.1, self.2, self.3);
         (
@@ -312,7 +312,7 @@ impl SrgbaTuple {
         )
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn interpolate(self, other: Self, k: f64) -> Self {
         let k = k as f32;
 
@@ -395,7 +395,12 @@ impl From<(u8, u8, u8, u8)> for SrgbaTuple {
 
 impl From<(u8, u8, u8)> for SrgbaTuple {
     fn from((r, g, b): (u8, u8, u8)) -> Self {
-        Self(f32::from(r) / 255., f32::from(g) / 255., f32::from(b) / 255., 1.0)
+        Self(
+            f32::from(r) / 255.,
+            f32::from(g) / 255.,
+            f32::from(b) / 255.,
+            1.0,
+        )
     }
 }
 
@@ -408,12 +413,7 @@ impl From<SrgbaTuple> for (f32, f32, f32, f32) {
 #[cfg(feature = "std")]
 impl From<Color> for SrgbaTuple {
     fn from(color: Color) -> Self {
-        Self(
-            color.r as f32,
-            color.g as f32,
-            color.b as f32,
-            color.a as f32,
-        )
+        Self(color.r, color.g, color.b, color.a)
     }
 }
 
@@ -490,12 +490,12 @@ impl SrgbaTuple {
     /// Returns self multiplied by the supplied alpha value.
     /// We don't need to linearize for this, as alpha is defined
     /// as being linear even in srgba!
-    #[must_use] 
+    #[must_use]
     pub fn mul_alpha(self, alpha: f32) -> Self {
         Self(self.0, self.1, self.2, self.3 * alpha)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_linear(self) -> LinearRgba {
         // See https://docs.rs/palette/0.5.0/src/palette/encoding/srgb.rs.html#43
         fn to_linear(v: f32) -> f32 {
@@ -514,7 +514,7 @@ impl SrgbaTuple {
         )
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_srgb_u8(self) -> (u8, u8, u8, u8) {
         (
             (self.0 * 255.) as u8,
@@ -524,7 +524,7 @@ impl SrgbaTuple {
         )
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_color_string(self) -> String {
         if self.3 == 1.0 {
             self.to_rgb_string()
@@ -534,7 +534,7 @@ impl SrgbaTuple {
     }
 
     /// Returns a string of the form `#RRGGBB`
-    #[must_use] 
+    #[must_use]
     pub fn to_rgb_string(self) -> String {
         format!(
             "#{:02x}{:02x}{:02x}",
@@ -544,7 +544,7 @@ impl SrgbaTuple {
         )
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_rgba_string(self) -> String {
         format!(
             "rgba({}% {}% {}% {}%)",
@@ -556,7 +556,7 @@ impl SrgbaTuple {
     }
 
     /// Returns a string of the form `rgb:RRRR/GGGG/BBBB`
-    #[must_use] 
+    #[must_use]
     pub fn to_x11_16bit_rgb_string(self) -> String {
         format!(
             "rgb:{:04x}/{:04x}/{:04x}",
@@ -567,27 +567,34 @@ impl SrgbaTuple {
     }
 
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn to_laba(self) -> (f64, f64, f64, f64) {
-        Color::new(self.0.into(), self.1.into(), self.2.into(), self.3.into()).to_lab()
+        let lab = Color::new(self.0, self.1, self.2, self.3).to_laba();
+        (lab[0] as f64, lab[1] as f64, lab[2] as f64, lab[3] as f64)
     }
 
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn to_hsla(self) -> (f64, f64, f64, f64) {
-        Color::new(self.0.into(), self.1.into(), self.2.into(), self.3.into()).to_hsla()
+        let hsla = Color::new(self.0, self.1, self.2, self.3).to_hsla();
+        (
+            hsla[0] as f64,
+            hsla[1] as f64,
+            hsla[2] as f64,
+            hsla[3] as f64,
+        )
     }
 
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn from_hsla(h: f64, s: f64, l: f64, a: f64) -> Self {
-        let Color { r, g, b, a } = Color::from_hsla(h, s, l, a);
-        Self(r as f32, g as f32, b as f32, a as f32)
+        let Color { r, g, b, a } = Color::from_hsla(h as f32, s as f32, l as f32, a as f32);
+        Self(r, g, b, a)
     }
 
     /// Scale the color towards the maximum saturation by factor, a value ranging from 0.0 to 1.0.
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn saturate(&self, factor: f64) -> Self {
         let (h, s, l, a) = self.to_hsla();
         let s = apply_scale(s, factor);
@@ -596,7 +603,7 @@ impl SrgbaTuple {
 
     /// Increase the saturation by amount, a value ranging from 0.0 to 1.0.
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn saturate_fixed(&self, amount: f64) -> Self {
         let (h, s, l, a) = self.to_hsla();
         let s = apply_fixed(s, amount);
@@ -605,7 +612,7 @@ impl SrgbaTuple {
 
     /// Scale the color towards the maximum lightness by factor, a value ranging from 0.0 to 1.0
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn lighten(&self, factor: f64) -> Self {
         let (h, s, l, a) = self.to_hsla();
         let l = apply_scale(l, factor);
@@ -614,7 +621,7 @@ impl SrgbaTuple {
 
     /// Lighten the color by amount, a value ranging from 0.0 to 1.0
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn lighten_fixed(&self, amount: f64) -> Self {
         let (h, s, l, a) = self.to_hsla();
         let l = apply_fixed(l, amount);
@@ -623,7 +630,7 @@ impl SrgbaTuple {
 
     /// Rotate the hue angle by the specified number of degrees
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn adjust_hue_fixed(&self, amount: f64) -> Self {
         let (h, s, l, a) = self.to_hsla();
         let h = normalize_angle(h + amount);
@@ -631,25 +638,25 @@ impl SrgbaTuple {
     }
 
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn complement(&self) -> Self {
         self.adjust_hue_fixed(180.)
     }
 
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn complement_ryb(&self) -> Self {
         self.adjust_hue_fixed_ryb(180.)
     }
 
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn triad(&self) -> (Self, Self) {
         (self.adjust_hue_fixed(120.), self.adjust_hue_fixed(-120.))
     }
 
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn square(&self) -> (Self, Self, Self) {
         (
             self.adjust_hue_fixed(90.),
@@ -661,7 +668,7 @@ impl SrgbaTuple {
     /// Rotate the hue angle by the specified number of degrees, using
     /// the RYB color wheel
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn adjust_hue_fixed_ryb(&self, amount: f64) -> Self {
         let (h, s, l, a) = self.to_hsla();
         let h = rgb_hue_to_ryb_hue(h);
@@ -681,7 +688,7 @@ impl SrgbaTuple {
     }
 
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn delta_e(&self, other: &Self) -> f32 {
         let a = self.lab_value();
         let b = other.lab_value();
@@ -689,7 +696,7 @@ impl SrgbaTuple {
     }
 
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn contrast_ratio(&self, other: &Self) -> f32 {
         self.to_linear().contrast_ratio(&other.to_linear())
     }
@@ -942,7 +949,7 @@ impl FromStr for SrgbaTuple {
             #[cfg(feature = "std")]
             {
                 if let Ok(c) = csscolorparser::parse(s) {
-                    return Ok(Self(c.r as f32, c.g as f32, c.b as f32, c.a as f32));
+                    return Ok(Self(c.r, c.g, c.b, c.a));
                 }
             }
             Self::from_named(s).ok_or(())
@@ -990,7 +997,7 @@ impl LinearRgba {
     /// Convert SRGBA u8 components to `LinearRgba`.
     /// Note that alpha in SRGBA colorspace is already linear,
     /// so this only applies gamma correction to RGB.
-    #[must_use] 
+    #[must_use]
     pub fn with_srgba(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
         Self(
             srgb8_to_linear_f32(red),
@@ -1001,7 +1008,7 @@ impl LinearRgba {
     }
 
     /// Convert linear RGBA u8 components to `LinearRgba` (f32)
-    #[must_use] 
+    #[must_use]
     pub fn with_rgba(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
         Self(
             rgb_to_linear_f32(red),
@@ -1012,7 +1019,7 @@ impl LinearRgba {
     }
 
     /// Create using the provided f32 components in the range 0.0-1.0
-    #[must_use] 
+    #[must_use]
     pub const fn with_components(red: f32, green: f32, blue: f32, alpha: f32) -> Self {
         Self(red, green, blue, alpha)
     }
@@ -1020,13 +1027,13 @@ impl LinearRgba {
     pub const TRANSPARENT: Self = Self::with_components(0., 0., 0., 0.);
 
     /// Returns true if this color is fully transparent
-    #[must_use] 
+    #[must_use]
     pub fn is_fully_transparent(self) -> bool {
         self.3 == 0.0
     }
 
     /// Returns self, except when self is transparent, in which case returns other
-    #[must_use] 
+    #[must_use]
     pub fn when_fully_transparent(self, other: Self) -> Self {
         if self.is_fully_transparent() {
             other
@@ -1036,13 +1043,13 @@ impl LinearRgba {
     }
 
     /// Returns self multiplied by the supplied alpha value
-    #[must_use] 
+    #[must_use]
     pub fn mul_alpha(self, alpha: f32) -> Self {
         Self(self.0, self.1, self.2, self.3 * alpha)
     }
 
     /// Convert to an SRGB u32 pixel
-    #[must_use] 
+    #[must_use]
     pub fn srgba_pixel(self) -> SrgbaPixel {
         SrgbaPixel::rgba(
             linear_f32_to_srgb8(self.0),
@@ -1053,12 +1060,12 @@ impl LinearRgba {
     }
 
     /// Returns the individual RGBA channels as f32 components 0.0-1.0
-    #[must_use] 
+    #[must_use]
     pub const fn tuple(self) -> (f32, f32, f32, f32) {
         (self.0, self.1, self.2, self.3)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_srgb(self) -> SrgbaTuple {
         // Note that alpha is always linear
         SrgbaTuple(
@@ -1070,13 +1077,13 @@ impl LinearRgba {
     }
 
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn relative_luminance(&self) -> f32 {
         0.0722f32.mul_add(self.2, 0.2126f32.mul_add(self.0, 0.7152 * self.1))
     }
 
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn contrast_ratio(&self, other: &Self) -> f32 {
         let lum_a = self.relative_luminance();
         let lum_b = other.relative_luminance();
@@ -1087,19 +1094,21 @@ impl LinearRgba {
     fn lum_contrast_ratio(lum_a: f32, lum_b: f32) -> f32 {
         let a = lum_a + 0.05;
         let b = lum_b + 0.05;
-        if a > b {
-            a / b
-        } else {
-            b / a
-        }
+        if a > b { a / b } else { b / a }
     }
 
     #[cfg(feature = "std")]
     fn to_oklaba(self) -> [f32; 4] {
         let (r, g, b, alpha) = (self.0, self.1, self.2, self.3);
-        let l_ = 0.051_445_995f32.mul_add(b, 0.412_221_46f32.mul_add(r, 0.536_332_55 * g)).cbrt();
-        let m_ = 0.107_396_96f32.mul_add(b, 0.211_903_5f32.mul_add(r, 0.680_699_5 * g)).cbrt();
-        let s_ = 0.629_978_7f32.mul_add(b, 0.088_302_46f32.mul_add(r, 0.281_718_85 * g)).cbrt();
+        let l_ = 0.051_445_995f32
+            .mul_add(b, 0.412_221_46f32.mul_add(r, 0.536_332_55 * g))
+            .cbrt();
+        let m_ = 0.107_396_96f32
+            .mul_add(b, 0.211_903_5f32.mul_add(r, 0.680_699_5 * g))
+            .cbrt();
+        let s_ = 0.629_978_7f32
+            .mul_add(b, 0.088_302_46f32.mul_add(r, 0.281_718_85 * g))
+            .cbrt();
         let l = 0.004_072_047f32.mul_add(-s_, 0.210_454_26f32.mul_add(l_, 0.793_617_8 * m_));
         let a = 0.450_593_7f32.mul_add(s_, 1.977_998_5f32.mul_add(l_, -(2.428_592_2 * m_)));
         let b = 0.808_675_77f32.mul_add(-s_, 0.025_904_037f32.mul_add(l_, 0.782_771_77 * m_));
@@ -1108,9 +1117,15 @@ impl LinearRgba {
 
     #[cfg(feature = "std")]
     fn from_oklaba(l: f32, a: f32, b: f32, alpha: f32) -> Self {
-        let l_ = 0.215_803_76f32.mul_add(b, 0.396_337_78f32.mul_add(a, l)).powi(3);
-        let m_ = 0.063_854_17f32.mul_add(-b, 0.105_561_346f32.mul_add(-a, l)).powi(3);
-        let s_ = 1.291_485_5f32.mul_add(-b, 0.089_484_18f32.mul_add(-a, l)).powi(3);
+        let l_ = 0.215_803_76f32
+            .mul_add(b, 0.396_337_78f32.mul_add(a, l))
+            .powi(3);
+        let m_ = 0.063_854_17f32
+            .mul_add(-b, 0.105_561_346f32.mul_add(-a, l))
+            .powi(3);
+        let s_ = 1.291_485_5f32
+            .mul_add(-b, 0.089_484_18f32.mul_add(-a, l))
+            .powi(3);
 
         let r = 0.230_969_94f32.mul_add(s_, 4.076_741_7f32.mul_add(l_, -(3.307_711_6 * m_)));
         let g = 0.341_319_38f32.mul_add(-s_, (-1.268_438f32).mul_add(l_, 2.609_757_4 * m_));
@@ -1127,7 +1142,7 @@ impl LinearRgba {
     /// If the ratio is already suitable, returns None; the caller should
     /// continue to use `self` as the foreground color.
     #[cfg(feature = "std")]
-    #[must_use] 
+    #[must_use]
     pub fn ensure_contrast_ratio(&self, other: &Self, min_ratio: f32) -> Option<Self> {
         if self == other {
             // Intentionally the same color, don't try to fixup
@@ -1153,10 +1168,9 @@ impl LinearRgba {
         let increased_ratio = reduced_col.contrast_ratio(other);
 
         // Prefer the reduced luminance version if the fg is dimmer than bg
-        if fg_lum < bg_lum
-            && reduced_ratio >= min_ratio {
-                return Some(reduced_col);
-            }
+        if fg_lum < bg_lum && reduced_ratio >= min_ratio {
+            return Some(reduced_col);
+        }
         // Otherwise, let's find a satisfactory alternative
         if increased_ratio >= min_ratio {
             return Some(increased_col);

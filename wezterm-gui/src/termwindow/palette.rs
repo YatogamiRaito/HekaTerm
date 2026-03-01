@@ -1,6 +1,9 @@
 use crate::commands::{CommandDef, ExpandedCommand};
 use crate::overlay::selector::{matcher_pattern, matcher_score};
-use crate::termwindow::box_model::{ComputedElement, Element, ElementContent, ElementColors, BorderColor, DisplayType, InheritableColor, Float, BoxDimension, Corners, SizedPoly, LayoutContext};
+use crate::termwindow::box_model::{
+    BorderColor, BoxDimension, ComputedElement, Corners, DisplayType, Element, ElementColors,
+    ElementContent, Float, InheritableColor, LayoutContext, SizedPoly,
+};
 use crate::termwindow::modal::Modal;
 use crate::termwindow::render::corners::{
     BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER, TOP_LEFT_ROUNDED_CORNER,
@@ -8,8 +11,8 @@ use crate::termwindow::render::corners::{
 };
 use crate::termwindow::{DimensionContext, GuiWin, TermWindow};
 use crate::utilsprites::RenderMetrics;
-use config::keyassignment::KeyAssignment;
 use config::Dimension;
+use config::keyassignment::KeyAssignment;
 use frecency::Frecency;
 use luahelper::{from_lua_value_dynamic, impl_lua_conversion_dynamic};
 use mux_lua::MuxPane;
@@ -23,8 +26,8 @@ use std::path::PathBuf;
 use termwiz::nerdfonts::NERD_FONTS;
 use wezterm_dynamic::{FromDynamic, ToDynamic};
 use wezterm_term::{KeyCode, KeyModifiers, MouseEvent};
-use window::color::LinearRgba;
 use window::Modifiers;
+use window::color::LinearRgba;
 
 struct MatchResults {
     selection: String,
@@ -220,12 +223,10 @@ impl CommandPalette {
         // Showing the CopyMode actions in the palette is useless
         // if the CopyOverlay isn't active, so figure out if that
         // is the case so that we can filter them out in build_commands.
-        let filter_copy_mode = term_window
-            .get_active_pane_or_overlay()
-            .is_none_or(|pane| {
-                pane.downcast_ref::<crate::termwindow::CopyOverlay>()
-                    .is_none()
-            });
+        let filter_copy_mode = term_window.get_active_pane_or_overlay().is_none_or(|pane| {
+            pane.downcast_ref::<crate::termwindow::CopyOverlay>()
+                .is_none()
+        });
 
         let mux_pane = term_window
             .get_active_pane_or_overlay()
@@ -268,20 +269,19 @@ impl CommandPalette {
         let border = term_window.get_os_border();
         let top_pixel_y = top_bar_height + padding_top + border.top.get() as f32;
 
-        let mut elements =
-            vec![
-                Element::new(&font, ElementContent::Text(format!("> {selection}_")))
-                    .colors(ElementColors {
-                        border: BorderColor::default(),
-                        bg: LinearRgba::TRANSPARENT.into(),
-                        text: term_window
-                            .config
-                            .command_palette_fg_color
-                            .to_linear()
-                            .into(),
-                    })
-                    .display(DisplayType::Block),
-            ];
+        let mut elements = vec![
+            Element::new(&font, ElementContent::Text(format!("> {selection}_")))
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: term_window
+                        .config
+                        .command_palette_fg_color
+                        .to_linear()
+                        .into(),
+                })
+                .display(DisplayType::Block),
+        ];
 
         for (display_idx, command) in matches
             .matches
@@ -451,12 +451,7 @@ impl CommandPalette {
 
         let element = Element::new(&font, ElementContent::Children(elements))
             .colors(ElementColors {
-                border: BorderColor::new(
-                    term_window
-                        .config
-                        .command_palette_bg_color
-                        .to_linear(),
-                ),
+                border: BorderColor::new(term_window.config.command_palette_bg_color.to_linear()),
                 bg: term_window
                     .config
                     .command_palette_bg_color
@@ -555,7 +550,8 @@ impl CommandPalette {
         let limit = self
             .matches
             .borrow()
-            .as_ref().map_or_else(|| self.commands.len(), |m| m.matches.len())
+            .as_ref()
+            .map_or_else(|| self.commands.len(), |m| m.matches.len())
             .saturating_sub(1);
         let mut row = self.selected_row.borrow_mut();
         *row = row.saturating_add(1).min(limit);
@@ -630,9 +626,10 @@ impl Modal for CommandPalette {
                 term_window.cancel_modal();
 
                 if let Some(pane) = term_window.get_active_pane_or_overlay()
-                    && let Err(err) = term_window.perform_key_assignment(&pane, &item.action) {
-                        log::error!("Error while performing {item:?}: {err:#}");
-                    }
+                    && let Err(err) = term_window.perform_key_assignment(&pane, &item.action)
+                {
+                    log::error!("Error while performing {item:?}: {err:#}");
+                }
                 return Ok(true);
             }
             _ => return Ok(false),
@@ -664,9 +661,7 @@ impl Modal for CommandPalette {
         }
         *self.max_rows_on_screen.borrow_mut() = max_rows_on_screen;
 
-        let rebuild_matches = results
-            .as_ref()
-            .is_none_or(|m| m.selection != selection);
+        let rebuild_matches = results.as_ref().is_none_or(|m| m.selection != selection);
         if rebuild_matches {
             results.replace(MatchResults {
                 selection: selection.to_string(),

@@ -8,7 +8,7 @@ use cocoa::foundation::NSInteger;
 use config::keyassignment::KeyAssignment;
 use objc::declare::ClassDecl;
 use objc::rc::StrongPtr;
-use objc::runtime::{Class, Object, Sel, BOOL, NO, YES};
+use objc::runtime::{BOOL, Class, NO, Object, Sel, YES};
 pub use objc::*;
 use std::ffi::c_void;
 
@@ -153,11 +153,7 @@ impl Menu {
     pub fn index_of_item_with_represented_object(&self, object: id) -> Option<usize> {
         unsafe {
             let n: NSInteger = msg_send![*self.menu, indexOfItemWithRepresentedObject: object];
-            if n == -1 {
-                None
-            } else {
-                Some(n as usize)
-            }
+            if n == -1 { None } else { Some(n as usize) }
         }
     }
 
@@ -234,11 +230,7 @@ impl MenuItem {
     pub fn get_action(&self) -> Option<SEL> {
         unsafe {
             let s: SEL = msg_send![*self.item, action];
-            if s.as_ptr().is_null() {
-                None
-            } else {
-                Some(s)
-            }
+            if s.as_ptr().is_null() { None } else { Some(s) }
         }
     }
 
@@ -388,11 +380,7 @@ fn get_wrapper_class() -> &'static Class {
             unsafe {
                 let this_item = RepresentedItem::ref_item(this);
                 let that_item = RepresentedItem::ref_item(that);
-                if this_item == that_item {
-                    YES
-                } else {
-                    NO
-                }
+                if this_item == that_item { YES } else { NO }
             }
         }
 

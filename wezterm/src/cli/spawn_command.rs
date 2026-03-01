@@ -1,7 +1,7 @@
 use crate::cli::resolve_relative_cwd;
 use clap::{Parser, ValueHint};
-use config::keyassignment::SpawnTabDomain;
 use config::ConfigHandle;
+use config::keyassignment::SpawnTabDomain;
 use mux::pane::PaneId;
 use mux::window::WindowId;
 use portable_pty::cmdbuilder::CommandBuilder;
@@ -54,7 +54,9 @@ impl SpawnCommand {
     pub async fn run(self, client: Client, config: &ConfigHandle) -> anyhow::Result<()> {
         let window_id = if self.new_window {
             None
-        } else if let Some(w) = self.window_id { Some(w) } else {
+        } else if let Some(w) = self.window_id {
+            Some(w)
+        } else {
             let pane_id = client.resolve_pane_id(self.pane_id).await?;
 
             let panes = client.list_panes().await?;
@@ -64,10 +66,11 @@ impl SpawnCommand {
 
                 loop {
                     if let Some(entry) = cursor.leaf_mut()
-                        && entry.pane_id == pane_id {
-                            window_id.replace(entry.window_id);
-                            break 'outer;
-                        }
+                        && entry.pane_id == pane_id
+                    {
+                        window_id.replace(entry.window_id);
+                        break 'outer;
+                    }
                     match cursor.preorder_next() {
                         Ok(c) => cursor = c,
                         Err(_) => break,

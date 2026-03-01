@@ -4,17 +4,18 @@
 //! This allows other code to collect the ring buffer and display it
 //! within the application.
 use chrono::prelude::*;
-use env_logger::filter::{Builder as FilterBuilder, Filter};
+use env_filter::{Builder as FilterBuilder, Filter};
 use log::{Level, LevelFilter, Log, Record};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
 use termwiz::istty::IsTty;
 
-static RINGS: std::sync::LazyLock<Mutex<Rings>> = std::sync::LazyLock::new(|| Mutex::new(Rings::new()));
+static RINGS: std::sync::LazyLock<Mutex<Rings>> =
+    std::sync::LazyLock::new(|| Mutex::new(Rings::new()));
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Entry {
@@ -149,7 +150,7 @@ impl log::Log for Logger {
     }
 
     fn flush(&self) {
-        if let Some(file) = self.file.lock().unwrap().as_mut() {
+        if let Some(file) = self.file.lock().as_mut() {
             let _ = file.flush();
         }
         let _ = std::io::stderr().flush();
@@ -157,7 +158,7 @@ impl log::Log for Logger {
 
     fn log(&self, record: &Record) {
         if self.filter.matches(record) {
-            RINGS.lock().unwrap().log(record);
+            RINGS.lock().log(record);
             let ts = Local::now().format("%H:%M:%S%.3f").to_string();
             let level = record.level().as_str();
             let target = record.target().to_string();
@@ -195,20 +196,17 @@ impl log::Log for Logger {
                 let _ = stderr.flush();
             }
 
-            let mut file = self.file.lock().unwrap();
+            let mut file = self.file.lock();
             if file.is_none()
                 && let Ok(f) = std::fs::OpenOptions::new()
                     .append(true)
                     .create(true)
                     .open(&self.file_name)
-                {
-                    file.replace(BufWriter::new(f));
-                }
+            {
+                file.replace(BufWriter::new(f));
+            }
             if let Some(file) = file.as_mut() {
-                let _ = writeln!(
-                    file,
-                    "{ts}  {level:6} {target:padding$} > {msg}"
-                );
+                let _ = writeln!(file, "{ts}  {level:6} {target:padding$} > {msg}");
                 let _ = file.flush();
             }
         }
@@ -217,7 +215,7 @@ impl log::Log for Logger {
 
 /// Returns the current set of log information, sorted by time
 pub fn get_entries() -> Vec<Entry> {
-    let mut entries = RINGS.lock().unwrap().get_entries();
+    let mut entries = RINGS.lock().get_entries();
     entries.sort();
     entries
 }
@@ -228,13 +226,14 @@ fn prune_old_logs() {
         for entry in dir {
             if let Ok(entry) = entry
                 && let Some(name) = entry.file_name().to_str()
-                    && name.contains("-log-")
-                        && let Ok(meta) = entry.metadata()
-                            && let Ok(modified) = meta.modified()
-                                && let Ok(elapsed) = modified.elapsed()
-                                    && elapsed > one_week {
-                                        let _ = std::fs::remove_file(entry.path());
-                                    }
+                && name.contains("-log-")
+                && let Ok(meta) = entry.metadata()
+                && let Ok(modified) = meta.modified()
+                && let Ok(elapsed) = modified.elapsed()
+                && elapsed > one_week
+            {
+                let _ = std::fs::remove_file(entry.path());
+            }
         }
     }
 }

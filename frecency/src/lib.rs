@@ -26,14 +26,14 @@ impl Default for Frecency {
 
 impl Frecency {
     /// Creates a new Frecency that initially has no accesses
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::new_at_time(Utc::now())
     }
 
     /// Creates a new Frecency that initially has no accesses.
     /// `now` is the current time, if you happen to already know it.
-    #[must_use] 
+    #[must_use]
     pub const fn new_at_time(now: DateTime<Utc>) -> Self {
         Self {
             half_life: Duration::days(3),
@@ -57,25 +57,25 @@ impl Frecency {
     }
 
     /// Returns the number of accesses
-    #[must_use] 
+    #[must_use]
     pub const fn num_accesses(&self) -> u64 {
         self.num_accesses
     }
 
     /// Returns the time when the item was last accessed
-    #[must_use] 
+    #[must_use]
     pub const fn last_accessed(&self) -> &DateTime<Utc> {
         &self.last_accessed
     }
 
     /// Compute the frecency score
-    #[must_use] 
+    #[must_use]
     pub fn score(&self) -> f64 {
         self.score_at_time(Utc::now())
     }
 
     /// Compute the frecency score at a particular time
-    #[must_use] 
+    #[must_use]
     pub fn score_at_time(&self, now: DateTime<Utc>) -> f64 {
         let elapsed = duration_secs_f64(now - self.last_accessed);
         self.frecency / (elapsed / duration_secs_f64(self.half_life)).exp2()

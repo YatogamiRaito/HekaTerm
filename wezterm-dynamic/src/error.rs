@@ -13,6 +13,7 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::{format, vec};
+use core::fmt::Write as _;
 
 #[cfg(feature = "std")]
 pub trait WarningCollector {
@@ -258,7 +259,7 @@ impl Error {
 
         match suggestions.len() {
             0 => {}
-            1 => message.push_str(&format!("Did you mean `{}`?", suggestions[0])),
+            1 => write!(&mut message, "Did you mean `{}`?", suggestions[0]).unwrap(),
             _ => {
                 message.push_str("Did you mean one of ");
                 for (idx, candidate) in suggestions.iter().enumerate() {
@@ -300,7 +301,7 @@ impl Error {
         message
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn field_context(
         self,
         type_name: &'static str,

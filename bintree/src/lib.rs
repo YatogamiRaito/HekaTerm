@@ -173,7 +173,7 @@ impl<'a, L, N> std::iter::Iterator for ParentIterator<'a, L, N> {
 impl<L, N> Tree<L, N> {
     /// Construct a new empty tree
     #[allow(clippy::new_without_default)]
-    #[must_use] 
+    #[must_use]
     pub const fn new() -> Self {
         Self::Empty
     }
@@ -211,30 +211,30 @@ impl<L, N> Cursor<L, N> {
     }
 
     /// References the subtree at the current cursor position
-    #[must_use] 
+    #[must_use]
     pub fn subtree(&self) -> &Tree<L, N> {
         &self.it
     }
 
     /// Returns true if the current position is a leaf node
-    #[must_use] 
+    #[must_use]
     pub fn is_leaf(&self) -> bool {
         matches!(&*self.it, Tree::Leaf(_))
     }
 
     /// Returns true if the current position is the left child of its parent
-    #[must_use] 
+    #[must_use]
     pub fn is_left(&self) -> bool {
         matches!(&*self.path, Path::Left { .. })
     }
 
     /// Returns true if the current position is the right child of its parent
-    #[must_use] 
+    #[must_use]
     pub fn is_right(&self) -> bool {
         matches!(&*self.path, Path::Right { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_top(&self) -> bool {
         matches!(&*self.path, Path::Top)
     }
@@ -277,7 +277,7 @@ impl<L, N> Cursor<L, N> {
     /// Return an iterator that will visit the chain of nodes leading
     /// to the root from the current position and yield their node
     /// data at each step of iteration.
-    #[must_use] 
+    #[must_use]
     pub fn path_to_root(&self) -> ParentIterator<'_, L, N> {
         ParentIterator { path: &*self.path }
     }
@@ -551,7 +551,7 @@ impl<L, N> Cursor<L, N> {
     }
 
     /// Consume the cursor and return the root of the Tree
-    #[must_use] 
+    #[must_use]
     pub fn tree(mut self) -> Tree<L, N> {
         loop {
             self = match self.go_up() {

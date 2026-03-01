@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 #[cfg(unix)]
 use libc::{AF_UNSPEC, AI_CANONNAME, SOCK_DGRAM};
 use rcgen::{BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair};
@@ -46,9 +46,10 @@ impl Pki {
         if let Ok(iter) = dns_lookup::getaddrinfo(Some(&hostname), None, Some(hints)) {
             for entry in iter {
                 if let Ok(entry) = entry
-                    && let Some(canon) = entry.canonname {
-                        alt_names.push(canon);
-                    }
+                    && let Some(canon) = entry.canonname
+                {
+                    alt_names.push(canon);
+                }
             }
         }
 
@@ -112,12 +113,12 @@ impl Pki {
         Ok(self.ca_cert.pem())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn ca_pem(&self) -> PathBuf {
         self.pki_dir.join("ca.pem")
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn server_pem(&self) -> PathBuf {
         self.pki_dir.join("server.pem")
     }

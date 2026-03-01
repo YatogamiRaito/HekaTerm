@@ -4,8 +4,8 @@ use async_ossl::AsyncSslStream;
 use codec::{DecodedPdu, Pdu};
 use futures::FutureExt;
 use mux::{Mux, MuxNotification};
-use smol::prelude::*;
 use smol::Async;
+use smol::prelude::*;
 use wezterm_uds::UnixStream;
 
 #[cfg(unix)]
@@ -74,10 +74,11 @@ where
                     Ok(data) => data,
                     Err(err) => {
                         if let Some(err) = err.root_cause().downcast_ref::<std::io::Error>()
-                            && err.kind() == std::io::ErrorKind::UnexpectedEof {
-                                // Client disconnected: no need to make a noise
-                                return Ok(());
-                            }
+                            && err.kind() == std::io::ErrorKind::UnexpectedEof
+                        {
+                            // Client disconnected: no need to make a noise
+                            return Ok(());
+                        }
                         return Err(err).context("reading Pdu from client");
                     }
                 };
@@ -88,10 +89,11 @@ where
                     Ok(()) => {}
                     Err(err) => {
                         if let Some(err) = err.root_cause().downcast_ref::<std::io::Error>()
-                            && err.kind() == std::io::ErrorKind::BrokenPipe {
-                                // Client disconnected: no need to make a noise
-                                return Ok(());
-                            }
+                            && err.kind() == std::io::ErrorKind::BrokenPipe
+                        {
+                            // Client disconnected: no need to make a noise
+                            return Ok(());
+                        }
                         return Err(err).context("encoding PDU to client");
                     }
                 }
@@ -119,7 +121,7 @@ where
             Ok(Item::Notif(MuxNotification::Alert { pane_id, alert })) => {
                 {
                     let per_pane = handler.per_pane(pane_id);
-                    let mut per_pane = per_pane.lock().unwrap();
+                    let mut per_pane = per_pane.lock();
                     per_pane.notifications.push(alert);
                 }
                 handler.schedule_pane_push(pane_id);

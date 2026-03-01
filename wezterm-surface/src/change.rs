@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use wezterm_cell::color::ColorAttribute;
 #[cfg(feature = "use_image")]
 pub use wezterm_cell::image::{ImageData, TextureCoordinate};
-use wezterm_cell::{unicode_column_width, AttributeChange, CellAttributes};
+use wezterm_cell::{AttributeChange, CellAttributes, unicode_column_width};
 
 extern crate alloc;
 use alloc::string::String;
@@ -113,12 +113,12 @@ pub enum Change {
 }
 
 impl Change {
-    #[must_use] 
+    #[must_use]
     pub const fn is_text(&self) -> bool {
         matches!(self, Self::Text(_))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn text(&self) -> &str {
         match self {
             Self::Text(text) => text,
@@ -168,7 +168,7 @@ pub struct ChangeSequence {
 }
 
 impl ChangeSequence {
-    #[must_use] 
+    #[must_use]
     pub const fn new(rows: usize, cols: usize) -> Self {
         Self {
             changes: vec![],
@@ -181,13 +181,13 @@ impl ChangeSequence {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn consume(self) -> Vec<Change> {
         self.changes
     }
 
     /// Returns the cursor position, (x, y).
-    #[must_use] 
+    #[must_use]
     pub const fn current_cursor_position(&self) -> (usize, isize) {
         (self.cursor_x, self.cursor_y)
     }
@@ -200,9 +200,11 @@ impl ChangeSequence {
     }
 
     /// Returns the total number of rows affected
-    #[must_use] 
+    #[must_use]
     pub fn render_height(&self) -> usize {
-        (self.render_y_max - self.render_y_min).max(0).unsigned_abs()
+        (self.render_y_max - self.render_y_min)
+            .max(0)
+            .unsigned_abs()
     }
 
     fn update_render_height(&mut self) {
@@ -267,9 +269,7 @@ impl ChangeSequence {
                 };
 
                 self.cursor_y = match y {
-                    Position::Relative(y) => {
-                        (self.cursor_y + y) % self.screen_rows as isize
-                    }
+                    Position::Relative(y) => (self.cursor_y + y) % self.screen_rows as isize,
                     Position::Absolute(y) => (y % self.screen_rows) as isize,
                     Position::EndRelative(y) => {
                         ((self.screen_rows - y) % self.screen_rows) as isize

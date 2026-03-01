@@ -24,7 +24,9 @@ impl SendText {
     pub async fn run(self, client: Client) -> anyhow::Result<()> {
         let pane_id = client.resolve_pane_id(self.pane_id).await?;
 
-        let data = if let Some(text) = self.text { text } else {
+        let data = if let Some(text) = self.text {
+            text
+        } else {
             let mut text = String::new();
             std::io::stdin()
                 .read_to_string(&mut text)

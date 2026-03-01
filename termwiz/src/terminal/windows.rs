@@ -1,12 +1,12 @@
-use crate::escape::csi::{DecPrivateMode, DecPrivateModeCode, Mode, CSI};
+use crate::escape::csi::{CSI, DecPrivateMode, DecPrivateModeCode, Mode};
 use crate::istty::IsTty;
 use crate::terminal::ProbeCapabilities;
-use crate::{bail, ensure, format_err, Result};
+use crate::{Result, bail, ensure, format_err};
 use filedescriptor::{FileDescriptor, OwnedHandle};
 use std::cmp::{max, min};
 use std::collections::VecDeque;
 use std::fs::OpenOptions;
-use std::io::{stdin, stdout, Error as IoError, Read, Result as IoResult, Write};
+use std::io::{Error as IoError, Read, Result as IoResult, Write, stdin, stdout};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,23 +16,23 @@ use winapi::um::consoleapi;
 use winapi::um::synchapi::{CreateEventW, SetEvent, WaitForMultipleObjects};
 use winapi::um::winbase::{INFINITE, WAIT_FAILED, WAIT_OBJECT_0};
 use winapi::um::wincon::{
-    FillConsoleOutputAttribute, FillConsoleOutputCharacterW, GetConsoleScreenBufferInfo,
-    ReadConsoleOutputW, ScrollConsoleScreenBufferW, SetConsoleCP, SetConsoleCursorPosition,
+    CHAR_INFO, CONSOLE_SCREEN_BUFFER_INFO, COORD, DISABLE_NEWLINE_AUTO_RETURN, ENABLE_ECHO_INPUT,
+    ENABLE_LINE_INPUT, ENABLE_MOUSE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT,
+    ENABLE_VIRTUAL_TERMINAL_PROCESSING, ENABLE_WINDOW_INPUT, FillConsoleOutputAttribute,
+    FillConsoleOutputCharacterW, GetConsoleScreenBufferInfo, INPUT_RECORD, ReadConsoleOutputW,
+    SMALL_RECT, ScrollConsoleScreenBufferW, SetConsoleCP, SetConsoleCursorPosition,
     SetConsoleOutputCP, SetConsoleScreenBufferSize, SetConsoleTextAttribute, SetConsoleWindowInfo,
-    WriteConsoleOutputW, CHAR_INFO, CONSOLE_SCREEN_BUFFER_INFO, COORD, DISABLE_NEWLINE_AUTO_RETURN,
-    ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_MOUSE_INPUT, ENABLE_PROCESSED_INPUT,
-    ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, ENABLE_WINDOW_INPUT,
-    INPUT_RECORD, SMALL_RECT,
+    WriteConsoleOutputW,
 };
 use winapi::um::winnls::CP_UTF8;
 
 use crate::caps::Capabilities;
 use crate::input::{InputEvent, InputParser};
+use crate::render::RenderTty;
 use crate::render::terminfo::TerminfoRenderer;
 use crate::render::windows::WindowsConsoleRenderer;
-use crate::render::RenderTty;
 use crate::surface::Change;
-use crate::terminal::{cast, ScreenSize, Terminal};
+use crate::terminal::{ScreenSize, Terminal, cast};
 
 const BUF_SIZE: usize = 128;
 

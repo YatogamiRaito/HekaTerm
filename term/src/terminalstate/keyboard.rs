@@ -1,5 +1,5 @@
-use crate::input::{KeyCode, KeyModifiers};
 use crate::TerminalState;
+use crate::input::{KeyCode, KeyModifiers};
 use std::io::Write;
 use termwiz::input::{KeyCodeEncodeModes, KeyboardEncoding};
 

@@ -23,18 +23,17 @@ use winapi::um::wingdi::{
 use winapi::um::winnt::HANDLE;
 use winapi::um::winuser::*;
 use windows::Win32::Devices::Display::{
-    DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QueryDisplayConfig,
     DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
     DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SOURCE_DEVICE_NAME,
-    DISPLAYCONFIG_TARGET_DEVICE_NAME,
+    DISPLAYCONFIG_TARGET_DEVICE_NAME, DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes,
+    QueryDisplayConfig,
 };
-use winreg::enums::HKEY_CURRENT_USER;
 use winreg::RegKey;
+use winreg::enums::HKEY_CURRENT_USER;
 
 pub struct Connection {
     event_handle: HANDLE,
     pub(crate) windows: RefCell<HashMap<HWindow, Rc<RefCell<WindowInner>>>>,
-    pub(crate) gl_connection: RefCell<Option<Rc<crate::egl::GlConnection>>>,
 }
 
 pub(crate) fn get_appearance() -> Appearance {
@@ -124,7 +123,6 @@ impl Connection {
         Ok(Self {
             event_handle,
             windows: RefCell::new(HashMap::new()),
-            gl_connection: RefCell::new(None),
         })
     }
 

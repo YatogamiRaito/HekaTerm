@@ -1,10 +1,10 @@
 use super::confirm;
 use crate::TermWindow;
+use mux::Mux;
 use mux::pane::PaneId;
 use mux::tab::TabId;
 use mux::termwiztermtab::TermWizTerminal;
 use mux::window::WindowId;
-use mux::Mux;
 
 pub fn confirm_close_pane(
     pane_id: PaneId,
@@ -15,9 +15,8 @@ pub fn confirm_close_pane(
     if confirm::run_confirmation("🛑 Really kill this pane?", &mut term)? {
         promise::spawn::spawn_into_main_thread(async move {
             let mux = Mux::get();
-            let tab = match mux.get_active_tab_for_window(mux_window_id) {
-                Some(tab) => tab,
-                None => return,
+            let Some(tab) = mux.get_active_tab_for_window(mux_window_id) else {
+                return;
             };
             tab.kill_pane(pane_id);
         })

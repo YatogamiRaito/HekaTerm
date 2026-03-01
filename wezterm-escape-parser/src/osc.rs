@@ -12,7 +12,7 @@ use ordered_float::NotNan;
 #[cfg(feature = "std")]
 use std::sync::LazyLock;
 
-use crate::allocate::{String, Vec, ToString, ToOwned, HashMap, Box};
+use crate::allocate::{Box, HashMap, String, ToOwned, ToString, Vec};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ColorOrQuery {
@@ -152,16 +152,14 @@ impl Display for Selection {
 }
 
 impl OperatingSystemCommand {
-    #[must_use] 
+    #[must_use]
     pub fn parse(osc: &[&[u8]]) -> Self {
         Self::internal_parse(osc).unwrap_or_else(|err| {
             let mut vec = Vec::new();
             for slice in osc {
                 vec.push(slice.to_vec());
             }
-            log::trace!(
-                "OSC internal parse err: {err}, track as Unspecified {vec:?}"
-            );
+            log::trace!("OSC internal parse err: {err}, track as Unspecified {vec:?}");
             Self::Unspecified(vec)
         })
     }
@@ -246,10 +244,7 @@ impl OperatingSystemCommand {
             }
         }
 
-        Ok(Self::ChangeDynamicColors(
-            which_color,
-            colors,
-        ))
+        Ok(Self::ChangeDynamicColors(which_color, colors))
     }
 
     fn internal_parse(osc: &[&[u8]]) -> Result<Self> {
@@ -300,18 +295,26 @@ impl OperatingSystemCommand {
             }};
         }
 
-        use self::OperatingSystemCommandCode::{SetIconNameAndWindowTitle, SetWindowTitle, SetWindowTitleSun, SetIconName, SetIconNameSun, SetHyperlink, ManipulateSelectionData, SystemNotification, SetCurrentWorkingDirectory, ITermProprietary, RxvtProprietary, FinalTermSemanticPrompt, ChangeColorNumber, ResetColors, ResetSpecialColor, ResetTextForegroundColor, ResetTextBackgroundColor, ResetTextCursorColor, ResetMouseForegroundColor, ResetMouseBackgroundColor, ResetTektronixForegroundColor, ResetTektronixBackgroundColor, ResetHighlightColor, ResetTektronixCursorColor, ResetHighlightForegroundColor, SetTextForegroundColor, SetTextBackgroundColor, SetTextCursorColor, SetMouseForegroundColor, SetMouseBackgroundColor, SetTektronixForegroundColor, SetTektronixBackgroundColor, SetHighlightBackgroundColor, SetTektronixCursorColor, SetHighlightForegroundColor};
+        use self::OperatingSystemCommandCode::{
+            ChangeColorNumber, FinalTermSemanticPrompt, ITermProprietary, ManipulateSelectionData,
+            ResetColors, ResetHighlightColor, ResetHighlightForegroundColor,
+            ResetMouseBackgroundColor, ResetMouseForegroundColor, ResetSpecialColor,
+            ResetTektronixBackgroundColor, ResetTektronixCursorColor,
+            ResetTektronixForegroundColor, ResetTextBackgroundColor, ResetTextCursorColor,
+            ResetTextForegroundColor, RxvtProprietary, SetCurrentWorkingDirectory,
+            SetHighlightBackgroundColor, SetHighlightForegroundColor, SetHyperlink, SetIconName,
+            SetIconNameAndWindowTitle, SetIconNameSun, SetMouseBackgroundColor,
+            SetMouseForegroundColor, SetTektronixBackgroundColor, SetTektronixCursorColor,
+            SetTektronixForegroundColor, SetTextBackgroundColor, SetTextCursorColor,
+            SetTextForegroundColor, SetWindowTitle, SetWindowTitleSun, SystemNotification,
+        };
         match osc_code {
             SetIconNameAndWindowTitle => single_title_string!(SetIconNameAndWindowTitle),
             SetWindowTitle => single_title_string!(SetWindowTitle),
-            SetWindowTitleSun => Ok(Self::SetWindowTitleSun(
-                p1str[1..].to_owned(),
-            )),
+            SetWindowTitleSun => Ok(Self::SetWindowTitleSun(p1str[1..].to_owned())),
 
             SetIconName => single_title_string!(SetIconName),
-            SetIconNameSun => Ok(Self::SetIconNameSun(
-                p1str[1..].to_owned(),
-            )),
+            SetIconNameSun => Ok(Self::SetIconNameSun(p1str[1..].to_owned())),
             SetHyperlink => Ok(Self::SetHyperlink(Hyperlink::parse(osc)?)),
             ManipulateSelectionData => Self::parse_selection(osc),
             SystemNotification => {
@@ -324,20 +327,14 @@ impl OperatingSystemCommand {
                         b"0" => return Ok(Self::ConEmuProgress(Progress::None)),
                         b"1" => {
                             let pct = osc.get(3).map_or(0, get_pct);
-                            return Ok(Self::ConEmuProgress(
-                                Progress::SetPercentage(pct),
-                            ));
+                            return Ok(Self::ConEmuProgress(Progress::SetPercentage(pct)));
                         }
                         b"2" => {
                             let pct = osc.get(3).map_or(0, get_pct);
-                            return Ok(Self::ConEmuProgress(Progress::SetError(
-                                pct,
-                            )));
+                            return Ok(Self::ConEmuProgress(Progress::SetError(pct)));
                         }
                         b"3" => {
-                            return Ok(Self::ConEmuProgress(
-                                Progress::SetIndeterminate,
-                            ));
+                            return Ok(Self::ConEmuProgress(Progress::SetIndeterminate));
                         }
                         b"4" => {
                             return Ok(Self::ConEmuProgress(Progress::Paused));
@@ -558,7 +555,13 @@ impl Display for OperatingSystemCommand {
             }};
         }
 
-        use self::OperatingSystemCommand::{SetIconNameAndWindowTitle, SetWindowTitle, SetWindowTitleSun, SetIconName, SetIconNameSun, SetHyperlink, RxvtExtension, Unspecified, ClearSelection, QuerySelection, SetSelection, SystemNotification, ITermProprietary, FinalTermSemanticPrompt, ResetColors, ChangeColorNumber, ChangeDynamicColors, ResetDynamicColor, CurrentWorkingDirectory, ConEmuProgress};
+        use self::OperatingSystemCommand::{
+            ChangeColorNumber, ChangeDynamicColors, ClearSelection, ConEmuProgress,
+            CurrentWorkingDirectory, FinalTermSemanticPrompt, ITermProprietary, QuerySelection,
+            ResetColors, ResetDynamicColor, RxvtExtension, SetHyperlink, SetIconName,
+            SetIconNameAndWindowTitle, SetIconNameSun, SetSelection, SetWindowTitle,
+            SetWindowTitleSun, SystemNotification, Unspecified,
+        };
         match self {
             SetIconNameAndWindowTitle(title) => single_string!(SetIconNameAndWindowTitle, title),
             SetWindowTitle(title) => single_string!(SetWindowTitle, title),
@@ -656,8 +659,7 @@ impl Display for FinalTermClick {
 }
 
 /// <https://gitlab.freedesktop.org/Per_Bothner/specifications/blob/master/proposals/semantic-prompts.md>
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum FinalTermPromptKind {
     /// A normal left side primary prompt
     #[default]
@@ -669,7 +671,6 @@ pub enum FinalTermPromptKind {
     /// A continuation prompt where the input cannot be edited
     Secondary,
 }
-
 
 impl core::convert::TryFrom<&str> for FinalTermPromptKind {
     type Error = crate::Error;
@@ -1030,13 +1031,9 @@ impl ITermFileData {
             .get("height")
             .and_then(|s| ITermDimension::parse(s).ok())
             .unwrap_or(ITermDimension::Automatic);
-        let preserve_aspect_ratio = params
-            .get("preserveAspectRatio")
-            .is_none_or(|s| *s != "0");
+        let preserve_aspect_ratio = params.get("preserveAspectRatio").is_none_or(|s| *s != "0");
         let inline = params.get("inline").is_some_and(|s| *s != "0");
-        let do_not_move_cursor = params
-            .get("doNotMoveCursor")
-            .is_some_and(|s| *s != "0");
+        let do_not_move_cursor = params.get("doNotMoveCursor").is_some_and(|s| *s != "0");
         let data = data.ok_or_else(|| "didn't set data".to_string())?;
         Ok(Self {
             name,
@@ -1097,8 +1094,7 @@ impl Display for ITermFileData {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ITermDimension {
     #[default]
     Automatic,
@@ -1107,10 +1103,9 @@ pub enum ITermDimension {
     Percent(i64),
 }
 
-
 impl Display for ITermDimension {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        use self::ITermDimension::{Automatic, Cells, Pixels, Percent};
+        use self::ITermDimension::{Automatic, Cells, Percent, Pixels};
         match self {
             Automatic => write!(f, "auto"),
             Cells(n) => write!(f, "{n}"),
@@ -1146,7 +1141,7 @@ impl ITermDimension {
     /// Convert the dimension into a number of pixels based on the provided
     /// size of a cell and number of cells in that dimension.
     /// Returns None for the Automatic variant.
-    #[must_use] 
+    #[must_use]
     pub fn to_pixels(&self, cell_size: usize, num_cells: usize) -> Option<usize> {
         match self {
             Self::Automatic => None,
@@ -1216,75 +1211,80 @@ impl ITermProprietary {
         let p1_empty = matches!(p1, Some("") | None);
 
         if osc.len() == 3 && keyword == "Copy" && p1_empty {
-            return Ok(Self::Copy(String::from_utf8(base64_decode(
+            return Ok(Self::Copy(String::from_utf8(base64_decode(osc[2])?)?));
+        }
+        if osc.len() == 3 && keyword == "SetBadgeFormat" && p1_empty {
+            return Ok(Self::SetBadgeFormat(String::from_utf8(base64_decode(
                 osc[2],
             )?)?));
         }
-        if osc.len() == 3 && keyword == "SetBadgeFormat" && p1_empty {
-            return Ok(Self::SetBadgeFormat(String::from_utf8(
-                base64_decode(osc[2])?,
-            )?));
+
+        if osc.len() == 3
+            && keyword == "ReportCellSize"
+            && p1.is_some()
+            && let Some(p1) = p1
+        {
+            return Ok(Self::ReportCellSize {
+                height_pixels: NotNan::new(p1.parse()?).map_err(not_nan_err)?,
+                width_pixels: NotNan::new(String::from_utf8_lossy(osc[2]).parse()?)
+                    .map_err(not_nan_err)?,
+                scale: None,
+            });
+        }
+        if osc.len() == 4
+            && keyword == "ReportCellSize"
+            && p1.is_some()
+            && let Some(p1) = p1
+        {
+            return Ok(Self::ReportCellSize {
+                height_pixels: NotNan::new(p1.parse()?).map_err(not_nan_err)?,
+                width_pixels: NotNan::new(String::from_utf8_lossy(osc[2]).parse()?)
+                    .map_err(not_nan_err)?,
+                scale: Some(
+                    NotNan::new(String::from_utf8_lossy(osc[3]).parse()?).map_err(not_nan_err)?,
+                ),
+            });
         }
 
-        if osc.len() == 3 && keyword == "ReportCellSize" && p1.is_some()
-            && let Some(p1) = p1 {
-                return Ok(Self::ReportCellSize {
-                    height_pixels: NotNan::new(p1.parse()?).map_err(not_nan_err)?,
-                    width_pixels: NotNan::new(String::from_utf8_lossy(osc[2]).parse()?)
-                        .map_err(not_nan_err)?,
-                    scale: None,
+        if osc.len() == 2
+            && keyword == "SetUserVar"
+            && let Some(p1) = p1
+        {
+            let mut iter = p1.splitn(2, '=');
+            let p1 = iter.next();
+            let p2 = iter.next();
+
+            if let (Some(k), Some(v)) = (p1, p2) {
+                return Ok(Self::SetUserVar {
+                    name: k.to_string(),
+                    value: String::from_utf8(base64_decode(v)?)?,
                 });
             }
-        if osc.len() == 4 && keyword == "ReportCellSize" && p1.is_some()
-            && let Some(p1) = p1 {
-                return Ok(Self::ReportCellSize {
-                    height_pixels: NotNan::new(p1.parse()?).map_err(not_nan_err)?,
-                    width_pixels: NotNan::new(String::from_utf8_lossy(osc[2]).parse()?)
-                        .map_err(not_nan_err)?,
-                    scale: Some(
-                        NotNan::new(String::from_utf8_lossy(osc[3]).parse()?)
-                            .map_err(not_nan_err)?,
-                    ),
-                });
+        }
+
+        if osc.len() == 2
+            && keyword == "UnicodeVersion"
+            && let Some(p1) = p1
+        {
+            let mut iter = p1.splitn(2, ' ');
+            let keyword = iter.next();
+            let label = iter.next();
+
+            if keyword == Some("push") {
+                return Ok(Self::UnicodeVersion(ITermUnicodeVersionOp::Push(
+                    label.map(crate::alloc::string::ToString::to_string),
+                )));
+            }
+            if keyword == Some("pop") {
+                return Ok(Self::UnicodeVersion(ITermUnicodeVersionOp::Pop(
+                    label.map(crate::alloc::string::ToString::to_string),
+                )));
             }
 
-        if osc.len() == 2 && keyword == "SetUserVar"
-            && let Some(p1) = p1 {
-                let mut iter = p1.splitn(2, '=');
-                let p1 = iter.next();
-                let p2 = iter.next();
-
-                if let (Some(k), Some(v)) = (p1, p2) {
-                    return Ok(Self::SetUserVar {
-                        name: k.to_string(),
-                        value: String::from_utf8(base64_decode(v)?)?,
-                    });
-                }
+            if let Ok(n) = p1.parse::<u8>() {
+                return Ok(Self::UnicodeVersion(ITermUnicodeVersionOp::Set(n)));
             }
-
-        if osc.len() == 2 && keyword == "UnicodeVersion"
-            && let Some(p1) = p1 {
-                let mut iter = p1.splitn(2, ' ');
-                let keyword = iter.next();
-                let label = iter.next();
-
-                if keyword == Some("push") {
-                    return Ok(Self::UnicodeVersion(
-                        ITermUnicodeVersionOp::Push(label.map(crate::alloc::string::ToString::to_string)),
-                    ));
-                }
-                if keyword == Some("pop") {
-                    return Ok(Self::UnicodeVersion(
-                        ITermUnicodeVersionOp::Pop(label.map(crate::alloc::string::ToString::to_string)),
-                    ));
-                }
-
-                if let Ok(n) = p1.parse::<u8>() {
-                    return Ok(Self::UnicodeVersion(
-                        ITermUnicodeVersionOp::Set(n),
-                    ));
-                }
-            }
+        }
 
         if keyword == "File" {
             return Ok(Self::File(Box::new(ITermFileData::parse(osc)?)));
@@ -1308,7 +1308,11 @@ pub(crate) fn base64_decode<T: AsRef<[u8]>>(s: T) -> Result<Vec<u8>> {
 impl Display for ITermProprietary {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "1337;")?;
-        use self::ITermProprietary::{SetMark, StealFocus, ClearScrollback, CurrentDir, SetProfile, CopyToClipboard, EndCopy, HighlightCursorLine, RequestCellSize, ReportCellSize, Copy, ReportVariable, SetUserVar, SetBadgeFormat, File, UnicodeVersion};
+        use self::ITermProprietary::{
+            ClearScrollback, Copy, CopyToClipboard, CurrentDir, EndCopy, File, HighlightCursorLine,
+            ReportCellSize, ReportVariable, RequestCellSize, SetBadgeFormat, SetMark, SetProfile,
+            SetUserVar, StealFocus, UnicodeVersion,
+        };
         match self {
             SetMark => write!(f, "SetMark")?,
             StealFocus => write!(f, "StealFocus")?,

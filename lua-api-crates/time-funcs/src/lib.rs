@@ -4,10 +4,11 @@ use config::lua::{
     emit_event, get_or_create_module, get_or_create_sub_module, is_event_emission, wrap_callback,
 };
 use config::ConfigSubscription;
+use parking_lot::Mutex;
 use std::rc::Rc;
-use std::sync::Mutex;
 
-static CONFIG_SUBSCRIPTION: std::sync::LazyLock<Mutex<Option<ConfigSubscription>>> = std::sync::LazyLock::new(|| Mutex::new(None));
+static CONFIG_SUBSCRIPTION: std::sync::LazyLock<Mutex<Option<ConfigSubscription>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
 
 /// We contrive to call this from the main thread in response to the
 /// config being reloaded.
@@ -42,7 +43,7 @@ fn schedule_trampoline() {
 /// Called by the config subsystem when the config is reloaded.
 /// We use it to schedule our setup function that will schedule
 /// the `call_after` functions from the main thread.
-#[must_use] 
+#[must_use]
 pub fn config_was_reloaded() -> bool {
     if promise::spawn::is_scheduler_configured() {
         promise::spawn::spawn_into_main_thread(async move {
@@ -99,21 +100,21 @@ impl ScheduledEvent {
         // changed.
         if config::configuration().generation() == generation {
             let args = lua.pack_multi(())?;
-            emit_event(lua, (self.user_event_id, args)).await?;
+            emit_event(lua.clone(), (self.user_event_id, args)).await?;
         }
         Ok(())
     }
 }
 
 impl UserData for ScheduledEvent {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(_methods: &mut M) {}
+    fn add_methods<M: UserDataMethods<Self>>(_methods: &mut M) {}
 }
 
 const SCHEDULED_EVENTS: &str = "wezterm-scheduled-events";
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     {
-        let mut sub = CONFIG_SUBSCRIPTION.lock().unwrap();
+        let mut sub = CONFIG_SUBSCRIPTION.lock();
         if sub.is_none() {
             sub.replace(config::subscribe_to_config_reload(config_was_reloaded));
         }
@@ -189,7 +190,7 @@ fn strftime(_: &Lua, format: String) -> mlua::Result<String> {
     Ok(local.format(&format).to_string())
 }
 
-async fn sleep_ms(_: &Lua, milliseconds: u64) -> mlua::Result<()> {
+async fn sleep_ms(_: Lua, milliseconds: u64) -> mlua::Result<()> {
     let duration = std::time::Duration::from_millis(milliseconds);
     smol::Timer::after(duration).await;
     Ok(())
@@ -201,7 +202,7 @@ pub struct Time {
 }
 
 impl UserData for Time {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(MetaMethod::ToString, |_, this, (): ()| {
             let utc = this.utc.to_rfc3339();
             Ok(format!("Time(utc: {utc})"))
@@ -213,57 +214,61 @@ impl UserData for Time {
         methods.add_method("format_utc", |_, this, format: String| {
             Ok(this.utc.format(&format).to_string())
         });
-        methods.add_method("sun_times", |lua, this, (lat, lon): (f64, f64)| {
-            let info = spa::calc_sunrise_and_set(this.utc, lat, lon)
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
+        methods.add_method(
+            "sun_times",
+            |lua: &Lua, this: &Time, (lat, lon): (f64, f64)| {
+                let info = spa::calc_sunrise_and_set(this.utc, lat, lon)
+                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
 
-            let times = match info {
-                spa::SunriseAndSet::PolarNight => SunTimes {
-                    rise: None,
-                    set: None,
-                    up: false,
-                    progression: 0.,
-                },
-                spa::SunriseAndSet::PolarDay => SunTimes {
-                    rise: None,
-                    set: None,
-                    up: true,
-                    progression: 0.,
-                },
-                spa::SunriseAndSet::Daylight(rise, set) => {
-                    let progression;
-                    let up = this.utc >= rise && this.utc <= set;
-                    let day_duration = set - rise;
-                    let night_duration = chrono::Duration::days(1) - day_duration;
-                    if this.utc < rise {
-                        // Sun hasn't yet risen
-                        progression = (night_duration - (rise - this.utc)).num_minutes() as f64
-                            / night_duration.num_minutes() as f64;
-                    } else if up {
-                        // Sun is up
-                        progression = (this.utc - rise).num_minutes() as f64
-                            / day_duration.num_minutes() as f64;
-                    } else {
-                        // time is after sunset
-                        progression = (this.utc - set).num_minutes() as f64
-                            / night_duration.num_minutes() as f64;
+                let times = match info {
+                    spa::SunriseAndSet::PolarNight => SunTimes {
+                        rise: None,
+                        set: None,
+                        up: false,
+                        progression: 0.,
+                    },
+                    spa::SunriseAndSet::PolarDay => SunTimes {
+                        rise: None,
+                        set: None,
+                        up: true,
+                        progression: 0.,
+                    },
+                    spa::SunriseAndSet::Daylight(rise, set) => {
+                        let progression;
+                        let up = this.utc >= rise && this.utc <= set;
+                        let day_duration = set - rise;
+                        let night_duration = chrono::Duration::days(1) - day_duration;
+                        if this.utc < rise {
+                            // Sun hasn't yet risen
+                            progression = (night_duration - (rise.signed_duration_since(this.utc)))
+                                .num_minutes() as f64
+                                / night_duration.num_minutes() as f64;
+                        } else if up {
+                            // Sun is up
+                            progression = (this.utc - rise).num_minutes() as f64
+                                / day_duration.num_minutes() as f64;
+                        } else {
+                            // time is after sunset
+                            progression = (this.utc - set).num_minutes() as f64
+                                / night_duration.num_minutes() as f64;
+                        }
+                        SunTimes {
+                            rise: Some(Self { utc: rise }),
+                            set: Some(Self { utc: set }),
+                            up,
+                            progression,
+                        }
                     }
-                    SunTimes {
-                        rise: Some(Self { utc: rise }),
-                        set: Some(Self { utc: set }),
-                        up,
-                        progression,
-                    }
-                }
-            };
+                };
 
-            let tbl = lua.create_table()?;
-            tbl.set("rise", times.rise)?;
-            tbl.set("set", times.set)?;
-            tbl.set("up", times.up)?;
-            tbl.set("progression", times.progression)?;
-            Ok(tbl)
-        });
+                let tbl = lua.create_table()?;
+                tbl.set("rise", times.rise)?;
+                tbl.set("set", times.set)?;
+                tbl.set("up", times.up)?;
+                tbl.set("progression", times.progression)?;
+                Ok(tbl)
+            },
+        );
     }
 }
 

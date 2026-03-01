@@ -11,6 +11,7 @@ keywords = ["terminal", "unicode", "nerdfonts", "emoji"]
 readme = "README.md"
 
 [dependencies]
+parking_lot.workspace = true
 phf.workspace = true
 serde = {workspace=true, optional=true}
 ucd-trie.workspace = true

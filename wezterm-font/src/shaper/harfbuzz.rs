@@ -156,7 +156,7 @@ impl HarfbuzzShaper {
                 let mut opt_pair = opt_pair.borrow_mut();
                 if opt_pair.is_none() {
                     let handle = &self.handles[font_idx];
-                    log::trace!("shaper wants {} {:?}", font_idx, handle);
+                    log::trace!("shaper wants {font_idx} {handle:?}");
                     let face = self.lib.face_from_locator(&handle.handle)?;
 
                     let font = if USE_OT_FACE {
@@ -320,14 +320,7 @@ impl HarfbuzzShaper {
                         let mut non_pres_ctx = ctx.clone();
                         non_pres_ctx.presentation = None;
                         non_pres_ctx.range = Some(range);
-                        return self.do_shape(
-                            0,
-                            s,
-                            font_size,
-                            dpi,
-                            no_glyphs,
-                            non_pres_ctx,
-                        );
+                        return self.do_shape(0, s, font_size, dpi, no_glyphs, non_pres_ctx);
                     }
 
                     // One more go around to pick up the base font and
@@ -384,12 +377,11 @@ impl HarfbuzzShaper {
 
         let info_iter = hb_infos.iter().zip(positions.iter()).peekable();
         for (info, pos) in info_iter {
-            let cluster_info = match cluster_resolver.get_mut(info.cluster as usize) {
-                Some(i) => i,
-                None => panic!(
+            let Some(cluster_info) = cluster_resolver.get_mut(info.cluster as usize) else {
+                panic!(
                     "expected cluster info.cluster {} to be in cluster_resolver",
                     info.cluster
-                ),
+                )
             };
             let len = cluster_info.byte_len;
 
@@ -455,7 +447,7 @@ impl HarfbuzzShaper {
             info_clusters.push(vec![info]);
         }
         //  log::error!("do_shape: font_idx={} {:?} {:#?}", font_idx, &s[range.clone()], info_clusters);
-        log::debug!("font_idx={font_idx} info_clusters: {:#?}", info_clusters);
+        log::debug!("font_idx={font_idx} info_clusters: {info_clusters:#?}");
 
         let mut direct_clusters = 0;
 
@@ -481,29 +473,23 @@ impl HarfbuzzShaper {
                 let mut fallback_ctx = ctx.clone();
                 fallback_ctx.range = Some(first_info.cluster..first_info.cluster + first_info.len);
 
-                let mut shape = match self.do_shape(
-                    font_idx + 1,
-                    s,
-                    font_size,
-                    dpi,
-                    no_glyphs,
-                    fallback_ctx,
-                ) {
-                    Ok(shape) => Ok(shape),
-                    Err(e) => {
-                        error!("{:?} for {:?}", e, substr);
-                        let mut fallback_ctx = ctx.clone();
-                        fallback_ctx.range = Some(sub_range);
-                        self.do_shape(
-                            0,
-                            &make_question_string(substr),
-                            font_size,
-                            dpi,
-                            no_glyphs,
-                            fallback_ctx,
-                        )
-                    }
-                }?;
+                let mut shape =
+                    match self.do_shape(font_idx + 1, s, font_size, dpi, no_glyphs, fallback_ctx) {
+                        Ok(shape) => Ok(shape),
+                        Err(e) => {
+                            error!("{e:?} for {substr:?}");
+                            let mut fallback_ctx = ctx.clone();
+                            fallback_ctx.range = Some(sub_range);
+                            self.do_shape(
+                                0,
+                                &make_question_string(substr),
+                                font_size,
+                                dpi,
+                                no_glyphs,
+                                fallback_ctx,
+                            )
+                        }
+                    }?;
 
                 cluster.append(&mut shape);
                 continue;
@@ -579,14 +565,7 @@ impl FontShaper for HarfbuzzShaper {
         let start = std::time::Instant::now();
         let mut do_ctx = ctx.clone();
         do_ctx.range = Some(range);
-        let result = self.do_shape(
-            0,
-            text,
-            size,
-            dpi,
-            no_glyphs,
-            do_ctx,
-        );
+        let result = self.do_shape(0, text, size, dpi, no_glyphs, do_ctx);
         metrics::histogram!("shape.harfbuzz").record(start.elapsed());
         /*
         if let Ok(glyphs) = &result {
@@ -650,13 +629,7 @@ impl FontShaper for HarfbuzzShaper {
 
         self.metrics.borrow_mut().insert(key, metrics);
 
-        log::trace!(
-            "metrics_for_idx={}, size={}, dpi={} -> {:?}",
-            font_idx,
-            size,
-            dpi,
-            metrics
-        );
+        log::trace!("metrics_for_idx={font_idx}, size={size}, dpi={dpi} -> {metrics:?}");
 
         Ok(metrics)
     }

@@ -1,14 +1,17 @@
-use crate::termwindow::box_model::{ComputedElement, Element, ElementContent, ElementColors, BorderColor, BoxDimension, Corners, SizedPoly, LayoutContext};
+use crate::TermWindow;
+use crate::termwindow::DimensionContext;
+use crate::termwindow::box_model::{
+    BorderColor, BoxDimension, ComputedElement, Corners, Element, ElementColors, ElementContent,
+    LayoutContext, SizedPoly,
+};
 use crate::termwindow::modal::Modal;
 use crate::termwindow::render::corners::{
     BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER, TOP_LEFT_ROUNDED_CORNER,
     TOP_RIGHT_ROUNDED_CORNER,
 };
-use crate::termwindow::DimensionContext;
 use crate::utilsprites::RenderMetrics;
-use crate::TermWindow;
-use config::keyassignment::{KeyAssignment, PaneSelectArguments, PaneSelectMode};
 use config::Dimension;
+use config::keyassignment::{KeyAssignment, PaneSelectArguments, PaneSelectMode};
 use mux::Mux;
 use std::cell::{Ref, RefCell};
 use wezterm_term::{KeyCode, KeyModifiers, MouseEvent};
@@ -82,9 +85,7 @@ impl PaneSelector {
             };
             let element = Element::new(&font, ElementContent::Text(caption))
                 .colors(ElementColors {
-                    border: BorderColor::new(
-                        term_window.config.pane_select_bg_color.to_linear(),
-                    ),
+                    border: BorderColor::new(term_window.config.pane_select_bg_color.to_linear()),
                     bg: term_window.config.pane_select_bg_color.to_linear().into(),
                     text: term_window.config.pane_select_fg_color.to_linear().into(),
                 })
@@ -134,8 +135,14 @@ impl PaneSelector {
                         pixel_cell: metrics.cell_size.width as f32,
                     },
                     bounds: euclid::rect(
-                        (pos.left as f32 + pane_dims.cols as f32 / 2.).mul_add(term_window.render_metrics.cell_size.width as f32, padding_left),
-                        (pos.top as f32 + pane_dims.viewport_rows as f32 / 2.).mul_add(term_window.render_metrics.cell_size.height as f32, top_pixel_y),
+                        (pos.left as f32 + pane_dims.cols as f32 / 2.).mul_add(
+                            term_window.render_metrics.cell_size.width as f32,
+                            padding_left,
+                        ),
+                        (pos.top as f32 + pane_dims.viewport_rows as f32 / 2.).mul_add(
+                            term_window.render_metrics.cell_size.height as f32,
+                            top_pixel_y,
+                        ),
                         pane_dims.cols as f32 * term_window.render_metrics.cell_size.width as f32,
                         pane_dims.viewport_rows as f32
                             * term_window.render_metrics.cell_size.height as f32,
@@ -158,9 +165,8 @@ impl PaneSelector {
         term_window: &mut TermWindow,
     ) -> anyhow::Result<()> {
         let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(term_window.mux_window_id) {
-            Some(tab) => tab,
-            None => return Ok(()),
+        let Some(tab) = mux.get_active_tab_for_window(term_window.mux_window_id) else {
+            return Ok(());
         };
 
         let tab_id = tab.tab_id();

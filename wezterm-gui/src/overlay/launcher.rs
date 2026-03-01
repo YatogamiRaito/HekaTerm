@@ -12,11 +12,11 @@ use crate::overlay::selector::{matcher_pattern, matcher_score};
 use crate::termwindow::TermWindowNotif;
 use config::configuration;
 use config::keyassignment::{KeyAssignment, SpawnCommand, SpawnTabDomain};
+use mux::Mux;
 use mux::domain::{DomainId, DomainState};
 use mux::pane::PaneId;
 use mux::termwiztermtab::TermWizTerminal;
 use mux::window::WindowId;
-use mux::Mux;
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 use termwiz::cell::{AttributeChange, CellAttributes};
@@ -335,10 +335,7 @@ impl LauncherState {
                     // Filter out some noisy, repetitive entries
                     continue;
                 }
-                if key_entries
-                    .iter()
-                    .any(|ent| ent.action == entry.action)
-                {
+                if key_entries.iter().any(|ent| ent.action == entry.action) {
                     // Avoid duplicate entries
                     continue;
                 }
@@ -389,7 +386,11 @@ impl LauncherState {
         ];
 
         let labels = &self.labels;
-        let max_label_len = labels.iter().map(std::string::String::len).max().unwrap_or(0);
+        let max_label_len = labels
+            .iter()
+            .map(std::string::String::len)
+            .max()
+            .unwrap_or(0);
         let mut labels_iter = labels.iter();
 
         let config = configuration();
@@ -562,9 +563,16 @@ impl LauncherState {
                         self.selection.pop();
                     }
                 }
-                InputEvent::Key(KeyEvent {
-key: KeyCode::Char('G' | '['), modifiers: Modifiers::CTRL } | KeyEvent {
-key: KeyCode::Escape, .. }) => {
+                InputEvent::Key(
+                    KeyEvent {
+                        key: KeyCode::Char('G' | '['),
+                        modifiers: Modifiers::CTRL,
+                    }
+                    | KeyEvent {
+                        key: KeyCode::Escape,
+                        ..
+                    },
+                ) => {
                     break;
                 }
                 InputEvent::Key(KeyEvent {
@@ -610,10 +618,9 @@ key: KeyCode::Escape, .. }) => {
                     if y > 0 && y as usize <= self.filtered_entries.len() {
                         self.active_idx = self.top_row + y as usize - 1;
 
-                        if mouse_buttons == MouseButtons::LEFT
-                            && self.launch(self.active_idx) {
-                                break;
-                            }
+                        if mouse_buttons == MouseButtons::LEFT && self.launch(self.active_idx) {
+                            break;
+                        }
                     }
                     if mouse_buttons != MouseButtons::NONE {
                         // Treat any other mouse button as cancel

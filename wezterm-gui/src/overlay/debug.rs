@@ -5,17 +5,18 @@ use log::Level;
 use luahelper::ValuePrinter;
 use mlua::Value;
 use mux::termwiztermtab::TermWizTerminal;
+use parking_lot::Mutex;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use termwiz::cell::{AttributeChange, CellAttributes, Intensity};
 use termwiz::color::AnsiColor;
 use termwiz::input::{InputEvent, KeyCode, KeyEvent};
-use termwiz::lineedit::{BasicHistory, History, LineEditorHost, LineEditor, Action, OutputElement};
+use termwiz::lineedit::{Action, BasicHistory, History, LineEditor, LineEditorHost, OutputElement};
 use termwiz::surface::Change;
 use termwiz::terminal::Terminal;
 
-static LATEST_LOG_ENTRY: std::sync::LazyLock<Mutex<Option<DateTime<Local>>>> = std::sync::LazyLock::new(|| Mutex::new(None));
+static LATEST_LOG_ENTRY: std::sync::LazyLock<Mutex<Option<DateTime<Local>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
 
 struct LuaReplHost {
     history: BasicHistory,
@@ -43,10 +44,11 @@ impl LuaReplHost {
         }
 
         if let Some(last) = self.history.last()
-            && self.history.get(last).as_deref() == Some(line) {
-                // Don't add duplicate lines
-                return;
-            }
+            && self.history.get(last).as_deref() == Some(line)
+        {
+            // Don't add duplicate lines
+            return;
+        }
         self.history.add(line);
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .append(true)
@@ -153,12 +155,13 @@ pub fn show_debug_overlay(
         let entries = env_bootstrap::ringlog::get_entries();
         let mut changes = vec![];
         for entry in entries {
-            if let Some(latest) = LATEST_LOG_ENTRY.lock().unwrap().as_ref()
-                && entry.then <= *latest {
-                    // already seen this one
-                    continue;
-                }
-            LATEST_LOG_ENTRY.lock().unwrap().replace(entry.then);
+            if let Some(latest) = LATEST_LOG_ENTRY.lock().as_ref()
+                && entry.then <= *latest
+            {
+                // already seen this one
+                continue;
+            }
+            LATEST_LOG_ENTRY.lock().replace(entry.then);
 
             changes.push(Change::AllAttributes(CellAttributes::default()));
             changes.push(Change::Text(entry.then.format("%H:%M:%S%.3f ").to_string()));
@@ -255,8 +258,6 @@ async fn evaluate(host: LuaReplHost, expr: String) -> (LuaReplHost, String) {
             Err(err) => return err,
         };
         let chunk = host.lua.load(&code).set_name("repl");
-
-        
 
         chunk
             .eval_async::<Value>()

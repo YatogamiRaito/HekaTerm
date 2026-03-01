@@ -1,8 +1,7 @@
-
 use config::{ConfigHandle, SshMultiplexing};
+use mux::Mux;
 use mux::domain::{Domain, LocalDomain};
 use mux::ssh::RemoteSshDomain;
-use mux::Mux;
 use std::sync::Arc;
 use wezterm_client::domain::{ClientDomain, ClientDomainConfig};
 
@@ -91,18 +90,21 @@ fn update_mux_domains_impl(config: &ConfigHandle, is_standalone_mux: bool) -> an
 
     if is_standalone_mux {
         if let Some(name) = &config.default_mux_server_domain
-            && let Some(dom) = mux.get_domain_by_name(name) {
-                if dom.is::<ClientDomain>() {
-                    anyhow::bail!("default_mux_server_domain cannot be set to a client domain!");
-                }
-                mux.set_default_domain(&dom);
+            && let Some(dom) = mux.get_domain_by_name(name)
+        {
+            if dom.is::<ClientDomain>() {
+                anyhow::bail!("default_mux_server_domain cannot be set to a client domain!");
             }
+            mux.set_default_domain(&dom);
+        }
     } else if let Some(name) = &config.default_domain
-    && let Some(dom) = mux.get_domain_by_name(name) {
+        && let Some(dom) = mux.get_domain_by_name(name)
+    {
         mux.set_default_domain(&dom);
     }
 
     Ok(())
 }
 
-pub static PKI: std::sync::LazyLock<pki::Pki> = std::sync::LazyLock::new(|| pki::Pki::init().expect("failed to initialize PKI"));
+pub static PKI: std::sync::LazyLock<pki::Pki> =
+    std::sync::LazyLock::new(|| pki::Pki::init().expect("failed to initialize PKI"));

@@ -1,4 +1,6 @@
-use super::{fetch_url_as_str, HashMap, fetch_url, Scheme, apply_nightly_version, Context, CACHE, Duration};
+use super::{
+    apply_nightly_version, fetch_url, fetch_url_as_str, Context, Duration, HashMap, Scheme, CACHE,
+};
 use serde::Deserialize;
 use std::sync::Arc;
 use tar::Archive;

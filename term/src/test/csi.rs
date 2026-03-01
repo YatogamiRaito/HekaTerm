@@ -201,7 +201,7 @@ fn test_789() {
         bits: LineBits(
             0x0,
         ),
-        appdata: Mutex {
+        appdata: RwLock {
             data: None,
             poisoned: false,
             ..

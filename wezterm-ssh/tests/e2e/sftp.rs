@@ -1,6 +1,6 @@
 use crate::sshd::*;
-use assert_fs::prelude::*;
 use assert_fs::TempDir;
+use assert_fs::prelude::*;
 use predicates::prelude::*;
 use rstest::*;
 use std::convert::TryInto;

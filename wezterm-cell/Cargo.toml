@@ -10,6 +10,7 @@ documentation = "https://docs.rs/wezterm-cell"
 keywords = ["terminal", "cell"]
 
 [dependencies]
+parking_lot.workspace = true
 finl_unicode.workspace = true
 image = {workspace=true, optional=true}
 log = {workspace = true, optional=true}

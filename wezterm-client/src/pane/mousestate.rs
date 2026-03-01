@@ -3,8 +3,8 @@ use codec::SendMouseEvent;
 use mux::tab::TabId;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use wezterm_term::{MouseButton, MouseEvent, MouseEventKind};
 
 pub struct MouseState {
@@ -26,39 +26,40 @@ impl MouseState {
 
     pub fn append(&mut self, event: MouseEvent) {
         if let Some(last) = self.queue.back_mut()
-            && last.modifiers == event.modifiers {
-                if last.kind == MouseEventKind::Move
-                    && event.kind == MouseEventKind::Move
-                    && last.button == event.button
-                {
-                    // Collapse any interim moves and just buffer up
-                    // the last of them
-                    *last = event;
+            && last.modifiers == event.modifiers
+        {
+            if last.kind == MouseEventKind::Move
+                && event.kind == MouseEventKind::Move
+                && last.button == event.button
+            {
+                // Collapse any interim moves and just buffer up
+                // the last of them
+                *last = event;
+                return;
+            }
+
+            // Similarly, for repeated wheel scrolls, add up the deltas
+            // rather than swamping the queue
+            match (&last.button, &event.button) {
+                (MouseButton::WheelUp(a), MouseButton::WheelUp(b)) => {
+                    last.button = MouseButton::WheelUp(a + b);
                     return;
                 }
-
-                // Similarly, for repeated wheel scrolls, add up the deltas
-                // rather than swamping the queue
-                match (&last.button, &event.button) {
-                    (MouseButton::WheelUp(a), MouseButton::WheelUp(b)) => {
-                        last.button = MouseButton::WheelUp(a + b);
-                        return;
-                    }
-                    (MouseButton::WheelDown(a), MouseButton::WheelDown(b)) => {
-                        last.button = MouseButton::WheelDown(a + b);
-                        return;
-                    }
-                    (MouseButton::WheelLeft(a), MouseButton::WheelLeft(b)) => {
-                        last.button = MouseButton::WheelLeft(a + b);
-                        return;
-                    }
-                    (MouseButton::WheelRight(a), MouseButton::WheelRight(b)) => {
-                        last.button = MouseButton::WheelRight(a + b);
-                        return;
-                    }
-                    _ => {}
+                (MouseButton::WheelDown(a), MouseButton::WheelDown(b)) => {
+                    last.button = MouseButton::WheelDown(a + b);
+                    return;
                 }
+                (MouseButton::WheelLeft(a), MouseButton::WheelLeft(b)) => {
+                    last.button = MouseButton::WheelLeft(a + b);
+                    return;
+                }
+                (MouseButton::WheelRight(a), MouseButton::WheelRight(b)) => {
+                    last.button = MouseButton::WheelRight(a + b);
+                    return;
+                }
+                _ => {}
             }
+        }
         self.queue.push_back(event);
         log::trace!("MouseEvent {}: queued", self.queue.len());
     }

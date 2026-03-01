@@ -1,6 +1,12 @@
-use crate::customglyph::{Poly, PolyCommand, BlockCoord, BlockAlpha, PolyStyle};
-use crate::termwindow::box_model::{ElementColors, SizedPoly, BorderColor, Element, ElementContent, VerticalAlign, BoxDimension, Corners};
-use crate::termwindow::render::corners::{TOP_LEFT_ROUNDED_CORNER, TOP_RIGHT_ROUNDED_CORNER, BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER};
+use crate::customglyph::{BlockAlpha, BlockCoord, Poly, PolyCommand, PolyStyle};
+use crate::termwindow::box_model::{
+    BorderColor, BoxDimension, Corners, Element, ElementColors, ElementContent, SizedPoly,
+    VerticalAlign,
+};
+use crate::termwindow::render::corners::{
+    BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER, TOP_LEFT_ROUNDED_CORNER,
+    TOP_RIGHT_ROUNDED_CORNER,
+};
 use crate::termwindow::{TabBarItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
 use config::{ConfigHandle, Dimension, IntegratedTitleButtonColor};
@@ -31,7 +37,10 @@ fn auto_button_color(
 }
 
 mod windows {
-    use super::{Poly, PolyCommand, BlockCoord, BlockAlpha, PolyStyle, SizedPoly, Dimension, IntegratedTitleButton, WindowButtonColors, auto_button_color, ElementColors, BorderColor, LinearRgba};
+    use super::{
+        BlockAlpha, BlockCoord, BorderColor, Dimension, ElementColors, IntegratedTitleButton,
+        LinearRgba, Poly, PolyCommand, PolyStyle, SizedPoly, WindowButtonColors, auto_button_color,
+    };
 
     pub const CLOSE: &[Poly] = &[Poly {
         path: &[
@@ -140,7 +149,10 @@ mod windows {
 }
 
 mod gnome {
-    use super::{Poly, PolyCommand, BlockCoord, BlockAlpha, PolyStyle, SizedPoly, Dimension, IntegratedTitleButton, WindowButtonColors, auto_button_color, ElementColors, BorderColor};
+    use super::{
+        BlockAlpha, BlockCoord, BorderColor, Dimension, ElementColors, IntegratedTitleButton, Poly,
+        PolyCommand, PolyStyle, SizedPoly, WindowButtonColors, auto_button_color,
+    };
 
     pub const CLOSE: &[Poly] = &[Poly {
         path: &[
@@ -343,8 +355,6 @@ pub fn window_button_element(
     };
 
     let colors = window_button_colors_fn(background_lightness, foreground, window_button);
-
-    
 
     element
         .item_type(UIItemType::TabBar(TabBarItem::WindowButton(window_button)))

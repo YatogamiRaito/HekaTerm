@@ -45,8 +45,9 @@ impl super::TermWindow {
                             col_span.prune_trailing_blanks(seqno);
                         }
 
-                        if let Some(line) = result
-                            .last_mut() { line.append_line(col_span, seqno) }
+                        if let Some(line) = result.last_mut() {
+                            line.append_line(col_span, seqno)
+                        }
 
                         last_was_wrapped = last_col_idx == last_phys_idx
                             && phys
@@ -115,9 +116,8 @@ impl super::TermWindow {
 
     pub fn extend_selection_at_mouse_cursor(&mut self, mode: SelectionMode, pane: &Arc<dyn Pane>) {
         self.selection(pane.pane_id()).seqno = pane.get_current_seqno();
-        let (position, y) = match self.pane_state(pane.pane_id()).mouse_terminal_coords {
-            Some(coords) => coords,
-            None => return,
+        let Some((position, y)) = self.pane_state(pane.pane_id()).mouse_terminal_coords else {
+            return;
         };
         let x = position.column;
         match mode {

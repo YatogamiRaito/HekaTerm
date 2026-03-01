@@ -3,10 +3,11 @@ use config::lua::mlua::{
     self, IntoLua, Lua, UserData, UserDataMethods, UserDataRef, Value as LuaValue,
 };
 use ordered_float::OrderedFloat;
+use parking_lot::Mutex;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 struct Object {
@@ -29,8 +30,8 @@ impl PartialOrd for Object {
 
 impl PartialEq for Object {
     fn eq(&self, other: &Self) -> bool {
-        let a = self.inner.lock().unwrap();
-        let b = other.inner.lock().unwrap();
+        let a = self.inner.lock();
+        let b = other.inner.lock();
         *a == *b
     }
 }
@@ -39,7 +40,7 @@ impl Eq for Object {}
 
 impl Hash for Object {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.inner.lock().unwrap().hash(state);
+        self.inner.lock().hash(state);
     }
 }
 
@@ -64,8 +65,8 @@ impl PartialOrd for Array {
 
 impl PartialEq for Array {
     fn eq(&self, other: &Self) -> bool {
-        let a = self.inner.lock().unwrap();
-        let b = other.inner.lock().unwrap();
+        let a = self.inner.lock();
+        let b = other.inner.lock();
         *a == *b
     }
 }
@@ -74,7 +75,7 @@ impl Eq for Array {}
 
 impl Hash for Array {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.inner.lock().unwrap().hash(state);
+        self.inner.lock().hash(state);
     }
 }
 
@@ -115,21 +116,21 @@ fn lua_value_to_gvalue_impl(value: LuaValue, visited: &mut HashSet<usize>) -> ml
         LuaValue::LightUserData(_) => {
             return Err(mlua::Error::FromLuaConversionError {
                 from: "userdata",
-                to: "Value",
+                to: "Value".to_string(),
                 message: None,
             })
         }
-        LuaValue::UserData(ud) => match ud.get_metatable() {
+        LuaValue::UserData(ud) => match ud.metatable() {
             Ok(mt) => {
                 if let Ok(to_dynamic) = mt.get::<mlua::Function>("__wezterm_to_dynamic") {
-                    match to_dynamic.call(LuaValue::UserData(ud.clone())) {
+                    match to_dynamic.call::<LuaValue>(LuaValue::UserData(ud.clone())) {
                         Ok(value) => {
                             return lua_value_to_gvalue_impl(value, visited);
                         }
                         Err(err) => {
                             return Err(mlua::Error::FromLuaConversionError {
                                 from: "userdata",
-                                to: "Value",
+                                to: "Value".to_string(),
                                 message: Some(format!(
                                     "error calling __wezterm_to_dynamic: {err:#}"
                                 )),
@@ -138,23 +139,25 @@ fn lua_value_to_gvalue_impl(value: LuaValue, visited: &mut HashSet<usize>) -> ml
                     }
                 }
 
-                match mt.get::<mlua::Function>(mlua::MetaMethod::ToString) {
-                    Ok(to_string) => match to_string.call(LuaValue::UserData(ud.clone())) {
-                        Ok(value) => {
-                            return lua_value_to_gvalue_impl(value, visited);
+                match mt.get::<mlua::Function>("__tostring") {
+                    Ok(to_string) => {
+                        match to_string.call::<LuaValue>(LuaValue::UserData(ud.clone())) {
+                            Ok(value) => {
+                                return lua_value_to_gvalue_impl(value, visited);
+                            }
+                            Err(err) => {
+                                return Err(mlua::Error::FromLuaConversionError {
+                                    from: "userdata",
+                                    to: "Value".to_string(),
+                                    message: Some(format!("error calling tostring: {err:#}")),
+                                })
+                            }
                         }
-                        Err(err) => {
-                            return Err(mlua::Error::FromLuaConversionError {
-                                from: "userdata",
-                                to: "Value",
-                                message: Some(format!("error calling tostring: {err:#}")),
-                            })
-                        }
-                    },
+                    }
                     Err(err) => {
                         return Err(mlua::Error::FromLuaConversionError {
                             from: "userdata",
-                            to: "Value",
+                            to: "Value".to_string(),
                             message: Some(format!("error getting tostring: {err:#}")),
                         })
                     }
@@ -163,7 +166,7 @@ fn lua_value_to_gvalue_impl(value: LuaValue, visited: &mut HashSet<usize>) -> ml
             Err(err) => {
                 return Err(mlua::Error::FromLuaConversionError {
                     from: "userdata",
-                    to: "Value",
+                    to: "Value".to_string(),
                     message: Some(format!("error getting metatable: {err:#}")),
                 })
             }
@@ -171,18 +174,18 @@ fn lua_value_to_gvalue_impl(value: LuaValue, visited: &mut HashSet<usize>) -> ml
         LuaValue::Function(_) => {
             return Err(mlua::Error::FromLuaConversionError {
                 from: "function",
-                to: "Value",
+                to: "Value".to_string(),
                 message: None,
             })
         }
         LuaValue::Thread(_) => {
             return Err(mlua::Error::FromLuaConversionError {
                 from: "thread",
-                to: "Value",
+                to: "Value".to_string(),
                 message: None,
             })
         }
-        LuaValue::Error(e) => return Err(e),
+        LuaValue::Error(e) => return Err(*e),
         LuaValue::Table(table) => {
             if matches!(table.contains_key(1), Ok(true)) {
                 let mut array = vec![];
@@ -201,7 +204,7 @@ fn lua_value_to_gvalue_impl(value: LuaValue, visited: &mut HashSet<usize>) -> ml
                             let type_name = key.type_name();
                             return Err(mlua::Error::FromLuaConversionError {
                                 from: type_name,
-                                to: "numeric array index",
+                                to: "numeric array index".to_string(),
                                 message: Some(format!(
                                     "Unexpected key {key:?} for array style table"
                                 )),
@@ -221,7 +224,7 @@ fn lua_value_to_gvalue_impl(value: LuaValue, visited: &mut HashSet<usize>) -> ml
                     let value = lua_value_to_gvalue(value).map_err(|e| {
                         mlua::Error::FromLuaConversionError {
                             from: lua_type,
-                            to: "value",
+                            to: "value".to_string(),
                             message: Some(format!("while processing {key:?}: {e}")),
                         }
                     })?;
@@ -232,16 +235,27 @@ fn lua_value_to_gvalue_impl(value: LuaValue, visited: &mut HashSet<usize>) -> ml
                 })
             }
         }
+        LuaValue::Other(_) => {
+            return Err(mlua::Error::FromLuaConversionError {
+                from: "other",
+                to: "Value".to_string(),
+                message: None,
+            })
+        }
     })
 }
 
-static GLOBALS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| Value::Object(Object{inner:Arc::new(Mutex::new(BTreeMap::new()))}));
+static GLOBALS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+    Value::Object(Object {
+        inner: Arc::new(Mutex::new(BTreeMap::new())),
+    })
+});
 
-fn gvalue_to_lua<'lua>(lua: &'lua Lua, value: &Value) -> mlua::Result<LuaValue<'lua>> {
+fn gvalue_to_lua(lua: &Lua, value: &Value) -> mlua::Result<LuaValue> {
     match value {
         Value::Array(arr) => {
             let result = lua.create_table()?;
-            let arr = arr.inner.lock().unwrap();
+            let arr = arr.inner.lock();
             for (idx, value) in arr.iter().enumerate() {
                 result.set(idx + 1, gvalue_to_lua(lua, value)?)?;
             }
@@ -249,7 +263,7 @@ fn gvalue_to_lua<'lua>(lua: &'lua Lua, value: &Value) -> mlua::Result<LuaValue<'
         }
         Value::Object(obj) => {
             let result = lua.create_table()?;
-            let obj = obj.inner.lock().unwrap();
+            let obj = obj.inner.lock();
             for (key, value) in obj.iter() {
                 result.set(key.clone(), gvalue_to_lua(lua, value)?)?;
             }
@@ -264,17 +278,19 @@ fn gvalue_to_lua<'lua>(lua: &'lua Lua, value: &Value) -> mlua::Result<LuaValue<'
 }
 
 impl UserData for Value {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(
             "__wezterm_to_dynamic",
-            |lua: &Lua, this, (): ()| -> mlua::Result<mlua::Value> { gvalue_to_lua(lua, this) },
+            |lua: &Lua, this: &Value, (): ()| -> mlua::Result<mlua::Value> {
+                gvalue_to_lua(lua, this)
+            },
         );
         methods.add_meta_method(
             mlua::MetaMethod::Len,
-            |lua: &Lua, this, (): ()| -> mlua::Result<mlua::Value> {
+            |lua: &Lua, this: &Value, (): ()| -> mlua::Result<mlua::Value> {
                 match this {
-                    Self::Array(arr) => arr.inner.lock().unwrap().len().into_lua(lua),
-                    Self::Object(obj) => obj.inner.lock().unwrap().len().into_lua(lua),
+                    Self::Array(arr) => arr.inner.lock().len().into_lua(lua),
+                    Self::Object(obj) => obj.inner.lock().len().into_lua(lua),
                     Self::String(s) => s.clone().into_lua(lua),
                     _ => Err(mlua::Error::external(
                         "invalid type for len operator".to_string(),
@@ -283,66 +299,70 @@ impl UserData for Value {
             },
         );
 
-        methods.add_meta_method(mlua::MetaMethod::Pairs, |lua, this, ()| match this {
-            Self::Array(_) => {
-                let stateless_iter = lua.create_function(
-                    |lua, (this, i): (UserDataRef<Self>, usize)| match &*this {
-                        Self::Array(arr) => {
-                            let arr = arr.inner.lock().unwrap();
-                            let i = i + 1;
+        methods.add_meta_method(
+            mlua::MetaMethod::Pairs,
+            |lua: &Lua, this: &Value, ()| match this {
+                Self::Array(_) => {
+                    let stateless_iter =
+                        lua.create_function(|lua, (this, i): (UserDataRef<Self>, usize)| {
+                            match &*this {
+                                Self::Array(arr) => {
+                                    let arr = arr.inner.lock();
+                                    let i = i + 1;
 
-                            if i <= arr.len() {
-                                return Ok(mlua::Variadic::from_iter(vec![
-                                    i.into_lua(lua)?,
-                                    arr[i - 1].clone().into_lua(lua)?,
-                                ]));
-                            }
-                            Ok(mlua::Variadic::new())
-                        }
-                        _ => unreachable!(),
-                    },
-                )?;
-                Ok((stateless_iter, this.clone(), 0.into_lua(lua)?))
-            }
-            Self::Object(_) => {
-                let stateless_iter = lua.create_function(
-                    |lua, (this, key): (UserDataRef<Self>, Option<String>)| match &*this {
-                        Self::Object(obj) => {
-                            let obj = obj.inner.lock().unwrap();
-                            let iter = obj.iter();
-
-                            let mut this_is_key = false;
-
-                            if key.is_none() {
-                                this_is_key = true;
-                            }
-
-                            for (this_key, value) in iter {
-                                if this_is_key {
-                                    return Ok(mlua::MultiValue::from_vec(vec![
-                                        this_key.clone().into_lua(lua)?,
-                                        value.clone().into_lua(lua)?,
-                                    ]));
+                                    if i <= arr.len() {
+                                        return Ok(mlua::Variadic::from_iter(vec![
+                                            i.into_lua(lua)?,
+                                            arr[i - 1].clone().into_lua(lua)?,
+                                        ]));
+                                    }
+                                    Ok(mlua::Variadic::new())
                                 }
-                                if Some(this_key.as_str()) == key.as_deref() {
+                                _ => unreachable!(),
+                            }
+                        })?;
+                    Ok((stateless_iter, this.clone(), 0.into_lua(lua)?))
+                }
+                Self::Object(_) => {
+                    let stateless_iter = lua.create_function(
+                        |lua, (this, key): (UserDataRef<Self>, Option<String>)| match &*this {
+                            Self::Object(obj) => {
+                                let obj = obj.inner.lock();
+                                let iter = obj.iter();
+
+                                let mut this_is_key = false;
+
+                                if key.is_none() {
                                     this_is_key = true;
                                 }
+
+                                for (this_key, value) in iter {
+                                    if this_is_key {
+                                        return Ok(mlua::MultiValue::from_vec(vec![
+                                            this_key.clone().into_lua(lua)?,
+                                            value.clone().into_lua(lua)?,
+                                        ]));
+                                    }
+                                    if Some(this_key.as_str()) == key.as_deref() {
+                                        this_is_key = true;
+                                    }
+                                }
+                                Ok(mlua::MultiValue::new())
                             }
-                            Ok(mlua::MultiValue::new())
-                        }
-                        _ => unreachable!(),
-                    },
-                )?;
-                Ok((stateless_iter, this.clone(), LuaValue::Nil))
-            }
-            _ => Err(mlua::Error::external(
-                "invalid type for __ipairs metamethod".to_string(),
-            )),
-        });
+                            _ => unreachable!(),
+                        },
+                    )?;
+                    Ok((stateless_iter, this.clone(), LuaValue::Nil))
+                }
+                _ => Err(mlua::Error::external(
+                    "invalid type for __ipairs metamethod".to_string(),
+                )),
+            },
+        );
 
         methods.add_meta_method(
             mlua::MetaMethod::Index,
-            |lua: &Lua, this, key: LuaValue| -> mlua::Result<mlua::Value> {
+            |lua: &Lua, this: &Value, key: LuaValue| -> mlua::Result<mlua::Value> {
                 match this {
                     Self::Array(arr) => match key {
                         LuaValue::Integer(i) => {
@@ -354,10 +374,9 @@ impl UserData for Value {
                             // Convert lua 1-based indices to 0-based
                             let i = (i as usize) - 1;
 
-                            let arr = arr.inner.lock().unwrap();
-                            let value = match arr.get(i) {
-                                None => return Ok(LuaValue::Nil),
-                                Some(v) => v,
+                            let arr = arr.inner.lock();
+                            let Some(value) = arr.get(i) else {
+                                return Ok(LuaValue::Nil);
                             };
 
                             match value {
@@ -380,10 +399,9 @@ impl UserData for Value {
                                 "can only index objects using unicode strings: {e:#}"
                             ))),
                             Ok(s) => {
-                                let obj = obj.inner.lock().unwrap();
-                                let value = match obj.get(s) {
-                                    None => return Ok(LuaValue::Nil),
-                                    Some(v) => v,
+                                let obj = obj.inner.lock();
+                                let Some(value) = obj.get(s.as_ref() as &str) else {
+                                    return Ok(LuaValue::Nil);
                                 };
                                 match value {
                                     Self::Null => Ok(LuaValue::Nil),
@@ -408,7 +426,7 @@ impl UserData for Value {
         );
         methods.add_meta_method(
             mlua::MetaMethod::NewIndex,
-            |_, this, (key, value): (LuaValue, LuaValue)| -> mlua::Result<()> {
+            |_, this: &Value, (key, value): (LuaValue, LuaValue)| -> mlua::Result<()> {
                 match this {
                     Self::Array(arr) => match key {
                         LuaValue::Integer(i) => {
@@ -420,7 +438,7 @@ impl UserData for Value {
                             // Convert lua 1-based indices to 0-based
                             let i = (i as usize) - 1;
 
-                            let mut arr = arr.inner.lock().unwrap();
+                            let mut arr = arr.inner.lock();
                             if i >= arr.len() {
                                 return Err(mlua::Error::external(format!(
                                     "cannot make sparse array by inserting at {i} when len is {}",
@@ -448,7 +466,7 @@ impl UserData for Value {
                                 "can only index objects using unicode strings: {e:#}"
                             ))),
                             Ok(s) => {
-                                let mut obj = obj.inner.lock().unwrap();
+                                let mut obj = obj.inner.lock();
                                 let value = lua_value_to_gvalue(value)?;
                                 obj.insert(s.to_string(), value);
                                 Ok(())

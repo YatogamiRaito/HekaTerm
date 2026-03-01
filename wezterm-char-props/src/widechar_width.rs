@@ -1524,7 +1524,7 @@ fn in_table(arr: &[R], c: u32) -> bool {
 
 impl WcWidth {
     /// Return the width of character c
-    #[must_use] 
+    #[must_use]
     pub fn from_char(c: char) -> Self {
         let c = c as u32;
         if in_table(ASCII_TABLE, c) {
@@ -1562,7 +1562,7 @@ impl WcWidth {
 
     /// Returns width for applications that are using unicode 8 or earlier
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn width_unicode_8_or_earlier(self) -> u8 {
         match self {
             Self::One => 1,
@@ -1575,7 +1575,7 @@ impl WcWidth {
 
     /// Returns width for applications that are using unicode 9 or later
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub fn width_unicode_9_or_later(self) -> u8 {
         if self == Self::WidenedIn9 {
             return 2;
@@ -1603,7 +1603,7 @@ impl Default for WcLookupTable {
 
 impl WcLookupTable {
     #[allow(unused)]
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let mut table = [WcWidth::One; 65536];
         // Populate the table with data from the other tables in
@@ -1666,7 +1666,7 @@ impl WcLookupTable {
     }
 
     /// Classify a char as a `WcWidth`
-    #[must_use] 
+    #[must_use]
     pub fn classify(&self, c: char) -> WcWidth {
         let c32 = c as u32;
         if c32 <= 0xffff {

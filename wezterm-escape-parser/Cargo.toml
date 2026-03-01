@@ -10,6 +10,7 @@ documentation = "https://docs.rs/wezterm-escape-parser"
 keywords = ["terminal", "escape", "parser"]
 
 [dependencies]
+parking_lot.workspace = true
 base64 = {workspace = true, default-features=false, features=["alloc"]}
 bitflags = "2.0"
 hex = {workspace = true, default-features=false, features=["alloc"]}

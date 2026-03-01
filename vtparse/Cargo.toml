@@ -17,9 +17,15 @@ std = []
 no_std = ["dep:heapless"]
 
 [dependencies]
+parking_lot.workspace = true
 heapless = {workspace = true, optional = true }
 smallvec.workspace = true
 utf8parse.workspace = true
 
 [dev-dependencies]
 k9.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "vtparse_bench"
+harness = false

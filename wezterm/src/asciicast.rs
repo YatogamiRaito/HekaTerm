@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use clap::Parser;
 use config::ConfigHandle;
 use filedescriptor::FileDescriptor;
-use portable_pty::{native_pty_system, PtySize};
+use portable_pty::{PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
@@ -12,8 +12,8 @@ use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
-use termwiz::escape::parser::Parser as TWParser;
 use termwiz::escape::Action;
+use termwiz::escape::parser::Parser as TWParser;
 #[cfg(unix)]
 use unix::UnixTty as Tty;
 use wezterm_term::color::ColorPalette;
@@ -248,7 +248,7 @@ mod win {
 mod unix {
     use super::{Context, FileDescriptor, PtySize, Write};
     use std::os::unix::io::AsRawFd;
-    use termios::{cfmakeraw, tcsetattr, Termios, TCSAFLUSH};
+    use termios::{TCSAFLUSH, Termios, cfmakeraw, tcsetattr};
 
     pub struct UnixTty {
         tty: FileDescriptor,
@@ -355,7 +355,11 @@ pub struct RecordCommand {
 
 impl RecordCommand {
     pub fn run(&self, config: ConfigHandle) -> anyhow::Result<()> {
-        let prog = self.prog.iter().map(std::ffi::OsString::as_os_str).collect::<Vec<_>>();
+        let prog = self
+            .prog
+            .iter()
+            .map(std::ffi::OsString::as_os_str)
+            .collect::<Vec<_>>();
 
         let mut tty = Tty::new()?;
         let size = tty.get_size()?;

@@ -21,7 +21,8 @@ impl PartialEq for VecStorage {
         }
         let bytes_len = self.cells.len() * core::mem::size_of::<Cell>();
         let a = unsafe { core::slice::from_raw_parts(self.cells.as_ptr().cast::<u8>(), bytes_len) };
-        let b = unsafe { core::slice::from_raw_parts(other.cells.as_ptr().cast::<u8>(), bytes_len) };
+        let b =
+            unsafe { core::slice::from_raw_parts(other.cells.as_ptr().cast::<u8>(), bytes_len) };
         crate::line::simd::lines_equal(a, b)
     }
 }
@@ -34,14 +35,13 @@ impl VecStorage {
     #[cfg_attr(not(feature = "use_image"), allow(unused_mut, unused_variables))]
     pub(crate) fn set_cell(&mut self, idx: usize, mut cell: Cell, clear_image_placement: bool) {
         #[cfg(feature = "use_image")]
-        if !clear_image_placement
-            && let Some(images) = self.cells[idx].attrs().images() {
-                for image in images {
-                    if image.has_placement_id() {
-                        cell.attrs_mut().attach_image(Box::new(image));
-                    }
+        if !clear_image_placement && let Some(images) = self.cells[idx].attrs().images() {
+            for image in images {
+                if image.has_placement_id() {
+                    cell.attrs_mut().attach_image(Box::new(image));
                 }
             }
+        }
         self.cells[idx] = cell;
     }
 

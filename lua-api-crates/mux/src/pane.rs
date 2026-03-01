@@ -1,4 +1,8 @@
-use super::{mlua, FromDynamic, ToDynamic, impl_lua_conversion_dynamic, PaneId, Mux, Pane, get_mux, UserData, UserDataMethods, MuxWindow, MuxTab, CommandBuilderFrag, SpawnTabDomain, HandySplitDirection, spawn_tab_default_domain, SplitSource, SplitSize, SplitDirection, SplitRequest};
+use super::{
+    get_mux, impl_lua_conversion_dynamic, mlua, spawn_tab_default_domain, CommandBuilderFrag,
+    FromDynamic, HandySplitDirection, Mux, MuxTab, MuxWindow, Pane, PaneId, SpawnTabDomain,
+    SplitDirection, SplitRequest, SplitSize, SplitSource, ToDynamic, UserData, UserDataMethods,
+};
 use luahelper::mlua::LuaSerdeExt;
 use luahelper::{dynamic_to_lua_value, from_lua, to_lua};
 use mlua::Value;
@@ -84,7 +88,7 @@ impl MuxPane {
 }
 
 impl UserData for MuxPane {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, (): ()| {
             Ok(format!("MuxPane(pane_id:{}, pid:{})", this.0, unsafe {
                 libc::getpid()
@@ -93,7 +97,7 @@ impl UserData for MuxPane {
         methods.add_method("pane_id", |_, this, (): ()| Ok(this.0));
 
         methods.add_async_method("split", |_, this, args: Option<SplitPane>| async move {
-            args.unwrap_or_default().run(this).await
+            promise::spawn::spawn(async move { args.unwrap_or_default().run(&this).await }).await
         });
 
         methods.add_method("send_paste", |_, this, text: String| {
@@ -378,28 +382,34 @@ impl UserData for MuxPane {
         });
 
         methods.add_async_method("move_to_new_tab", |_lua, this, ()| async move {
-            let mux = Mux::get();
-            let (_domain, window_id, _tab) = mux
-                .resolve_pane_id(this.0)
-                .ok_or_else(|| mlua::Error::external(format!("pane {} not found", this.0)))?;
-            let (tab, window) = mux
-                .move_pane_to_new_tab(this.0, Some(window_id), None)
-                .await
-                .map_err(|e| mlua::Error::external(format!("{e:#?}")))?;
+            promise::spawn::spawn(async move {
+                let mux = Mux::get();
+                let (_domain, window_id, _tab) = mux
+                    .resolve_pane_id(this.0)
+                    .ok_or_else(|| mlua::Error::external(format!("pane {} not found", this.0)))?;
+                let (tab, window) = mux
+                    .move_pane_to_new_tab(this.0, Some(window_id), None)
+                    .await
+                    .map_err(|e| mlua::Error::external(format!("{e:#?}")))?;
 
-            Ok((MuxTab(tab.tab_id()), MuxWindow(window)))
+                Ok((MuxTab(tab.tab_id()), MuxWindow(window)))
+            })
+            .await
         });
 
         methods.add_async_method(
             "move_to_new_window",
             |_lua, this, workspace: Option<String>| async move {
-                let mux = Mux::get();
-                let (tab, window) = mux
-                    .move_pane_to_new_tab(this.0, None, workspace)
-                    .await
-                    .map_err(|e| mlua::Error::external(format!("{e:#?}")))?;
+                promise::spawn::spawn(async move {
+                    let mux = Mux::get();
+                    let (tab, window) = mux
+                        .move_pane_to_new_tab(this.0, None, workspace)
+                        .await
+                        .map_err(|e| mlua::Error::external(format!("{e:#?}")))?;
 
-                Ok((MuxTab(tab.tab_id()), MuxWindow(window)))
+                    Ok((MuxTab(tab.tab_id()), MuxWindow(window)))
+                })
+                .await
             },
         );
 

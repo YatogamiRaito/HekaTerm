@@ -1,6 +1,9 @@
 use config::keyassignment::PaneDirection;
 
-use super::{get_mux, mlua, LuaValue, Mux, MuxPane, MuxPaneInfo, MuxWindow, Tab, TabId, ToDynamic, UserData, UserDataMethods};
+use super::{
+    get_mux, mlua, LuaValue, Mux, MuxPane, MuxPaneInfo, MuxWindow, Tab, TabId, ToDynamic, UserData,
+    UserDataMethods,
+};
 use luahelper::mlua::Value;
 use luahelper::{from_lua, to_lua};
 use std::sync::Arc;
@@ -16,7 +19,7 @@ impl MuxTab {
 }
 
 impl UserData for MuxTab {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, (): ()| {
             Ok(format!("MuxTab(tab_id:{}, pid:{})", this.0, unsafe {
                 libc::getpid()

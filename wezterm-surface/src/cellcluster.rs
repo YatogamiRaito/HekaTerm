@@ -30,7 +30,7 @@ pub struct CellCluster {
 impl CellCluster {
     /// Given a byte index into `self.text`, return the corresponding
     /// cell index in the originating line.
-    #[must_use] 
+    #[must_use]
     pub fn byte_to_cell_idx(&self, byte_idx: usize) -> usize {
         if self.byte_to_cell_idx.is_empty() {
             self.first_cell_idx + byte_idx
@@ -39,7 +39,7 @@ impl CellCluster {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn byte_to_cell_width(&self, byte_idx: usize) -> u8 {
         if self.byte_to_cell_width.is_empty() {
             1

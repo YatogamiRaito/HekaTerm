@@ -37,7 +37,7 @@ pub struct FromDynamicOptions {
 }
 
 impl FromDynamicOptions {
-    #[must_use] 
+    #[must_use]
     pub const fn flatten(self) -> Self {
         Self {
             unknown_fields: UnknownFieldAction::Ignore,

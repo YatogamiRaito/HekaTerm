@@ -76,7 +76,7 @@ pub struct Object {
 }
 
 impl Object {
-    #[must_use] 
+    #[must_use]
     pub fn get_by_str(&self, field_name: &str) -> Option<&Value> {
         self.inner
             .get(&BorrowedKey::Str(field_name) as &dyn ObjectKeyTrait)

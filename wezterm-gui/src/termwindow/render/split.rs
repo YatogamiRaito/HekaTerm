@@ -26,7 +26,8 @@ impl crate::TermWindow {
         let (padding_left, padding_top) = self.padding_left_top();
 
         let pos_y = (split.top as f32).mul_add(cell_height, first_row_offset) + padding_top;
-        let pos_x = (split.left as f32).mul_add(cell_width, padding_left) + border.left.get() as f32;
+        let pos_x =
+            (split.left as f32).mul_add(cell_width, padding_left) + border.left.get() as f32;
 
         if split.direction == SplitDirection::Horizontal {
             self.filled_rectangle(
@@ -41,9 +42,7 @@ impl crate::TermWindow {
                 foreground,
             )?;
             self.ui_items.push(UIItem {
-                x: border.left.get()
-                    + padding_left as usize
-                    + (split.left * cell_width as usize),
+                x: border.left.get() + padding_left as usize + (split.left * cell_width as usize),
                 width: cell_width as usize,
                 y: padding_top as usize
                     + first_row_offset as usize
@@ -64,9 +63,7 @@ impl crate::TermWindow {
                 foreground,
             )?;
             self.ui_items.push(UIItem {
-                x: border.left.get()
-                    + padding_left as usize
-                    + (split.left * cell_width as usize),
+                x: border.left.get() + padding_left as usize + (split.left * cell_width as usize),
                 width: split.size * cell_width as usize,
                 y: padding_top as usize
                     + first_row_offset as usize

@@ -10,7 +10,7 @@ use crate::{
     Child, ChildKiller, CommandBuilder, ExitStatus, MasterPty, PtyPair, PtySize, PtySystem,
     SlavePty,
 };
-use anyhow::{ensure, Context};
+use anyhow::{Context, ensure};
 use filedescriptor::FileDescriptor;
 use serial2::{CharSize, FlowControl, Parity, SerialPort, StopBits};
 use std::cell::RefCell;
@@ -266,7 +266,7 @@ impl Read for Reader {
         loop {
             #[cfg(unix)]
             {
-                use filedescriptor::{poll, pollfd, AsRawSocketDescriptor, POLLIN};
+                use filedescriptor::{AsRawSocketDescriptor, POLLIN, poll, pollfd};
                 // The serial crate puts the serial port in non-blocking mode,
                 // so we must explicitly poll for ourselves here to avoid a
                 // busy loop.

@@ -7,10 +7,11 @@ use crate::{
     RequestedWindowGeometry, ResolvedGeometry, ScreenPoint, ScreenRect, ULength, WindowDecorations,
     WindowEvent, WindowEventSender, WindowOps, WindowState,
 };
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use async_trait::async_trait;
 use config::{ConfigHandle, ImePreeditRendering, SystemBackdrop};
 
+use parking_lot::Mutex;
 use promise::Future;
 use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle,
@@ -28,7 +29,6 @@ use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::ptr::{null, null_mut};
 use std::rc::Rc;
-use std::sync::Mutex;
 use wezterm_color_types::LinearRgba;
 use wezterm_font::FontConfiguration;
 use wezterm_input_types::KeyboardLedStatus;
@@ -49,8 +49,8 @@ use winapi::um::winnt::OSVERSIONINFOW;
 use winapi::um::winuser::*;
 use windows::UI::Color as WUIColor;
 use windows::UI::ViewManagement::{UIColorType, UISettings};
-use winreg::enums::HKEY_CURRENT_USER;
 use winreg::RegKey;
+use winreg::enums::HKEY_CURRENT_USER;
 
 const GCS_RESULTSTR: DWORD = 0x800;
 const GCS_COMPSTR: DWORD = 0x8;
@@ -72,32 +72,33 @@ extern "system" {
 }
 
 static IS_WIN10: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-        let osver = OSVERSIONINFOW {
-            dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as _,
-            ..Default::default()
-        };
+    let osver = OSVERSIONINFOW {
+        dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as _,
+        ..Default::default()
+    };
 
-        if unsafe { GetVersionExW(&osver as *const _ as _) } == winapi::shared::minwindef::TRUE {
-            osver.dwBuildNumber < 22000
-        } else {
-            true
-        }
-    });
+    if unsafe { GetVersionExW(&osver as *const _ as _) } == winapi::shared::minwindef::TRUE {
+        osver.dwBuildNumber < 22000
+    } else {
+        true
+    }
+});
 
 static IS_WIN11_22H2: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-        let osver = OSVERSIONINFOW {
-            dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as _,
-            ..Default::default()
-        };
+    let osver = OSVERSIONINFOW {
+        dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as _,
+        ..Default::default()
+    };
 
-        if unsafe { GetVersionExW(&osver as *const _ as _) } == winapi::shared::minwindef::TRUE {
-            osver.dwBuildNumber >= 22621
-        } else {
-            true
-        }
-    });
+    if unsafe { GetVersionExW(&osver as *const _ as _) } == winapi::shared::minwindef::TRUE {
+        osver.dwBuildNumber >= 22621
+    } else {
+        true
+    }
+});
 
-static TITLE_FONT: std::sync::LazyLock<Mutex<Option<parameters::FontAndSize>>> = std::sync::LazyLock::new(|| Mutex::new(None));
+static TITLE_FONT: std::sync::LazyLock<Mutex<Option<parameters::FontAndSize>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub(crate) struct HWindow(HWND);
@@ -108,7 +109,6 @@ pub(crate) struct WindowInner {
     /// Non-owning reference to the window handle
     hwnd: HWindow,
     events: WindowEventSender,
-    gl_state: Option<Rc<glium::backend::Context>>,
     /// Fraction of mouse scroll
     hscroll_remainder: i16,
     vscroll_remainder: i16,
@@ -168,7 +168,12 @@ fn rc_to_pointer(arc: &Rc<RefCell<WindowInner>>) -> *const RefCell<WindowInner> 
 
 fn rc_from_pointer(lparam: LPVOID) -> Rc<RefCell<WindowInner>> {
     // Turn it into an Rc
-    let arc = unsafe { Rc::from_raw(std::mem::transmute::<winapi::shared::minwindef::LPVOID, *const RefCell<WindowInner>>(lparam)) };
+    let arc = unsafe {
+        Rc::from_raw(std::mem::transmute::<
+            winapi::shared::minwindef::LPVOID,
+            *const RefCell<WindowInner>,
+        >(lparam))
+    };
     // Add a ref for the caller
     let cloned = Rc::clone(&arc);
 
@@ -188,16 +193,11 @@ fn rc_from_hwnd(hwnd: HWND) -> Option<Rc<RefCell<WindowInner>>> {
 }
 
 fn take_rc_from_pointer(lparam: LPVOID) -> Rc<RefCell<WindowInner>> {
-    unsafe { Rc::from_raw(std::mem::transmute::<winapi::shared::minwindef::LPVOID, *const RefCell<WindowInner>>(lparam)) }
-}
-
-fn callback_behavior() -> glium::debug::DebugCallbackBehavior {
-    if cfg!(debug_assertions) && false
-    /* https://github.com/glium/glium/issues/1885 */
-    {
-        glium::debug::DebugCallbackBehavior::DebugMessageOnError
-    } else {
-        glium::debug::DebugCallbackBehavior::Ignore
+    unsafe {
+        Rc::from_raw(std::mem::transmute::<
+            winapi::shared::minwindef::LPVOID,
+            *const RefCell<WindowInner>,
+        >(lparam))
     }
 }
 
@@ -221,47 +221,6 @@ impl HasWindowHandle for WindowInner {
 }
 
 impl WindowInner {
-    fn enable_opengl(&mut self) -> anyhow::Result<Rc<glium::backend::Context>> {
-        let conn = Connection::get().unwrap();
-
-        let gl_state = if self.config.prefer_egl {
-            match conn.gl_connection.borrow().as_ref() {
-                None => crate::egl::GlState::create(None, self.hwnd.0),
-                Some(glconn) => {
-                    crate::egl::GlState::create_with_existing_connection(glconn, self.hwnd.0)
-                }
-            }
-        } else {
-            Err(anyhow::anyhow!("Config says to avoid EGL"))
-        }
-        .and_then(|egl| unsafe {
-            log::trace!("Initialized EGL!");
-            conn.gl_connection
-                .borrow_mut()
-                .replace(Rc::clone(egl.get_connection()));
-            let backend = Rc::new(egl);
-            Ok(glium::backend::Context::new(
-                backend,
-                true,
-                callback_behavior(),
-            )?)
-        })
-        .or_else(|err| {
-            log::trace!("EGL init failed {:?}, fall back to WGL", err);
-            super::wgl::GlState::create(self.hwnd.0).and_then(|state| unsafe {
-                Ok(glium::backend::Context::new(
-                    Rc::new(state),
-                    true,
-                    callback_behavior(),
-                )?)
-            })
-        })?;
-
-        self.gl_state.replace(gl_state.clone());
-
-        Ok(gl_state)
-    }
-
     fn get_effective_dpi(&self) -> usize {
         let actual_dpi = unsafe { GetDpiForWindow(self.hwnd.0) } as f64;
 
@@ -494,7 +453,9 @@ impl Window {
                 null_mut(),
                 null_mut(),
                 null_mut(),
-                std::mem::transmute::<*const RefCell<WindowInner>, winapi::shared::minwindef::LPVOID>(lparam),
+                std::mem::transmute::<*const RefCell<WindowInner>, winapi::shared::minwindef::LPVOID>(
+                    lparam,
+                ),
             )
         };
 
@@ -757,19 +718,6 @@ impl HasWindowHandle for Window {
 
 #[async_trait(?Send)]
 impl WindowOps for Window {
-    async fn enable_opengl(&self) -> anyhow::Result<Rc<glium::backend::Context>> {
-        let window = self.0;
-        promise::spawn::spawn(async move {
-            if let Some(handle) = Connection::get().unwrap().get_window(window) {
-                let mut inner = handle.borrow_mut();
-                inner.enable_opengl()
-            } else {
-                anyhow::bail!("invalid window");
-            }
-        })
-        .await
-    }
-
     fn notify<T: Any + Send + Sync>(&self, t: T)
     where
         Self: Sized,
@@ -862,7 +810,7 @@ impl WindowOps for Window {
     }
 
     fn invalidate(&self) {
-        let hwnd = self.0 .0;
+        let hwnd = self.0.0;
         log::trace!("WindowOps::invalidate calling InvalidateRect");
         unsafe {
             InvalidateRect(hwnd, null(), 0);
@@ -982,7 +930,7 @@ impl WindowOps for Window {
         config: &ConfigHandle,
         window_state: WindowState,
     ) -> anyhow::Result<Option<Parameters>> {
-        let hwnd = self.0 .0;
+        let hwnd = self.0.0;
         anyhow::ensure!(!hwnd.is_null(), "HWND is null");
 
         let has_focus = unsafe { GetFocus() } == hwnd;
@@ -1015,7 +963,7 @@ impl WindowOps for Window {
         let is_resize = config.window_decorations == WindowDecorations::RESIZE;
 
         let title_font = {
-            let font = TITLE_FONT.lock().expect("locking title_font");
+            let font = TITLE_FONT.lock();
             (*font).clone()
         };
 
@@ -1068,11 +1016,7 @@ unsafe fn get_title_log_font(hwnd: HWND, hdc: HDC) -> Option<LOGFONTW> {
         CloseThemeData(theme);
     }
 
-    if res == S_OK {
-        Some(log_font)
-    } else {
-        None
-    }
+    if res == S_OK { Some(log_font) } else { None }
 }
 
 unsafe fn update_title_font(hwnd: HWND) {
@@ -1081,7 +1025,7 @@ unsafe fn update_title_font(hwnd: HWND) {
         return;
     }
 
-    let mut font = TITLE_FONT.lock().expect("locking title_font");
+    let mut font = TITLE_FONT.lock();
     if let Some(lf) = get_title_log_font(hwnd, hdc) {
         *font = wezterm_font::locator::gdi::parse_log_font(&lf, hdc).ok();
     }
@@ -1894,8 +1838,10 @@ unsafe fn mouse_leave(hwnd: HWND, _msg: UINT, _wparam: WPARAM, _lparam: LPARAM) 
     Some(0)
 }
 
-static WHEEL_SCROLL_LINES: std::sync::LazyLock<i16> = std::sync::LazyLock::new(|| read_scroll_speed("WheelScrollLines").unwrap_or(3));
-static WHEEL_SCROLL_CHARS: std::sync::LazyLock<i16> = std::sync::LazyLock::new(|| read_scroll_speed("WheelScrollChars").unwrap_or(3));
+static WHEEL_SCROLL_LINES: std::sync::LazyLock<i16> =
+    std::sync::LazyLock::new(|| read_scroll_speed("WheelScrollLines").unwrap_or(3));
+static WHEEL_SCROLL_CHARS: std::sync::LazyLock<i16> =
+    std::sync::LazyLock::new(|| read_scroll_speed("WheelScrollChars").unwrap_or(3));
 
 fn read_scroll_speed(name: &str) -> io::Result<i16> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);

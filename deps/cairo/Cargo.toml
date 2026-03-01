@@ -4,7 +4,7 @@ license = "MIT"
 authors = ["The gtk-rs Project Developers"]
 homepage = "https://gtk-rs.org/"
 description = "FFI bindings to libcairo"
-version = "0.18.0"
+version = "0.20.0"
 keywords = ["cairo", "ffi", "gtk-rs", "gnome"]
 repository = "https://github.com/gtk-rs/gtk-rs-core"
 build = "build.rs"
@@ -29,6 +29,7 @@ freetype = []
 use_glib = []
 
 [dependencies]
+parking_lot.workspace = true
 libc.workspace = true
 
 [build-dependencies]

@@ -69,7 +69,7 @@ impl fmt::Debug for Palette256 {
 }
 
 impl ColorPalette {
-    #[must_use] 
+    #[must_use]
     pub const fn resolve_fg(&self, color: ColorAttribute) -> SrgbaTuple {
         match color {
             ColorAttribute::Default => self.foreground,
@@ -78,7 +78,7 @@ impl ColorPalette {
             | ColorAttribute::TrueColorWithDefaultFallback(color) => color,
         }
     }
-    #[must_use] 
+    #[must_use]
     pub const fn resolve_bg(&self, color: ColorAttribute) -> SrgbaTuple {
         match color {
             ColorAttribute::Default => self.background,
@@ -89,7 +89,8 @@ impl ColorPalette {
     }
 }
 
-static DEFAULT_PALETTE: std::sync::LazyLock<ColorPalette> = std::sync::LazyLock::new(ColorPalette::compute_default);
+static DEFAULT_PALETTE: std::sync::LazyLock<ColorPalette> =
+    std::sync::LazyLock::new(ColorPalette::compute_default);
 
 impl Default for ColorPalette {
     /// Construct a default color palette

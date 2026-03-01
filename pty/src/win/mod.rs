@@ -1,9 +1,9 @@
 use crate::{Child, ChildKiller, ExitStatus};
 use anyhow::Context as _;
+use parking_lot::Mutex;
 use std::io::{Error as IoError, Result as IoResult};
 use std::os::windows::io::{AsRawHandle, RawHandle};
 use std::pin::Pin;
-use std::sync::Mutex;
 use std::task::{Context, Poll};
 use winapi::shared::minwindef::DWORD;
 use winapi::um::minwinbase::STILL_ACTIVE;
@@ -25,7 +25,7 @@ pub struct WinChild {
 impl WinChild {
     fn is_complete(&mut self) -> IoResult<Option<ExitStatus>> {
         let mut status: DWORD = 0;
-        let proc = self.proc.lock().unwrap().try_clone().unwrap();
+        let proc = self.proc.lock().try_clone().unwrap();
         let res = unsafe { GetExitCodeProcess(proc.as_raw_handle() as _, &mut status) };
         if res != 0 {
             if status == STILL_ACTIVE {
@@ -39,14 +39,10 @@ impl WinChild {
     }
 
     fn do_kill(&mut self) -> IoResult<()> {
-        let proc = self.proc.lock().unwrap().try_clone().unwrap();
+        let proc = self.proc.lock().try_clone().unwrap();
         let res = unsafe { TerminateProcess(proc.as_raw_handle() as _, 1) };
         let err = IoError::last_os_error();
-        if res != 0 {
-            Err(err)
-        } else {
-            Ok(())
-        }
+        if res != 0 { Err(err) } else { Ok(()) }
     }
 }
 
@@ -57,7 +53,7 @@ impl ChildKiller for WinChild {
     }
 
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
-        let proc = self.proc.lock().unwrap().try_clone().unwrap();
+        let proc = self.proc.lock().try_clone().unwrap();
         Box::new(WinChildKiller { proc })
     }
 }
@@ -71,11 +67,7 @@ impl ChildKiller for WinChildKiller {
     fn kill(&mut self) -> IoResult<()> {
         let res = unsafe { TerminateProcess(self.proc.as_raw_handle() as _, 1) };
         let err = IoError::last_os_error();
-        if res != 0 {
-            Err(err)
-        } else {
-            Ok(())
-        }
+        if res != 0 { Err(err) } else { Ok(()) }
     }
 
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
@@ -93,7 +85,7 @@ impl Child for WinChild {
         if let Ok(Some(status)) = self.try_wait() {
             return Ok(status);
         }
-        let proc = self.proc.lock().unwrap().try_clone().unwrap();
+        let proc = self.proc.lock().try_clone().unwrap();
         unsafe {
             WaitForSingleObject(proc.as_raw_handle() as _, INFINITE);
         }
@@ -107,16 +99,12 @@ impl Child for WinChild {
     }
 
     fn process_id(&self) -> Option<u32> {
-        let res = unsafe { GetProcessId(self.proc.lock().unwrap().as_raw_handle() as _) };
-        if res == 0 {
-            None
-        } else {
-            Some(res)
-        }
+        let res = unsafe { GetProcessId(self.proc.lock().as_raw_handle() as _) };
+        if res == 0 { None } else { Some(res) }
     }
 
     fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle> {
-        let proc = self.proc.lock().unwrap();
+        let proc = self.proc.lock();
         Some(proc.as_raw_handle())
     }
 }
@@ -132,7 +120,7 @@ impl std::future::Future for WinChild {
                 struct PassRawHandleToWaiterThread(pub RawHandle);
                 unsafe impl Send for PassRawHandleToWaiterThread {}
 
-                let proc = self.proc.lock().unwrap().try_clone()?;
+                let proc = self.proc.lock().try_clone()?;
                 let handle = PassRawHandleToWaiterThread(proc.as_raw_handle());
 
                 let waker = cx.waker().clone();

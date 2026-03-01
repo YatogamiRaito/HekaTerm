@@ -11,7 +11,7 @@ use smithay_client_toolkit::window::{ButtonState, Frame, FrameRequest, State, Wi
 use std::cell::RefCell;
 use std::cmp::max;
 use std::rc::Rc;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use tiny_skia::{
     ColorU8, FillRule, Paint, PathBuilder, PixmapMut, PixmapPaint, PixmapRef, Rect, Stroke,
     Transform,
@@ -133,8 +133,7 @@ impl SurfaceUserData {
                 .user_data()
                 .get::<Mutex<SurfaceUserData>>()
                 .unwrap()
-                .lock()
-                .unwrap();
+                .lock();
             // update the scale factor of the relevant output
             for (ref o, ref mut factor, _) in user_data.outputs.iter_mut() {
                 if o.as_ref().equals(output.as_ref()) {
@@ -196,7 +195,6 @@ fn get_surface_scale_factor(surface: &wl_surface::WlSurface) -> i32 {
         .get::<Mutex<SurfaceUserData>>()
         .expect("SCTK: Surface was not created by SCTK.")
         .lock()
-        .unwrap()
         .scale_factor
 }
 
@@ -214,8 +212,7 @@ where
             .user_data()
             .get::<Mutex<SurfaceUserData>>()
             .unwrap()
-            .lock()
-            .unwrap();
+            .lock();
         match event {
             wl_surface::Event::Enter { output } => {
                 // Passing the callback to be added to output listener

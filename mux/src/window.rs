@@ -29,12 +29,12 @@ impl Window {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn get_initial_position(&self) -> &Option<GuiPosition> {
         &self.initial_position
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_workspace(&self) -> &str {
         &self.workspace
     }
@@ -42,14 +42,16 @@ impl Window {
     pub fn set_title(&mut self, title: &str) {
         if self.title != title {
             self.title = title.to_string();
-            if let Some(mux) = Mux::try_get() { mux.notify(MuxNotification::WindowTitleChanged {
+            if let Some(mux) = Mux::try_get() {
+                mux.notify(MuxNotification::WindowTitleChanged {
                     window_id: self.id,
                     title: title.to_string(),
-                }); }
+                });
+            }
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_title(&self) -> &str {
         &self.title
     }
@@ -62,7 +64,7 @@ impl Window {
         Mux::get().notify(MuxNotification::WindowWorkspaceChanged(self.id));
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn window_id(&self) -> WindowId {
         self.id
     }
@@ -90,22 +92,22 @@ impl Window {
         self.invalidate();
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.tabs.is_empty()
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn len(&self) -> usize {
         self.tabs.len()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_by_idx(&self, idx: usize) -> Option<&Arc<Tab>> {
         self.tabs.get(idx)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn can_close_without_prompting(&self) -> bool {
         for tab in &self.tabs {
             if !tab.can_close_without_prompting(CloseReason::Window) {
@@ -115,7 +117,7 @@ impl Window {
         true
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn idx_by_id(&self, id: TabId) -> Option<usize> {
         for (idx, t) in self.tabs.iter().enumerate() {
             if t.tab_id() == id {
@@ -159,26 +161,26 @@ impl Window {
     fn do_remove_idx(&mut self, idx: usize, active: Option<Arc<Tab>>) -> Arc<Tab> {
         if let (Some(active), Some(removing)) = (&active, self.tabs.get(idx))
             && active.tab_id() == removing.tab_id()
-                && config::configuration().switch_to_last_active_tab_when_closing_tab
-            {
-                // If we are removing the active tab, switch back to
-                // the previously active tab
-                if let Some(last_active) = self.get_last_active_idx() {
-                    self.set_active_without_saving(last_active);
-                }
+            && config::configuration().switch_to_last_active_tab_when_closing_tab
+        {
+            // If we are removing the active tab, switch back to
+            // the previously active tab
+            if let Some(last_active) = self.get_last_active_idx() {
+                self.set_active_without_saving(last_active);
             }
+        }
         let tab = self.tabs.remove(idx);
         self.fixup_active_tab_after_removal(active);
         tab
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_active(&self) -> Option<&Arc<Tab>> {
         self.get_by_idx(self.active)
     }
 
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn get_active_idx(&self) -> usize {
         self.active
     }
@@ -188,7 +190,7 @@ impl Window {
     }
 
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub fn get_last_active_idx(&self) -> Option<usize> {
         if let Some(tab_id) = self.last_active {
             self.idx_by_id(tab_id)
@@ -214,9 +216,10 @@ impl Window {
         assert!(idx < self.tabs.len());
         if self.active != idx
             && let Some(tab) = self.tabs.get(self.active)
-                && let Some(pane) = tab.get_active_pane() {
-                    pane.focus_changed(false);
-                }
+            && let Some(pane) = tab.get_active_pane()
+        {
+            pane.focus_changed(false);
+        }
         self.active = idx;
         self.invalidate();
     }
@@ -252,8 +255,7 @@ impl Window {
             .tabs
             .iter()
             .filter_map(|tab| {
-                if live_tab_ids
-                    .iter().any(|&id| id == tab.tab_id()) {
+                if live_tab_ids.iter().any(|&id| id == tab.tab_id()) {
                     None
                 } else {
                     Some(tab.tab_id())

@@ -11,7 +11,7 @@ use crate::termwindow::{BorrowedShapeCacheKey, RenderState, ShapedInfo, TermWind
 use crate::utilsprites::RenderMetrics;
 use ::window::bitmaps::{TextureCoord, TextureRect, TextureSize};
 use ::window::{DeadKeyStatus, PointF, RectF, SizeF, WindowOps};
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use config::{
     BoldBrightening, ConfigHandle, DimensionContext, HorizontalWindowContentAlignment, TextStyle,
     VerticalWindowContentAlignment, VisualBellTarget,
@@ -237,27 +237,28 @@ impl crate::TermWindow {
     ) -> Option<f32> {
         let mut per_pane = self.pane_state(pane.pane_id());
         if let Some(ringing) = per_pane.bell_start
-            && config.visual_bell.target == target {
-                let mut color_ease = ColorEase::new(
-                    config.visual_bell.fade_in_duration_ms,
-                    config.visual_bell.fade_in_function,
-                    config.visual_bell.fade_out_duration_ms,
-                    config.visual_bell.fade_out_function,
-                    Some(ringing),
-                );
+            && config.visual_bell.target == target
+        {
+            let mut color_ease = ColorEase::new(
+                config.visual_bell.fade_in_duration_ms,
+                config.visual_bell.fade_in_function,
+                config.visual_bell.fade_out_duration_ms,
+                config.visual_bell.fade_out_function,
+                Some(ringing),
+            );
 
-                let intensity = color_ease.intensity_one_shot();
+            let intensity = color_ease.intensity_one_shot();
 
-                match intensity {
-                    None => {
-                        per_pane.bell_start.take();
-                    }
-                    Some((intensity, next)) => {
-                        self.update_next_frame_time(Some(next));
-                        return Some(intensity);
-                    }
+            match intensity {
+                None => {
+                    per_pane.bell_start.take();
+                }
+                Some((intensity, next)) => {
+                    self.update_next_frame_time(Some(next));
+                    return Some(intensity);
                 }
             }
+        }
         None
     }
 
@@ -499,7 +500,10 @@ impl crate::TermWindow {
         let cell_height = params.render_metrics.cell_size.height as f32;
         let pos_y = (self.dimensions.pixel_height as f32 / -2.) + params.top_pixel_y;
 
-        let pos_x = (cell_idx as f32).mul_add(cell_width, (self.dimensions.pixel_width as f32 / -2.) + params.left_pixel_x);
+        let pos_x = (cell_idx as f32).mul_add(
+            cell_width,
+            (self.dimensions.pixel_width as f32 / -2.) + params.left_pixel_x,
+        );
 
         let (padding_left, padding_top, padding_right, padding_bottom) = image.padding();
 
@@ -736,23 +740,24 @@ impl crate::TermWindow {
         let mut iter = infos.iter().peekable();
         while let Some(info) = iter.next() {
             if self.config.custom_block_glyphs
-                && info.only_char.and_then(BlockKey::from_char).is_some() {
-                    // Don't bother rendering the glyph from the font, as it can
-                    // have incorrect advance metrics.
-                    // Instead, just use our pixel-perfect cell metrics
-                    glyphs.push(Rc::new(CachedGlyph {
-                        brightness_adjust: 1.0,
-                        has_color: false,
-                        texture: None,
-                        x_advance: PixelLength::new(metrics.cell_size.width as f64),
-                        x_offset: PixelLength::zero(),
-                        y_offset: PixelLength::zero(),
-                        bearing_x: PixelLength::zero(),
-                        bearing_y: PixelLength::zero(),
-                        scale: 1.0,
-                    }));
-                    continue;
-                }
+                && info.only_char.and_then(BlockKey::from_char).is_some()
+            {
+                // Don't bother rendering the glyph from the font, as it can
+                // have incorrect advance metrics.
+                // Instead, just use our pixel-perfect cell metrics
+                glyphs.push(Rc::new(CachedGlyph {
+                    brightness_adjust: 1.0,
+                    has_color: false,
+                    texture: None,
+                    x_advance: PixelLength::new(metrics.cell_size.width as f64),
+                    x_offset: PixelLength::zero(),
+                    y_offset: PixelLength::zero(),
+                    bearing_x: PixelLength::zero(),
+                    bearing_y: PixelLength::zero(),
+                    scale: 1.0,
+                }));
+                continue;
+            }
 
             let followed_by_space = match iter.peek() {
                 Some(next_info) => next_info.is_space,
@@ -829,7 +834,9 @@ impl crate::TermWindow {
                         }
 
                         let res = anyhow!("shaper error: {err}");
-                        self.shape_cache.borrow_mut().put(key.into_owned(), Err(err));
+                        self.shape_cache
+                            .borrow_mut()
+                            .put(key.into_owned(), Err(err));
                         return Err(res);
                     }
                 }
@@ -869,14 +876,15 @@ impl crate::TermWindow {
         let seqno = line.current_seqno();
         let mut id = None;
         if let Some(cached_arc) = line.get_appdata()
-            && let Some(line_state) = cached_arc.downcast_ref::<CachedLineState>() {
-                if line_state.seqno == seqno {
-                    // Touch the LRU
-                    self.line_state_cache.borrow_mut().get(&line_state.id);
-                    return line_state.shape_hash;
-                }
-                id.replace(line_state.id);
+            && let Some(line_state) = cached_arc.downcast_ref::<CachedLineState>()
+        {
+            if line_state.seqno == seqno {
+                // Touch the LRU
+                self.line_state_cache.borrow_mut().get(&line_state.id);
+                return line_state.shape_hash;
             }
+            id.replace(line_state.id);
+        }
 
         let id = id.unwrap_or_else(|| {
             let id = self.next_line_state_id;

@@ -1,4 +1,4 @@
-use super::{Path, Scheme, apply_nightly_version, fetch_url};
+use super::{apply_nightly_version, fetch_url, Path, Scheme};
 use tar::Archive;
 use tempfile::NamedTempFile;
 

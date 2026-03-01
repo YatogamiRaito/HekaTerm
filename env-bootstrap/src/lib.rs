@@ -5,9 +5,13 @@ use std::path::{Path, PathBuf};
 pub fn set_wezterm_executable() {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            unsafe { std::env::set_var("WEZTERM_EXECUTABLE_DIR", dir); }
+            unsafe {
+                std::env::set_var("WEZTERM_EXECUTABLE_DIR", dir);
+            }
         }
-        unsafe { std::env::set_var("WEZTERM_EXECUTABLE", exe); }
+        unsafe {
+            std::env::set_var("WEZTERM_EXECUTABLE", exe);
+        }
     }
 }
 
@@ -17,7 +21,9 @@ pub fn fixup_snap() {
         // These are not useful to be passed through to things spawned by us.
 
         // SNAP is the base path of the files in the snap
-        unsafe { std::env::remove_var("SNAP"); }
+        unsafe {
+            std::env::remove_var("SNAP");
+        }
 
         // snapd also sets a bunch of SNAP_* environment variables
         // This list may change over time, so for simplicity, assume
@@ -33,7 +39,9 @@ pub fn fixup_snap() {
 
         // snapd has *also* set LD_LIBRARY_PATH, and things we spawn
         // *absolutely do not* want this propagated
-        unsafe { std::env::remove_var("LD_LIBRARY_PATH"); }
+        unsafe {
+            std::env::remove_var("LD_LIBRARY_PATH");
+        }
     }
 }
 
@@ -47,19 +55,24 @@ pub fn fixup_appimage() {
         // be the AppImage.  eg: if you `vim foo` it shows as
         // `WezTerm.AppImage foo`, which is super confusing for everyone!
         // Let's just unset that from the environment!
-        unsafe { std::env::remove_var("ARGV0"); }
+        unsafe {
+            std::env::remove_var("ARGV0");
+        }
 
         // Since our AppImage includes multiple utilities, we want to
         // be able to use them, so add that location to the PATH!
         // WEZTERM_EXECUTABLE_DIR is set by `set_wezterm_executable`
         // which is called before `fixup_appimage`
         if let Some(dir) = std::env::var_os("WEZTERM_EXECUTABLE_DIR")
-            && let Some(path) = std::env::var_os("PATH") {
-                let mut paths = std::env::split_paths(&path).collect::<Vec<_>>();
-                paths.insert(0, PathBuf::from(dir));
-                let new_path = std::env::join_paths(paths).expect("unable to update PATH");
-                unsafe { std::env::set_var("PATH", &new_path); }
+            && let Some(path) = std::env::var_os("PATH")
+        {
+            let mut paths = std::env::split_paths(&path).collect::<Vec<_>>();
+            paths.insert(0, PathBuf::from(dir));
+            let new_path = std::env::join_paths(paths).expect("unable to update PATH");
+            unsafe {
+                std::env::set_var("PATH", &new_path);
             }
+        }
 
         // This AppImage feature allows redirecting HOME and XDG_CONFIG_HOME
         // to live alongside the executable for portable use:
@@ -84,13 +97,19 @@ pub fn fixup_appimage() {
         /// However, if we are using the system wezterm to spawn a portable
         /// `AppImage` then we want these to not take effect.
         fn clean_wezterm_config_env() {
-            unsafe { std::env::remove_var("WEZTERM_CONFIG_FILE"); }
-            unsafe { std::env::remove_var("WEZTERM_CONFIG_DIR"); }
+            unsafe {
+                std::env::remove_var("WEZTERM_CONFIG_FILE");
+            }
+            unsafe {
+                std::env::remove_var("WEZTERM_CONFIG_DIR");
+            }
         }
 
         if config::HOME_DIR.starts_with(append_extra_file_name_suffix(&appimage, ".home")) {
             // Fixup HOME to point to the user's actual home dir
-            unsafe { std::env::remove_var("HOME"); }
+            unsafe {
+                std::env::remove_var("HOME");
+            }
             unsafe {
                 std::env::set_var(
                     "HOME",
@@ -100,12 +119,12 @@ pub fn fixup_appimage() {
             clean_wezterm_config_env();
         }
 
-        if std::env::var("XDG_CONFIG_HOME")
-            .is_ok_and(|d| {
-                PathBuf::from(d).starts_with(append_extra_file_name_suffix(&appimage, ".config"))
-            })
-        {
-            unsafe { std::env::remove_var("XDG_CONFIG_HOME"); }
+        if std::env::var("XDG_CONFIG_HOME").is_ok_and(|d| {
+            PathBuf::from(d).starts_with(append_extra_file_name_suffix(&appimage, ".config"))
+        }) {
+            unsafe {
+                std::env::remove_var("XDG_CONFIG_HOME");
+            }
             clean_wezterm_config_env();
         }
     }
@@ -226,15 +245,21 @@ pub fn bootstrap() {
     // Remove this env var to avoid weirdness with some vim configurations.
     // wezterm never sets WINDOWID and we don't want to inherit it from a
     // parent process.
-    unsafe { std::env::remove_var("WINDOWID"); }
+    unsafe {
+        std::env::remove_var("WINDOWID");
+    }
     // Avoid vte shell integration kicking in if someone started
     // wezterm or the mux server from inside gnome terminal.
     // <https://github.com/wezterm/wezterm/issues/2237>
-    unsafe { std::env::remove_var("VTE_VERSION"); }
+    unsafe {
+        std::env::remove_var("VTE_VERSION");
+    }
 
     // Sice folks don't like to reboot or sign out if they `chsh`,
     // SHELL may be stale. Rather than using a stale value, unset
     // it so that pty::CommandBuilder::get_shell will resolve the
     // shell from the password database instead.
-    unsafe { std::env::remove_var("SHELL"); }
+    unsafe {
+        std::env::remove_var("SHELL");
+    }
 }

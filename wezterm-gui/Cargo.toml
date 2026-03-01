@@ -106,6 +106,8 @@ wezterm-toast-notification.workspace = true
 wgpu.workspace = true
 window-funcs.workspace = true
 window.workspace = true
+ahash.workspace = true
+flume.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 shared_library.workspace = true

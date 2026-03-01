@@ -6,18 +6,18 @@
 //! container or actually remote, running on the other end
 //! of an ssh session somewhere.
 
+use crate::Mux;
 use crate::localpane::LocalPane;
-use crate::pane::{alloc_pane_id, Pane, PaneId};
+use crate::pane::{Pane, PaneId, alloc_pane_id};
 use crate::tab::{SplitRequest, Tab, TabId};
 use crate::window::WindowId;
-use crate::Mux;
-use anyhow::{bail, Context, Error};
+use anyhow::{Context, Error, bail};
 use async_trait::async_trait;
 use config::keyassignment::{SpawnCommand, SpawnTabDomain};
-use config::{configuration, ExecDomain, SerialDomain, ValueOrFunc, WslDomain};
-use downcast_rs::{impl_downcast, Downcast};
+use config::{ExecDomain, SerialDomain, ValueOrFunc, WslDomain, configuration};
+use downcast_rs::{Downcast, impl_downcast};
 use parking_lot::Mutex;
-use portable_pty::{native_pty_system, CommandBuilder, ExitStatus, MasterPty, PtySize, PtySystem};
+use portable_pty::{CommandBuilder, ExitStatus, MasterPty, PtySize, PtySystem, native_pty_system};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::Write;
@@ -80,9 +80,8 @@ pub trait Domain: Downcast + Send + Sync {
         split_request: SplitRequest,
     ) -> anyhow::Result<Arc<dyn Pane>> {
         let mux = Mux::get();
-        let tab = match mux.get_tab(tab) {
-            Some(t) => t,
-            None => anyhow::bail!("Invalid tab id {tab}"),
+        let Some(tab) = mux.get_tab(tab) else {
+            anyhow::bail!("Invalid tab id {tab}")
         };
 
         let pane_index = match tab
@@ -94,9 +93,8 @@ pub trait Domain: Downcast + Send + Sync {
             None => anyhow::bail!("invalid pane id {pane_id}"),
         };
 
-        let split_size = match tab.compute_split_size(pane_index, split_request) {
-            Some(s) => s,
-            None => anyhow::bail!("invalid pane index {pane_index}"),
+        let Some(split_size) = tab.compute_split_size(pane_index, split_request) else {
+            anyhow::bail!("invalid pane index {pane_index}")
         };
 
         let pane = match source {
@@ -111,9 +109,8 @@ pub trait Domain: Downcast + Send + Sync {
                 let (_domain, _window, src_tab) = mux
                     .resolve_pane_id(src_pane_id)
                     .ok_or_else(|| anyhow::anyhow!("pane {src_pane_id} not found"))?;
-                let src_tab = match mux.get_tab(src_tab) {
-                    Some(t) => t,
-                    None => anyhow::bail!("Invalid tab id {src_tab}"),
+                let Some(src_tab) = mux.get_tab(src_tab) else {
+                    anyhow::bail!("Invalid tab id {src_tab}")
                 };
 
                 let pane = src_tab.remove_pane(src_pane_id).ok_or_else(|| {
@@ -227,7 +224,7 @@ impl LocalDomain {
             .cloned()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_pty_system(name: &str, pty_system: Box<dyn PtySystem + Send>) -> Self {
         let id = alloc_domain_id();
         Self {
@@ -274,11 +271,12 @@ impl LocalDomain {
             let mut args: Vec<OsString> = cmd.get_argv().clone();
 
             if args.is_empty()
-                && let Some(def_prog) = &wsl.default_prog {
-                    for arg in def_prog {
-                        args.push(arg.into());
-                    }
+                && let Some(def_prog) = &wsl.default_prog
+            {
+                for arg in def_prog {
+                    args.push(arg.into());
                 }
+            }
 
             let mut argv: Vec<OsString> = vec![
                 "wsl.exe".into(),
@@ -451,9 +449,9 @@ impl LocalDomain {
         let config = configuration();
 
         let wsl = self.resolve_wsl_domain();
-        let default_prog = wsl
-            .as_ref()
-            .map_or(config.default_prog.as_ref(), |wsl| wsl.default_prog.as_ref());
+        let default_prog = wsl.as_ref().map_or(config.default_prog.as_ref(), |wsl| {
+            wsl.default_prog.as_ref()
+        });
 
         let mut cmd = match command {
             Some(mut cmd) => {

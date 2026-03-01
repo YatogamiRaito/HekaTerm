@@ -13,7 +13,7 @@ impl Presentation {
     /// Returns the default presentation followed
     /// by the explicit presentation if specified
     /// by a variation selector
-    #[must_use] 
+    #[must_use]
     pub fn for_grapheme(s: &str) -> (Self, Option<Self>) {
         if let Some((a, b)) = VARIATION_MAP.get(s) {
             return (*a, Some(*b));
@@ -33,7 +33,7 @@ impl Presentation {
         (presentation, None)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn for_char(c: char) -> Self {
         if crate::emoji_presentation::EMOJI_PRESENTATION.contains_u32(c as u32) {
             Self::Emoji

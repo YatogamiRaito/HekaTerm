@@ -1,23 +1,24 @@
 use super::keyboard::{Keyboard, KeyboardWithFallback};
 use crate::connection::ConnectionOps;
-use crate::os::x11::window::XWindowInner;
-use crate::os::x11::xsettings::{XSettingsMap, XSetting, read_xsettings};
 use crate::os::Connection;
+use crate::os::x11::window::XWindowInner;
+use crate::os::x11::xsettings::{XSetting, XSettingsMap, read_xsettings};
 use crate::screen::{ScreenInfo, Screens};
 use crate::spawn::SPAWN_QUEUE;
 use crate::{Appearance, DeadKeyStatus, ScreenRect};
-use anyhow::{anyhow, bail, Context as _};
+use anyhow::{Context as _, anyhow, bail};
 use mio::event::Source;
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Registry, Token};
+use parking_lot::Mutex;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use x11::xlib;
 use xcb::x::Atom;
-use xcb::{dri2, Raw, Xid};
+use xcb::{Raw, Xid, dri2};
 
 enum ScreenResources {
     Current(xcb::randr::GetScreenResourcesCurrentReply),
@@ -102,7 +103,6 @@ pub struct XConnection {
     should_terminate: RefCell<bool>,
     pub(crate) visual: xcb::x::Visualtype,
     pub(crate) depth: u8,
-    pub(crate) gl_connection: RefCell<Option<Rc<crate::egl::GlConnection>>>,
     pub(crate) ime: RefCell<std::pin::Pin<Box<xcb_imdkit::ImeClient>>>,
     pub(crate) ime_process_event_result: RefCell<anyhow::Result<()>>,
     pub(crate) has_randr: bool,
@@ -319,8 +319,8 @@ impl ConnectionOps for XConnection {
                         }
                         if m.htotal > 0 && vtotal > 0 {
                             Some(
-                                (m.dot_clock as f32 / (f32::from(m.htotal) * f32::from(vtotal))).ceil()
-                                    as usize,
+                                (m.dot_clock as f32 / (f32::from(m.htotal) * f32::from(vtotal)))
+                                    .ceil() as usize,
                             )
                         } else {
                             None
@@ -467,8 +467,8 @@ impl XConnection {
             }
         }
 
-        let xrm = crate::x11::xrm::parse_root_resource_manager(&self.conn, self.root)
-            .unwrap_or_default();
+        let xrm =
+            crate::x11::xrm::parse_root_resource_manager(&self.conn, self.root).unwrap_or_default();
         *self.xrm.borrow_mut() = xrm;
 
         let dpi = compute_default_dpi(&self.xrm.borrow(), &self.xsettings.borrow());
@@ -492,7 +492,7 @@ impl XConnection {
 
     pub(crate) fn advise_of_appearance_change(&self, appearance: crate::Appearance) {
         for win in self.windows.borrow().values() {
-            win.lock().unwrap().appearance_changed(appearance);
+            win.lock().appearance_changed(appearance);
         }
     }
 
@@ -602,7 +602,7 @@ impl XConnection {
             if let Some((mods, leds)) = self.keyboard.process_xkb_event(&self.conn, event)? {
                 // route changed state to the window with focus
                 for window in self.windows.borrow().values() {
-                    let mut window = window.lock().unwrap();
+                    let mut window = window.lock();
                     if window.has_focus == Some(true) {
                         window
                             .events
@@ -628,7 +628,7 @@ impl XConnection {
 
     fn dispatch_pending_events(&self) -> anyhow::Result<()> {
         for window in self.windows.borrow().values() {
-            let mut inner = window.lock().unwrap();
+            let mut inner = window.lock();
             inner.dispatch_pending_events()?;
         }
 
@@ -641,13 +641,14 @@ impl XConnection {
         event: &xcb::Event,
     ) -> anyhow::Result<()> {
         if let Some(window) = self.window_by_id(window_id) {
-            let mut inner = window.lock().unwrap();
+            let mut inner = window.lock();
             inner.dispatch_event(event)?;
         } else if let Some(parent_id) = self.parent_id_by_child_id(window_id)
-            && let Some(window) = self.window_by_id(parent_id) {
-                let mut inner = window.lock().unwrap();
-                inner.dispatch_event(event)?;
-            }
+            && let Some(window) = self.window_by_id(parent_id)
+        {
+            let mut inner = window.lock();
+            inner.dispatch_event(event)?;
+        }
         Ok(())
     }
 
@@ -777,8 +778,7 @@ impl XConnection {
             .context("XRANDR::SelectInput")?;
         }
 
-        let xrm =
-            crate::x11::xrm::parse_root_resource_manager(&conn, root).unwrap_or_default();
+        let xrm = crate::x11::xrm::parse_root_resource_manager(&conn, root).unwrap_or_default();
 
         let xsettings = read_xsettings(&conn, atom_xsettings_selection, atom_xsettings_settings)
             .unwrap_or_else(|err| {
@@ -860,7 +860,6 @@ impl XConnection {
             should_terminate: RefCell::new(false),
             depth,
             visual,
-            gl_connection: RefCell::new(None),
             ime: RefCell::new(ime),
             ime_process_event_result: RefCell::new(Ok(())),
             has_randr,
@@ -876,7 +875,7 @@ impl XConnection {
                 .borrow_mut()
                 .set_commit_string_cb(move |window_id, input| {
                     if let Some(window) = conn.window_by_id(window_id) {
-                        let mut inner = window.lock().unwrap();
+                        let mut inner = window.lock();
                         inner.dispatch_ime_text(input);
                     }
                 });
@@ -888,7 +887,7 @@ impl XConnection {
                 .borrow_mut()
                 .set_preedit_draw_cb(move |window_id, info| {
                     if let Some(window) = conn.window_by_id(window_id) {
-                        let mut inner = window.lock().unwrap();
+                        let mut inner = window.lock();
 
                         let text = info.text();
                         let status = DeadKeyStatus::Composing(text);
@@ -903,7 +902,7 @@ impl XConnection {
                 .borrow_mut()
                 .set_preedit_done_cb(move |window_id| {
                     if let Some(window) = conn.window_by_id(window_id) {
-                        let mut inner = window.lock().unwrap();
+                        let mut inner = window.lock();
                         inner.dispatch_ime_compose_status(DeadKeyStatus::None);
                     }
                 });
@@ -915,9 +914,10 @@ impl XConnection {
                 .borrow_mut()
                 .set_forward_event_cb(move |_win, e| {
                     if let err @ Err(_) = conn.process_xcb_event(e)
-                        && let Err(err) = conn.ime_process_event_result.replace(err) {
-                            log::warn!("IME process event error dropped: {err}");
-                        }
+                        && let Err(err) = conn.ime_process_event_result.replace(err)
+                    {
+                        log::warn!("IME process event error dropped: {err}");
+                    }
                 });
         }
 
@@ -1000,7 +1000,7 @@ impl XConnection {
 
         promise::spawn::spawn_into_main_thread(async move {
             if let Some(handle) = Connection::get().unwrap().x11().window_by_id(window) {
-                let mut inner = handle.lock().unwrap();
+                let mut inner = handle.lock();
                 if inner.window_id == window {
                     prom.result(f(&mut inner));
                 } else {

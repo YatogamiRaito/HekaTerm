@@ -1,7 +1,7 @@
 //! Implements `zwp_text_input_v3` for handling IME
+use parking_lot::Mutex;
 use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 use smithay_client_toolkit::globals::GlobalData;
 use wayland_client::backend::ObjectId;
@@ -52,14 +52,14 @@ impl TextInputState {
     }
 
     pub fn get_text_input_for_keyboard(&self, keyboard: &WlKeyboard) -> Option<ZwpTextInputV3> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         let keyboard_id = keyboard.id();
         let seat_id = inner.keyboard_to_seat.get(&keyboard_id)?;
         inner.input_by_seat.get(seat_id).cloned()
     }
 
     pub(super) fn get_text_input_for_surface(&self, surface: &WlSurface) -> Option<ZwpTextInputV3> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         let surface_id = surface.id();
         let keyboard_id = inner.surface_to_keyboard.get(&surface_id)?;
         let seat_id = inner.keyboard_to_seat.get(keyboard_id)?;
@@ -72,12 +72,12 @@ impl TextInputState {
         qh: &QueueHandle<WaylandState>,
     ) -> Option<ZwpTextInputV3> {
         let mgr = &self.text_input_manager;
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         let seat_id = seat.id();
-        let input = inner.input_by_seat.entry(seat_id).or_insert_with(|| {
-            
-            mgr.get_text_input(seat, qh, TextInputData::default())
-        });
+        let input = inner
+            .input_by_seat
+            .entry(seat_id)
+            .or_insert_with(|| mgr.get_text_input(seat, qh, TextInputData::default()));
         Some(input.clone())
     }
 
@@ -86,7 +86,6 @@ impl TextInputState {
         let keyboard_id = keyboard.id();
         self.inner
             .lock()
-            .unwrap()
             .surface_to_keyboard
             .insert(surface_id, keyboard_id);
     }
@@ -102,7 +101,6 @@ impl TextInputState {
         let seat_id = seat.id();
         self.inner
             .lock()
-            .unwrap()
             .keyboard_to_seat
             .insert(keyboard_id, seat_id);
     }
@@ -111,7 +109,7 @@ impl TextInputState {
     /// If we make sure to disable things before we close the app,
     /// mutter is less likely to get in a bad state
     pub fn shutdown(&self) {
-        self.inner.lock().unwrap().disable_all();
+        self.inner.lock().disable_all();
     }
 }
 
@@ -159,7 +157,7 @@ impl Dispatch<ZwpTextInputV3, TextInputData, WaylandState> for TextInputState {
         log::trace!("ZwpTextInputEvent: {event:?}");
         let mut pending_state = {
             let text_input = state.text_input.as_mut().unwrap();
-            let mut inner = text_input.inner.lock().unwrap();
+            let mut inner = text_input.inner.lock();
             inner.pending_state.entry(input.id()).or_default().clone()
         };
 
@@ -205,7 +203,6 @@ impl Dispatch<ZwpTextInputV3, TextInputData, WaylandState> for TextInputState {
             .unwrap()
             .inner
             .lock()
-            .unwrap()
             .pending_state
             .insert(input.id(), pending_state);
     }
@@ -214,10 +211,11 @@ impl Dispatch<ZwpTextInputV3, TextInputData, WaylandState> for TextInputState {
 impl WaylandState {
     fn dispatch_to_focused_window(&self, event: WindowEvent) {
         if let Some(&window_id) = self.keyboard_window_id.borrow().as_ref()
-            && let Some(win) = self.window_by_id(window_id) {
-                let mut inner = win.borrow_mut();
-                inner.events.dispatch(event);
-            }
+            && let Some(win) = self.window_by_id(window_id)
+        {
+            let mut inner = win.borrow_mut();
+            inner.events.dispatch(event);
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::termwindow::{RenderFrame, TermWindowNotif};
-use ::window::bitmaps::atlas::OutOfTextureSpace;
 use ::window::WindowOps;
+use ::window::bitmaps::atlas::OutOfTextureSpace;
 use anyhow::Context;
 use smol::Timer;
 use std::time::{Duration, Instant};
@@ -119,27 +119,28 @@ impl crate::TermWindow {
         // image attachments with multiple frames, so we also need to
         // invalidate the viewport when the next frame is due
         if self.focused.is_some()
-            && let Some(next_due) = *self.has_animation.borrow() {
-                let prior = self.scheduled_animation.borrow_mut().take();
-                match prior {
-                    Some(prior) if prior <= next_due => {
-                        // Already due before that time
-                    }
-                    _ => {
-                        self.scheduled_animation.borrow_mut().replace(next_due);
-                        let window = self.window.clone().unwrap();
-                        promise::spawn::spawn(async move {
-                            Timer::at(next_due).await;
-                            let win = window.clone();
-                            window.notify(TermWindowNotif::Apply(Box::new(move |tw| {
-                                tw.scheduled_animation.borrow_mut().take();
-                                win.invalidate();
-                            })));
-                        })
-                        .detach();
-                    }
+            && let Some(next_due) = *self.has_animation.borrow()
+        {
+            let prior = self.scheduled_animation.borrow_mut().take();
+            match prior {
+                Some(prior) if prior <= next_due => {
+                    // Already due before that time
+                }
+                _ => {
+                    self.scheduled_animation.borrow_mut().replace(next_due);
+                    let window = self.window.clone().unwrap();
+                    promise::spawn::spawn(async move {
+                        Timer::at(next_due).await;
+                        let win = window.clone();
+                        window.notify(TermWindowNotif::Apply(Box::new(move |tw| {
+                            tw.scheduled_animation.borrow_mut().take();
+                            win.invalidate();
+                        })));
+                    })
+                    .detach();
                 }
             }
+        }
     }
 
     pub fn paint_modal(&mut self) -> anyhow::Result<()> {
@@ -189,13 +190,12 @@ impl crate::TermWindow {
             (false, AllowImage::Yes | AllowImage::Scale(_)) => {
                 let bg_color = self.palette().background.to_linear();
 
-                let top = panes
-                    .iter()
-                    .find(|p| p.is_active)
-                    .map_or(0, |p| match self.get_viewport(p.pane.pane_id()) {
+                let top = panes.iter().find(|p| p.is_active).map_or(0, |p| {
+                    match self.get_viewport(p.pane.pane_id()) {
                         Some(top) => top,
                         None => p.pane.get_dimensions().physical_top,
-                    });
+                    }
+                });
 
                 let loaded_any = self
                     .render_backgrounds(bg_color, top)

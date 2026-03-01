@@ -38,7 +38,7 @@
 //! ```
 //!
 use anyhow::Error;
-use downcast_rs::{impl_downcast, Downcast};
+use downcast_rs::{Downcast, impl_downcast};
 #[cfg(unix)]
 #[cfg(feature = "serde_support")]
 use serde::{Deserialize, Serialize};
@@ -173,13 +173,13 @@ pub struct ExitStatus {
 
 impl ExitStatus {
     /// Construct an `ExitStatus` from a process return code
-    #[must_use] 
+    #[must_use]
     pub const fn with_exit_code(code: u32) -> Self {
         Self { code, signal: None }
     }
 
     /// Construct an `ExitStatus` from a signal name
-    #[must_use] 
+    #[must_use]
     pub fn with_signal(signal: &str) -> Self {
         Self {
             code: 1,
@@ -188,7 +188,7 @@ impl ExitStatus {
     }
 
     /// Returns true if the status indicates successful completion
-    #[must_use] 
+    #[must_use]
     pub const fn success(&self) -> bool {
         match self.signal {
             None => self.code == 0,
@@ -197,13 +197,13 @@ impl ExitStatus {
     }
 
     /// Returns the exit code that this `ExitStatus` was constructed with
-    #[must_use] 
+    #[must_use]
     pub const fn exit_code(&self) -> u32 {
         self.code
     }
 
     /// Returns the signal if present that this `ExitStatus` was constructed with
-    #[must_use] 
+    #[must_use]
     pub fn signal(&self) -> Option<&str> {
         self.signal.as_deref()
     }
@@ -231,9 +231,9 @@ impl From<std::process::ExitStatus> for ExitStatus {
             }
         }
 
-        let code =
-            status
-                .code().map_or_else(|| u32::from(!status.success()), |c| c as u32);
+        let code = status
+            .code()
+            .map_or_else(|| u32::from(!status.success()), |c| c as u32);
 
         Self { code, signal: None }
     }
@@ -396,7 +396,7 @@ impl ChildKiller for std::process::Child {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn native_pty_system() -> Box<dyn PtySystem + Send> {
     Box::new(NativePtySystem::default())
 }

@@ -1,17 +1,20 @@
+use crate::TermWindow;
 use crate::overlay::selector::{matcher_pattern, matcher_score};
-use crate::termwindow::box_model::{ComputedElement, Element, ElementContent, ElementColors, BorderColor, DisplayType, BoxDimension, Corners, SizedPoly, LayoutContext};
+use crate::termwindow::DimensionContext;
+use crate::termwindow::box_model::{
+    BorderColor, BoxDimension, ComputedElement, Corners, DisplayType, Element, ElementColors,
+    ElementContent, LayoutContext, SizedPoly,
+};
 use crate::termwindow::modal::Modal;
 use crate::termwindow::render::corners::{
     BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER, TOP_LEFT_ROUNDED_CORNER,
     TOP_RIGHT_ROUNDED_CORNER,
 };
-use crate::termwindow::DimensionContext;
 use crate::utilsprites::RenderMetrics;
-use crate::TermWindow;
+use config::Dimension;
 use config::keyassignment::{
     CharSelectArguments, CharSelectGroup, ClipboardCopyDestination, KeyAssignment,
 };
-use config::Dimension;
 use emojis::{Emoji, Group};
 use frecency::Frecency;
 use rayon::prelude::*;
@@ -19,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use termwiz::input::Modifiers;
 use wezterm_term::{KeyCode, KeyModifiers, MouseEvent};
@@ -79,9 +83,10 @@ impl Alias {
         let mut res = String::new();
         for c in self.glyph().chars() {
             if !res.is_empty() {
-                res.push(' ');
+                write!(&mut res, " U+{:X}", c as u32).unwrap();
+            } else {
+                write!(&mut res, "U+{:X}", c as u32).unwrap();
             }
-            res.push_str(&format!("U+{:X}", c as u32));
         }
         res
     }
@@ -417,16 +422,18 @@ impl CharSelector {
             CharSelectGroup::ShortCodes => "Short Codes",
         };
 
-        let mut elements = vec![Element::new(
-            &font,
-            ElementContent::Text(format!("{label}: {selection}_")),
-        )
-        .colors(ElementColors {
-            border: BorderColor::default(),
-            bg: LinearRgba::TRANSPARENT.into(),
-            text: term_window.config.char_select_fg_color.to_linear().into(),
-        })
-        .display(DisplayType::Block)];
+        let mut elements = vec![
+            Element::new(
+                &font,
+                ElementContent::Text(format!("{label}: {selection}_")),
+            )
+            .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: LinearRgba::TRANSPARENT.into(),
+                text: term_window.config.char_select_fg_color.to_linear().into(),
+            })
+            .display(DisplayType::Block),
+        ];
 
         for (display_idx, alias) in matches
             .matches
@@ -474,9 +481,7 @@ impl CharSelector {
 
         let element = Element::new(&font, ElementContent::Children(elements))
             .colors(ElementColors {
-                border: BorderColor::new(
-                    term_window.config.char_select_bg_color.to_linear(),
-                ),
+                border: BorderColor::new(term_window.config.char_select_bg_color.to_linear()),
                 bg: term_window.config.char_select_bg_color.to_linear().into(),
                 text: term_window.config.char_select_fg_color.to_linear().into(),
             })
@@ -571,7 +576,8 @@ impl CharSelector {
         let limit = self
             .matches
             .borrow()
-            .as_ref().map_or_else(|| self.aliases.len(), |m| m.matches.len());
+            .as_ref()
+            .map_or_else(|| self.aliases.len(), |m| m.matches.len());
         {
             let mut row = self.selected_row.borrow_mut();
             let mut top_row = self.top_row.borrow_mut();

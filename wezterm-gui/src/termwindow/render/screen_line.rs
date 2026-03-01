@@ -1,22 +1,22 @@
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
-use crate::termwindow::render::{
-    resolve_fg_color_attr, same_hyperlink, update_next_frame_time, ClusterStyleCache,
-    ComputeCellFgBgParams, ComputeCellFgBgResult, LineToElementParams, LineToElementShape,
-    RenderScreenLineParams, RenderScreenLineResult,
-};
 use crate::termwindow::LineToElementShapeItem;
+use crate::termwindow::render::{
+    ClusterStyleCache, ComputeCellFgBgParams, ComputeCellFgBgResult, LineToElementParams,
+    LineToElementShape, RenderScreenLineParams, RenderScreenLineResult, resolve_fg_color_attr,
+    same_hyperlink, update_next_frame_time,
+};
 use ::window::DeadKeyStatus;
 use anyhow::Context;
 use config::{HsbTransform, TextStyle};
 use std::ops::Range;
 use std::rc::Rc;
 use std::time::Instant;
-use termwiz::cell::{unicode_column_width, Blink};
+use termwiz::cell::{Blink, unicode_column_width};
 use termwiz::color::LinearRgba;
 use termwiz::surface::CursorShape;
 use wezterm_bidi::Direction;
-use wezterm_term::color::ColorAttribute;
 use wezterm_term::CellAttributes;
+use wezterm_term::color::ColorAttribute;
 
 impl crate::TermWindow {
     /// "Render" a line of the terminal screen into the vertex buffer.
@@ -105,12 +105,14 @@ impl crate::TermWindow {
         let cursor_range = if composition_width > 0 {
             params.cursor.x..params.cursor.x + composition_width
         } else if params.stable_line_idx == Some(params.cursor.y) {
-            params.cursor.x..params.cursor.x + cursor_cell.as_ref().map_or(1, wezterm_term::CellRef::width)
+            params.cursor.x
+                ..params.cursor.x + cursor_cell.as_ref().map_or(1, wezterm_term::CellRef::width)
         } else {
             0..0
         };
 
-        let cursor_range_pixels = (cursor_range.start as f32).mul_add(cell_width, params.left_pixel_x)
+        let cursor_range_pixels = (cursor_range.start as f32)
+            .mul_add(cell_width, params.left_pixel_x)
             ..(cursor_range.end as f32).mul_add(cell_width, params.left_pixel_x);
 
         let mut shaped = None;
@@ -344,7 +346,10 @@ impl crate::TermWindow {
                 cursor_border_color: params.cursor_border_color,
                 pane: params.pane,
             });
-            let pos_x = (phys(params.cursor.x, num_cols, direction) as f32).mul_add(cell_width, (self.dimensions.pixel_width as f32 / -2.) + params.left_pixel_x);
+            let pos_x = (phys(params.cursor.x, num_cols, direction) as f32).mul_add(
+                cell_width,
+                (self.dimensions.pixel_width as f32 / -2.) + params.left_pixel_x,
+            );
 
             if let Some(shape) = cursor_shape {
                 let cursor_layer = match shape {
@@ -361,7 +366,8 @@ impl crate::TermWindow {
 
                 if params.password_input {
                     let attrs = cursor_cell
-                        .as_ref().map_or_else(CellAttributes::blank, |cell| cell.attrs().clone());
+                        .as_ref()
+                        .map_or_else(CellAttributes::blank, |cell| cell.attrs().clone());
 
                     let glyph = self
                         .resolve_lock_glyph(
@@ -378,7 +384,9 @@ impl crate::TermWindow {
                         let height =
                             sprite.coords.size.height as f32 * glyph.scale as f32 * height_scale;
 
-                        let pos_y = (params.render_metrics.descender.get() as f32 - (glyph.y_offset + glyph.bearing_y).get() as f32).mul_add(height_scale, pos_y + cell_height);
+                        let pos_y = (params.render_metrics.descender.get() as f32
+                            - (glyph.y_offset + glyph.bearing_y).get() as f32)
+                            .mul_add(height_scale, pos_y + cell_height);
 
                         let pos_x = pos_x + (glyph.x_offset + glyph.bearing_x).get() as f32;
                         quad.set_position(pos_x, pos_y, pos_x + width, pos_y + height);
@@ -481,22 +489,25 @@ impl crate::TermWindow {
                     // First, resolve this glyph to a texture
                     let mut texture = glyph.texture.clone();
 
-                    let mut top = (params.render_metrics.descender.get() as f32 + valign_adjust - (glyph.y_offset + glyph.bearing_y).get() as f32).mul_add(height_scale, cell_height);
+                    let mut top = (params.render_metrics.descender.get() as f32 + valign_adjust
+                        - (glyph.y_offset + glyph.bearing_y).get() as f32)
+                        .mul_add(height_scale, cell_height);
 
                     if self.config.custom_block_glyphs
-                        && let Some(block) = &info.block_key {
-                            texture.replace(
-                                gl_state
-                                    .glyph_cache
-                                    .borrow_mut()
-                                    .cached_block(*block, &params.render_metrics)
-                                    .context("cached_block")?,
-                            );
-                            // Custom glyphs don't have the same offsets as computed
-                            // by the shaper, and are rendered relative to the cell
-                            // top left, rather than the baseline.
-                            top = 0.;
-                        }
+                        && let Some(block) = &info.block_key
+                    {
+                        texture.replace(
+                            gl_state
+                                .glyph_cache
+                                .borrow_mut()
+                                .cached_block(*block, &params.render_metrics)
+                                .context("cached_block")?,
+                        );
+                        // Custom glyphs don't have the same offsets as computed
+                        // by the shaper, and are rendered relative to the cell
+                        // top left, rather than the baseline.
+                        top = 0.;
+                    }
 
                     if let Some(texture) = texture {
                         // TODO: clipping, but we can do that based on pixels
@@ -572,7 +583,8 @@ impl crate::TermWindow {
 
                         let adjust = (glyph.x_offset + glyph.bearing_x).get() as f32;
                         let texture_range = pos_x + adjust
-                            ..(texture.coords.size.width as f32).mul_add(width_scale, pos_x + adjust);
+                            ..(texture.coords.size.width as f32)
+                                .mul_add(width_scale, pos_x + adjust);
 
                         // First bucket the ranges according to cursor position
                         let (left, mid, right) = range3(&texture_range, &cursor_range_pixels);
@@ -632,7 +644,8 @@ impl crate::TermWindow {
                                 gl_x + range.start,
                                 pos_y + top,
                                 gl_x + range.end,
-                                (texture.coords.size.height as f32).mul_add(height_scale, pos_y + top),
+                                (texture.coords.size.height as f32)
+                                    .mul_add(height_scale, pos_y + top),
                             );
                             quad.set_fg_color(glyph_color);
                             quad.set_alt_color_and_mix_value(fg_color_alt, fg_color_mix);
@@ -792,21 +805,22 @@ impl crate::TermWindow {
                         )),
                     };
                     if let Some((blink_rate, mut colorease)) = blink_rate
-                        && blink_rate != 0 {
-                            let (intensity, next) = colorease.intensity_continuous();
+                        && blink_rate != 0
+                    {
+                        let (intensity, next) = colorease.intensity_continuous();
 
-                            let (r1, g1, b1, a) = bg.tuple();
-                            let (r, g, b, _a) = fg.tuple();
-                            fg = LinearRgba::with_components(
-                                (r - r1).mul_add(intensity, r1),
-                                (g - g1).mul_add(intensity, g1),
-                                (b - b1).mul_add(intensity, b1),
-                                a,
-                            );
+                        let (r1, g1, b1, a) = bg.tuple();
+                        let (r, g, b, _a) = fg.tuple();
+                        fg = LinearRgba::with_components(
+                            (r - r1).mul_add(intensity, r1),
+                            (g - g1).mul_add(intensity, g1),
+                            (b - b1).mul_add(intensity, b1),
+                            a,
+                        );
 
-                            update_next_frame_time(&mut expires, Some(next));
-                            self.update_next_frame_time(Some(next));
-                        }
+                        update_next_frame_time(&mut expires, Some(next));
+                        self.update_next_frame_time(Some(next));
+                    }
 
                     (fg, bg, bg_default)
                 };

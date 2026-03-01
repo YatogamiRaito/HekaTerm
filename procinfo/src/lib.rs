@@ -66,7 +66,7 @@ impl LocalProcessInfo {
     /// Walk this sub-tree of processes and return a unique set
     /// of executable base names. eg: `foo/bar` and `woot/bar`
     /// produce a set containing just `bar`.
-    #[must_use] 
+    #[must_use]
     pub fn flatten_to_exe_names(&self) -> HashSet<String> {
         let mut names = HashSet::new();
 

@@ -1,24 +1,25 @@
-use crate::connui::ConnectionUI;
-use crate::domain::{alloc_domain_id, Domain, DomainId, DomainState, WriterWrapper};
-use crate::localpane::LocalPane;
-use crate::pane::{alloc_pane_id, Pane, PaneId};
 use crate::Mux;
-use anyhow::{anyhow, bail, Context};
+use crate::connui::ConnectionUI;
+use crate::domain::{Domain, DomainId, DomainState, WriterWrapper, alloc_domain_id};
+use crate::localpane::LocalPane;
+use crate::pane::{Pane, PaneId, alloc_pane_id};
+use anyhow::{Context, anyhow, bail};
 use async_trait::async_trait;
 use config::{Shell, SshBackend, SshDomain};
-use filedescriptor::{poll, pollfd, socketpair, AsRawSocketDescriptor, FileDescriptor, POLLIN};
+use filedescriptor::{AsRawSocketDescriptor, FileDescriptor, POLLIN, poll, pollfd, socketpair};
+use flume::{Receiver, Sender, TryRecvError, unbounded};
+use parking_lot::Mutex;
 use portable_pty::cmdbuilder::CommandBuilder;
 use portable_pty::{ChildKiller, ExitStatus, MasterPty, PtySize};
-use smol::channel::{bounded, Receiver as AsyncReceiver};
+use smol::channel::{Receiver as AsyncReceiver, bounded};
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufWriter, Read, Write};
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use termwiz::cell::{unicode_column_width, AttributeChange, Intensity};
+use termwiz::cell::{AttributeChange, Intensity, unicode_column_width};
 use termwiz::input::{InputEvent, InputParser};
-use termwiz::lineedit::{BasicHistory, LineEditorHost, History, OutputElement, LineEditor};
+use termwiz::lineedit::{BasicHistory, History, LineEditor, LineEditorHost, OutputElement};
 use termwiz::render::terminfo::TerminfoRenderer;
 use termwiz::surface::{Change, LineAttribute};
 use termwiz::terminal::{ScreenSize, Terminal, TerminalWaker};
@@ -225,7 +226,11 @@ pub fn ssh_domain_to_ssh_config(ssh_dom: &SshDomain) -> anyhow::Result<ConfigMap
     if ssh_dom.no_agent_auth {
         ssh_config.insert("identitiesonly".to_string(), "yes".to_string());
     }
-    if ssh_config.get("wezterm_ssh_verbose").map(std::string::String::as_str) == Some("true") {
+    if ssh_config
+        .get("wezterm_ssh_verbose")
+        .map(std::string::String::as_str)
+        == Some("true")
+    {
         log::info!("Using ssh config: {ssh_config:#?}");
     }
     Ok(ssh_config)
@@ -334,7 +339,7 @@ impl RemoteSshDomain {
     ) -> anyhow::Result<StartNewSessionResult> {
         let (session, events) = Session::connect(self.ssh_config().context("obtain ssh config")?)
             .context("connect to ssh server")?;
-        self.session.lock().unwrap().replace(session.clone());
+        self.session.lock().replace(session.clone());
 
         // We get to establish the session!
         //
@@ -344,9 +349,9 @@ impl RemoteSshDomain {
         // and reader/writer.
 
         let (stdout_read, stdout_write) = socketpair()?;
-        let (reader_tx, reader_rx) = channel();
+        let (reader_tx, reader_rx) = unbounded();
         let (stdin_read, stdin_write) = socketpair()?;
-        let (writer_tx, writer_rx) = channel();
+        let (writer_tx, writer_rx) = unbounded();
 
         let pty_reader = PtyReader {
             reader: Box::new(stdout_read),
@@ -359,7 +364,7 @@ impl RemoteSshDomain {
         };
         let writer = Box::new(pty_writer);
 
-        let (child_tx, child_rx) = channel();
+        let (child_tx, child_rx) = unbounded();
 
         let child = Box::new(WrappedSshChild {
             status: None,
@@ -373,7 +378,7 @@ impl RemoteSshDomain {
             },
         });
 
-        let (pty_tx, pty_rx) = channel();
+        let (pty_tx, pty_rx) = unbounded();
 
         let size = Arc::new(Mutex::new(size));
 
@@ -421,7 +426,12 @@ fn connect_ssh_session(
     events: smol::channel::Receiver<SessionEvent>,
     mut stdin_read: FileDescriptor,
     stdout_write: &mut BufWriter<FileDescriptor>,
-    channels: (Sender<BoxedWriter>, Sender<BoxedReader>, Sender<SshChildProcess>, Sender<SshPty>),
+    channels: (
+        Sender<BoxedWriter>,
+        Sender<BoxedReader>,
+        Sender<SshChildProcess>,
+        Sender<SshPty>,
+    ),
     size: Arc<Mutex<TerminalSize>>,
     command_ctx: (Option<String>, HashMap<String, String>),
 ) -> anyhow::Result<()> {
@@ -443,7 +453,7 @@ fn connect_ssh_session(
 
     impl termwiz::render::RenderTty for StdoutShim<'_> {
         fn get_size_in_cells(&mut self) -> termwiz::Result<(usize, usize)> {
-            let size = *self.size.lock().unwrap();
+            let size = *self.size.lock();
             Ok((size.cols as _, size.rows as _))
         }
     }
@@ -460,7 +470,7 @@ fn connect_ssh_session(
 
     impl termwiz::terminal::Terminal for TerminalShim<'_> {
         fn set_raw_mode(&mut self) -> termwiz::Result<()> {
-            use termwiz::escape::csi::{DecPrivateMode, DecPrivateModeCode, Mode, CSI};
+            use termwiz::escape::csi::{CSI, DecPrivateMode, DecPrivateModeCode, Mode};
 
             macro_rules! decset {
                 ($variant:ident) => {
@@ -498,7 +508,7 @@ fn connect_ssh_session(
         }
 
         fn get_screen_size(&mut self) -> termwiz::Result<ScreenSize> {
-            let size = *self.size.lock().unwrap();
+            let size = *self.size.lock();
             Ok(ScreenSize {
                 cols: size.cols as _,
                 rows: size.rows as _,
@@ -522,15 +532,16 @@ fn connect_ssh_session(
             }
 
             let deadline = wait.map(|d| Instant::now() + d);
-            let starting_size = *self.size.lock().unwrap();
+            let starting_size = *self.size.lock();
 
             self.stdin.set_non_blocking(true)?;
 
             loop {
                 if let Some(deadline) = deadline.as_ref()
-                    && Instant::now() >= *deadline {
-                        return Ok(None);
-                    }
+                    && Instant::now() >= *deadline
+                {
+                    return Ok(None);
+                }
                 let mut pfd = [pollfd {
                     fd: self.stdin.as_socket_descriptor(),
                     events: POLLIN,
@@ -545,7 +556,7 @@ fn connect_ssh_session(
                         .parse(&buf[0..n], |evt| input_queue.push_back(evt), n == buf.len());
                     return Ok(self.input_queue.pop_front());
                 } else {
-                    let size = *self.size.lock().unwrap();
+                    let size = *self.size.lock();
                     if starting_size != size {
                         return Ok(Some(InputEvent::Resized {
                             cols: size.cols,
@@ -649,7 +660,7 @@ fn connect_ssh_session(
                 // set up the real pty for the pane
                 match smol::block_on(session.request_pty(
                     &config::configuration().term,
-                    crate::terminal_size_to_pty_size(*size.lock().unwrap())?,
+                    crate::terminal_size_to_pty_size(*size.lock())?,
                     command_line.as_deref(),
                     Some(env),
                 )) {
@@ -711,7 +722,7 @@ impl Domain for RemoteSshDomain {
 
         // This needs to be separate from the if let block below in order
         // for the lock to be released at the appropriate time
-        let mut session: Option<Session> = self.session.lock().unwrap().as_ref().cloned();
+        let mut session: Option<Session> = self.session.lock().as_ref().cloned();
 
         let StartNewSessionResult { pty, child, writer } = if let Some(session) = session.take() {
             match session
@@ -848,7 +859,7 @@ impl WrappedSshChild {
 
     fn got_child(&mut self, mut child: SshChildProcess) {
         {
-            let mut killer = self.killer.inner.lock().unwrap();
+            let mut killer = self.killer.inner.lock();
             killer.killer.replace(child.clone_killer());
             if killer.pending_kill {
                 let _ = child.kill().ok();
@@ -941,7 +952,7 @@ impl portable_pty::Child for WrappedSshChild {
 
 impl ChildKiller for WrappedSshChild {
     fn kill(&mut self) -> std::io::Result<()> {
-        let mut killer = self.killer.inner.lock().unwrap();
+        let mut killer = self.killer.inner.lock();
         if let Some(killer) = killer.killer.as_mut() {
             killer.kill()
         } else {
@@ -957,7 +968,7 @@ impl ChildKiller for WrappedSshChild {
 
 impl ChildKiller for WrappedSshChildKiller {
     fn kill(&mut self) -> std::io::Result<()> {
-        let mut killer = self.inner.lock().unwrap();
+        let mut killer = self.inner.lock();
         if let Some(killer) = killer.killer.as_mut() {
             killer.kill()
         } else {
@@ -1016,7 +1027,7 @@ impl WrappedSshPtyInner {
                 ..
             } => {
                 if let Ok(pty) = connected.try_recv() {
-                    let res = pty.resize(crate::terminal_size_to_pty_size(*size.lock().unwrap())?);
+                    let res = pty.resize(crate::terminal_size_to_pty_size(*size.lock())?);
                     *self = Self::Connected {
                         pty,
                         reader: reader.take(),
@@ -1045,7 +1056,7 @@ impl portable_pty::MasterPty for WrappedSshPty {
         match &mut *inner {
             WrappedSshPtyInner::Connecting { size, .. } => {
                 {
-                    let mut size = size.lock().unwrap();
+                    let mut size = size.lock();
                     size.cols = new_size.cols as usize;
                     size.rows = new_size.rows as usize;
                     size.pixel_height = new_size.pixel_height as usize;
@@ -1061,7 +1072,7 @@ impl portable_pty::MasterPty for WrappedSshPty {
         let mut inner = self.inner.borrow_mut();
         match &*inner {
             WrappedSshPtyInner::Connecting { size, .. } => {
-                let size = crate::terminal_size_to_pty_size(*size.lock().unwrap())?;
+                let size = crate::terminal_size_to_pty_size(*size.lock())?;
                 inner.check_connected()?;
                 Ok(size)
             }

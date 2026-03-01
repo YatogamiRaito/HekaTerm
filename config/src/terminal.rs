@@ -1,7 +1,7 @@
 //! Bridge our gui config into the terminal crate configuration
 
-use crate::{configuration, ConfigHandle, NewlineCanon};
-use std::sync::Mutex;
+use crate::{ConfigHandle, NewlineCanon, configuration};
+use parking_lot::Mutex;
 use termwiz::cell::UnicodeVersion;
 use wezterm_term::color::ColorPalette;
 use wezterm_term::config::BidiMode;
@@ -19,7 +19,7 @@ impl Default for TermConfig {
 }
 
 impl TermConfig {
-    #[must_use] 
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             config: Mutex::new(None),
@@ -27,7 +27,7 @@ impl TermConfig {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn with_config(config: ConfigHandle) -> Self {
         Self {
             config: Mutex::new(Some(config)),
@@ -36,15 +36,15 @@ impl TermConfig {
     }
 
     pub fn set_config(&self, config: ConfigHandle) {
-        self.config.lock().unwrap().replace(config);
+        self.config.lock().replace(config);
     }
 
     pub fn set_client_palette(&self, palette: ColorPalette) {
-        self.client_palette.lock().unwrap().replace(palette);
+        self.client_palette.lock().replace(palette);
     }
 
     fn configuration(&self) -> ConfigHandle {
-        match self.config.lock().unwrap().as_ref() {
+        match self.config.lock().as_ref() {
             Some(h) => h.clone(),
             None => configuration(),
         }
@@ -65,7 +65,7 @@ impl wezterm_term::TerminalConfiguration for TermConfig {
     }
 
     fn color_palette(&self) -> ColorPalette {
-        let client_palette = self.client_palette.lock().unwrap();
+        let client_palette = self.client_palette.lock();
         if let Some(p) = client_palette.as_ref().cloned() {
             return p;
         }

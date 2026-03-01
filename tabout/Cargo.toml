@@ -9,4 +9,5 @@ license = "MIT"
 documentation = "https://docs.rs/tabout"
 
 [dependencies]
+parking_lot.workspace = true
 termwiz.workspace = true

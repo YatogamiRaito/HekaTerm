@@ -79,8 +79,7 @@ impl FontLocator for FontConfigFontLocator {
                 source: FontDataSource::OnDisk(file.into()),
                 index,
                 variation,
-                origin: match_name
-                    .map_or(FontOrigin::FontConfig, FontOrigin::FontConfigMatch),
+                origin: match_name.map_or(FontOrigin::FontConfig, FontOrigin::FontConfigMatch),
                 coverage: pat.get_charset().ok().map(|c| c.to_range_set()),
             })
         }
@@ -219,9 +218,9 @@ impl FontLocator for FontConfigFontLocator {
                         pattern.delete_property("spacing")?;
                         pattern.add_integer("spacing", spacing)?;
                         lists.push(
-                            pattern.list().with_context(|| {
-                                format!("pattern.list with spacing={spacing}")
-                            })?,
+                            pattern
+                                .list()
+                                .with_context(|| format!("pattern.list with spacing={spacing}"))?,
                         );
                     }
                 }

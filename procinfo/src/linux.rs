@@ -1,5 +1,5 @@
 #![cfg(target_os = "linux")]
-use super::{LocalProcessStatus, LocalProcessInfo, PathBuf, HashMap};
+use super::{HashMap, LocalProcessInfo, LocalProcessStatus, PathBuf};
 
 impl From<&str> for LocalProcessStatus {
     fn from(s: &str) -> Self {
@@ -20,12 +20,12 @@ impl From<&str> for LocalProcessStatus {
 }
 
 impl LocalProcessInfo {
-    #[must_use] 
+    #[must_use]
     pub fn current_working_dir(pid: u32) -> Option<PathBuf> {
         std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn executable_path(pid: u32) -> Option<PathBuf> {
         std::fs::read_link(format!("/proc/{pid}/exe")).ok()
     }
@@ -86,9 +86,8 @@ impl LocalProcessInfo {
         }
 
         fn parse_cmdline(pid: pid_t) -> Vec<String> {
-            let data = match std::fs::read(format!("/proc/{pid}/cmdline")) {
-                Ok(data) => data,
-                Err(_) => return vec![],
+            let Ok(data) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
+                return vec![];
             };
 
             let mut args = vec![];
@@ -130,6 +129,9 @@ impl LocalProcessInfo {
             }
         }
 
-        procs.iter().find(|info| info.pid == pid).map(|info| build_proc(info, &procs))
+        procs
+            .iter()
+            .find(|info| info.pid == pid)
+            .map(|info| build_proc(info, &procs))
     }
 }

@@ -1,13 +1,13 @@
 use crate::{ClientId, Mux};
 use anyhow::Context;
 use chrono::{DateTime, Duration, Utc};
+use flume::{Receiver, Sender, bounded};
 use parking_lot::RwLock;
 #[cfg(unix)]
 use std::os::unix::fs::symlink as symlink_file;
 #[cfg(windows)]
 use std::os::windows::fs::symlink_file;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 
 /// `AgentProxy` manages an agent.PID symlink in the wezterm runtime
@@ -41,7 +41,7 @@ use std::sync::Arc;
 pub struct AgentProxy {
     sock_path: PathBuf,
     current_target: RwLock<Option<Arc<ClientId>>>,
-    sender: SyncSender<()>,
+    sender: Sender<()>,
 }
 
 impl Drop for AgentProxy {
@@ -90,11 +90,14 @@ impl AgentProxy {
         let sock_path = config::RUNTIME_DIR.join(format!("agent.{pid}"));
 
         if let Some(inherited) = Self::default_ssh_auth_sock()
-            && let Err(err) = update_symlink(&inherited, &sock_path) {
-                log::error!("failed to set {sock_path:?} to initial inherited SSH_AUTH_SOCK value of {inherited:?}: {err:#}");
-            }
+            && let Err(err) = update_symlink(&inherited, &sock_path)
+        {
+            log::error!(
+                "failed to set {sock_path:?} to initial inherited SSH_AUTH_SOCK value of {inherited:?}: {err:#}"
+            );
+        }
 
-        let (sender, receiver) = sync_channel(16);
+        let (sender, receiver) = bounded(16);
 
         std::thread::spawn(move || Self::process_updates(receiver));
 
@@ -105,7 +108,7 @@ impl AgentProxy {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn default_ssh_auth_sock() -> Option<String> {
         match &config::configuration().default_ssh_auth_sock {
             Some(value) => Some(value.clone()),
@@ -133,9 +136,10 @@ impl AgentProxy {
             while receiver.try_recv().is_ok() {}
 
             if let Some(mux) = Mux::try_get()
-                && let Some(agent) = &mux.agent {
-                    agent.update_now();
-                }
+                && let Some(agent) = &mux.agent
+            {
+                agent.update_now();
+            }
         }
     }
 

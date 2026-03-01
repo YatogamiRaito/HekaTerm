@@ -14,8 +14,7 @@ use alloc::string::String;
 /// Value is intended to be convertible to the same set
 /// of types as Lua and is a superset of the types possible
 /// in TOML and JSON.
-#[derive(Clone, PartialEq, Hash, Eq, Ord, PartialOrd)]
-#[derive(Default)]
+#[derive(Clone, PartialEq, Hash, Eq, Ord, PartialOrd, Default)]
 pub enum Value {
     #[default]
     Null,
@@ -27,7 +26,6 @@ pub enum Value {
     I64(i64),
     F64(OrderedFloat<f64>),
 }
-
 
 impl core::fmt::Debug for Value {
     fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -45,7 +43,7 @@ impl core::fmt::Debug for Value {
 }
 
 impl Value {
-    #[must_use] 
+    #[must_use]
     pub const fn variant_name(&self) -> &str {
         match self {
             Self::Null => "Null",
@@ -59,7 +57,7 @@ impl Value {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn coerce_unsigned(&self) -> Option<u64> {
         match self {
             Self::U64(u) => Some(*u),
@@ -73,7 +71,7 @@ impl Value {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn coerce_signed(&self) -> Option<i64> {
         match self {
             Self::I64(u) => Some(*u),
@@ -87,7 +85,7 @@ impl Value {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn coerce_float(&self) -> Option<f64> {
         match self {
             Self::I64(u) => Some(*u as f64),

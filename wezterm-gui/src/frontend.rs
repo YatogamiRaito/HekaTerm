@@ -1,8 +1,8 @@
+use crate::TermWindow;
 use crate::scripting::guiwin::GuiWin;
 use crate::spawn::SpawnWhere;
 use crate::termwindow::TermWindowNotif;
-use crate::TermWindow;
-use ::window::{Connection, Window, ConnectionOps, WindowOps, Clipboard, ApplicationEvent};
+use ::window::{ApplicationEvent, Clipboard, Connection, ConnectionOps, Window, WindowOps};
 use anyhow::{Context, Error};
 use config::keyassignment::{KeyAssignment, SpawnCommand};
 use config::{ConfigSubscription, NotificationHandling};
@@ -177,9 +177,7 @@ impl GuiFrontEnd {
                 } => {
                     promise::spawn::spawn_into_main_thread(async move {
                         let fe = crate::frontend::front_end();
-                        log::trace!(
-                            "set clipboard in pane {pane_id} {selection:?} {clipboard:?}"
-                        );
+                        log::trace!("set clipboard in pane {pane_id} {selection:?} {clipboard:?}");
                         if let Some(window) = fe.known_windows.borrow().keys().next() {
                             window.set_clipboard(
                                 match selection {
@@ -215,7 +213,9 @@ impl GuiFrontEnd {
         log::trace!("Got app event {event:?}");
         match event {
             ApplicationEvent::OpenCommandScript(file_name) => {
-                let quoted_file_name = if let Ok(name) = shlex::try_quote(&file_name) { name.into_owned() } else {
+                let quoted_file_name = if let Ok(name) = shlex::try_quote(&file_name) {
+                    name.into_owned()
+                } else {
                     log::error!(
                         "OpenCommandScript: {file_name} has embedded NUL bytes and
                          cannot be launched via the shell"

@@ -9,6 +9,7 @@ license = "MIT"
 documentation = "https://docs.rs/portable-pty"
 
 [dependencies]
+parking_lot.workspace = true
 anyhow.workspace = true
 downcast-rs.workspace = true
 filedescriptor.workspace = true

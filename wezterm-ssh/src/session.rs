@@ -1,15 +1,16 @@
 use crate::auth::AuthenticationEvent;
 use crate::config::ConfigMap;
 use crate::host::{HostVerificationEvent, HostVerificationFailed};
-use crate::pty::{NewPty, SshPty, SshChildProcess, ResizePty};
+use crate::pty::{NewPty, ResizePty, SshChildProcess, SshPty};
 use crate::sessioninner::{ChannelId, SessionInner};
 use crate::sftp::{Sftp, SftpRequest};
-use filedescriptor::{socketpair, FileDescriptor};
+use filedescriptor::{FileDescriptor, socketpair};
+use parking_lot::Mutex;
 use portable_pty::PtySize;
-use smol::channel::{bounded, Receiver, Sender};
+use smol::channel::{Receiver, Sender, bounded};
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Debug)]
@@ -30,7 +31,7 @@ pub struct SessionSender {
 
 impl SessionSender {
     fn post_send(&self) {
-        let mut pipe = self.pipe.lock().unwrap();
+        let mut pipe = self.pipe.lock();
         let _ = pipe.write(b"x");
     }
 
@@ -182,7 +183,7 @@ impl Session {
     /// This does not actually initialize the sftp subsystem and only provides
     /// a reference to a means to perform sftp operations. Upon requesting the
     /// first sftp operation, the sftp subsystem will be initialized.
-    #[must_use] 
+    #[must_use]
     pub fn sftp(&self) -> Sftp {
         Sftp {
             tx: self.tx.clone(),

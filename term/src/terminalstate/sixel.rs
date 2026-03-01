@@ -1,6 +1,6 @@
-use crate::terminalstate::image::{check_image_dimensions, ImageAttachStyle};
-use crate::terminalstate::{default_color_map, ImageAttachParams};
 use crate::TerminalState;
+use crate::terminalstate::image::{ImageAttachStyle, check_image_dimensions};
+use crate::terminalstate::{ImageAttachParams, default_color_map};
 use ::image::RgbaImage;
 use wezterm_cell::color::RgbColor;
 use wezterm_cell::image::ImageDataType;
@@ -94,9 +94,9 @@ impl TerminalState {
                     let angle = f64::from(*hue_angle) - 120.0;
                     let angle = if angle < 0. { 360.0 + angle } else { angle };
                     let c = csscolorparser::Color::from_hsla(
-                        angle,
-                        f64::from(*saturation) / 100.,
-                        f64::from(*lightness) / 100.,
+                        angle as f32,
+                        *saturation as f32 / 100.,
+                        *lightness as f32 / 100.,
                         1.,
                     );
                     let [r, g, b, _] = c.to_rgba8();

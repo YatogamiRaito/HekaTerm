@@ -79,11 +79,7 @@ impl KeyTableState {
     }
 
     pub fn pop_until_unknown(&mut self) {
-        while self
-            .stack
-            .last()
-            .is_some_and(|entry| entry.until_unknown)
-        {
+        while self.stack.last().is_some_and(|entry| entry.until_unknown) {
             self.pop();
         }
     }
@@ -161,10 +157,7 @@ impl KeyTableState {
     }
 
     pub fn did_process_key(&mut self) {
-        let should_pop = self
-            .stack
-            .last()
-            .is_some_and(|entry| entry.one_shot);
+        let should_pop = self.stack.last().is_some_and(|entry| entry.one_shot);
         if should_pop {
             self.pop();
         }
@@ -218,9 +211,10 @@ impl super::TermWindow {
                 keycode,
                 mods,
                 only_key_bindings,
-            ) {
-                return Some((entry, table_name));
-            }
+            )
+        {
+            return Some((entry, table_name));
+        }
         if let Some((entry, table_name)) =
             self.key_table_state
                 .lookup_key(&self.input_map, keycode, mods, only_key_bindings)
@@ -267,24 +261,21 @@ impl super::TermWindow {
         if is_down {
             if only_key_bindings == OnlyKeyBindings::No
                 && let Some(modal) = self.get_modal()
-                    && let Key::Code(term_key) = self.win_key_code_to_termwiz_key_code(keycode) {
-                        match modal.key_down(term_key, raw_modifiers.remove_positional_mods(), self)
-                        {
-                            Ok(true) => return true,
-                            Ok(false) => {}
-                            Err(err) => {
-                                log::error!("Error dispatching key to modal: {err:#}");
-                                return true;
-                            }
-                        }
+                && let Key::Code(term_key) = self.win_key_code_to_termwiz_key_code(keycode)
+            {
+                match modal.key_down(term_key, raw_modifiers.remove_positional_mods(), self) {
+                    Ok(true) => return true,
+                    Ok(false) => {}
+                    Err(err) => {
+                        log::error!("Error dispatching key to modal: {err:#}");
+                        return true;
                     }
+                }
+            }
 
-            if let Some((entry, table_name)) = self.lookup_key(
-                pane,
-                keycode,
-                raw_modifiers | leader_mod,
-                only_key_bindings,
-            ) {
+            if let Some((entry, table_name)) =
+                self.lookup_key(pane, keycode, raw_modifiers | leader_mod, only_key_bindings)
+            {
                 if self.config.debug_key_events {
                     log::info!(
                         "{}{:?} {:?} -> perform {:?}",
@@ -350,66 +341,67 @@ impl super::TermWindow {
                         && !config.send_composed_key_when_right_alt_is_pressed);
 
             if bypass_compose
-                && let Key::Code(term_key) = self.win_key_code_to_termwiz_key_code(keycode) {
-                    let tw_raw_modifiers = raw_modifiers;
+                && let Key::Code(term_key) = self.win_key_code_to_termwiz_key_code(keycode)
+            {
+                let tw_raw_modifiers = raw_modifiers;
 
-                    let mut did_encode = false;
-                    if let Some(key_event) = key_event {
-                        if let Some(encoded) = self.encode_win32_input(pane, key_event) {
-                            if self.config.debug_key_events {
-                                log::info!("win32: Encoded input as {encoded:?}");
-                            }
-                            pane.writer()
-                                .write_all(encoded.as_bytes())
-                                .context("sending win32-input-mode encoded data")
-                                .ok();
-                            did_encode = true;
-                        } else if let Some(encoded) = self.encode_kitty_input(pane, key_event) {
-                            if self.config.debug_key_events {
-                                log::info!("kitty: Encoded input as {encoded:?}");
-                            }
-                            pane.writer()
-                                .write_all(encoded.as_bytes())
-                                .context("sending kitty encoded data")
-                                .ok();
-                            did_encode = true;
-                        }
-                    }
-                    if !did_encode {
+                let mut did_encode = false;
+                if let Some(key_event) = key_event {
+                    if let Some(encoded) = self.encode_win32_input(pane, key_event) {
                         if self.config.debug_key_events {
-                            log::info!(
-                                "{keycode:?} {raw_modifiers:?} -> send to pane {term_key:?} {tw_raw_modifiers:?}"
-                            );
+                            log::info!("win32: Encoded input as {encoded:?}");
                         }
-
-                        did_encode = if is_down {
-                            pane.key_down(term_key, tw_raw_modifiers)
-                        } else {
-                            pane.key_up(term_key, tw_raw_modifiers)
+                        pane.writer()
+                            .write_all(encoded.as_bytes())
+                            .context("sending win32-input-mode encoded data")
+                            .ok();
+                        did_encode = true;
+                    } else if let Some(encoded) = self.encode_kitty_input(pane, key_event) {
+                        if self.config.debug_key_events {
+                            log::info!("kitty: Encoded input as {encoded:?}");
                         }
-                        .is_ok();
-                    }
-
-                    if did_encode {
-                        if is_down
-                            && !keycode.is_modifier()
-                            && self.pane_state(pane.pane_id()).overlay.is_none()
-                        {
-                            self.maybe_scroll_to_bottom_for_input(pane);
-                        }
-                        if is_down
-                            && self.config.hide_mouse_cursor_when_typing
-                            && !keycode.is_modifier()
-                        {
-                            context.set_cursor(None);
-                        }
-                        if !keycode.is_modifier() {
-                            context.invalidate();
-                        }
-
-                        return true;
+                        pane.writer()
+                            .write_all(encoded.as_bytes())
+                            .context("sending kitty encoded data")
+                            .ok();
+                        did_encode = true;
                     }
                 }
+                if !did_encode {
+                    if self.config.debug_key_events {
+                        log::info!(
+                            "{keycode:?} {raw_modifiers:?} -> send to pane {term_key:?} {tw_raw_modifiers:?}"
+                        );
+                    }
+
+                    did_encode = if is_down {
+                        pane.key_down(term_key, tw_raw_modifiers)
+                    } else {
+                        pane.key_up(term_key, tw_raw_modifiers)
+                    }
+                    .is_ok();
+                }
+
+                if did_encode {
+                    if is_down
+                        && !keycode.is_modifier()
+                        && self.pane_state(pane.pane_id()).overlay.is_none()
+                    {
+                        self.maybe_scroll_to_bottom_for_input(pane);
+                    }
+                    if is_down
+                        && self.config.hide_mouse_cursor_when_typing
+                        && !keycode.is_modifier()
+                    {
+                        context.set_cursor(None);
+                    }
+                    if !keycode.is_modifier() {
+                        context.invalidate();
+                    }
+
+                    return true;
+                }
+            }
         }
 
         false
@@ -446,9 +438,8 @@ impl super::TermWindow {
             self.schedule_next_status_update();
         }
 
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
         };
 
         // First, try to match raw physical key
@@ -468,10 +459,11 @@ impl super::TermWindow {
                 OnlyKeyBindings::Yes,
                 key.key_is_down,
                 None,
-            ) {
-                key.set_handled();
-                return;
-            }
+            )
+        {
+            key.set_handled();
+            return;
+        }
 
         // Then try the raw code
         let raw_key = match &key.key {
@@ -547,24 +539,30 @@ impl super::TermWindow {
         let mut name = None;
 
         if let Some(pane) = self.get_active_pane_or_overlay()
-            && let Some(overlay) = self.pane_state(pane.pane_id()).overlay.as_mut() {
-                name = overlay
-                    .key_table_state
-                    .current_table()
-                    .map(std::string::ToString::to_string);
+            && let Some(overlay) = self.pane_state(pane.pane_id()).overlay.as_mut()
+        {
+            name = overlay
+                .key_table_state
+                .current_table()
+                .map(std::string::ToString::to_string);
 
-                if let Some(entry) = overlay.key_table_state.stack.last()
-                    && let Some(expiry) = entry.expiration {
-                        self.update_next_frame_time(Some(expiry));
-                    }
-            }
-        if name.is_none() {
-            name = self.key_table_state.current_table().map(std::string::ToString::to_string);
-        }
-        if let Some(entry) = self.key_table_state.stack.last()
-            && let Some(expiry) = entry.expiration {
+            if let Some(entry) = overlay.key_table_state.stack.last()
+                && let Some(expiry) = entry.expiration
+            {
                 self.update_next_frame_time(Some(expiry));
             }
+        }
+        if name.is_none() {
+            name = self
+                .key_table_state
+                .current_table()
+                .map(std::string::ToString::to_string);
+        }
+        if let Some(entry) = self.key_table_state.stack.last()
+            && let Some(expiry) = entry.expiration
+        {
+            self.update_next_frame_time(Some(expiry));
+        }
         name
     }
 
@@ -581,9 +579,8 @@ impl super::TermWindow {
     }
 
     pub fn key_event_impl(&mut self, window_key: KeyEvent, context: &dyn WindowOps) {
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
         };
 
         // The leader key is a kind of modal modifier key.
@@ -752,17 +749,18 @@ impl super::TermWindow {
             WK::Char('\u{1b}') => KC::Escape,
             WK::RawCode(_) => return Key::None,
             WK::Physical(phys) => {
-                return self.win_key_code_to_termwiz_key_code(&phys.to_key_code())
+                return self.win_key_code_to_termwiz_key_code(&phys.to_key_code());
             }
 
             WK::Char(c) => KC::Char(*c),
             WK::Composed(s) => {
                 let mut chars = s.chars();
                 if let Some(first_char) = chars.next()
-                    && chars.next().is_none() {
-                        // Was just a single char after all
-                        return self.win_key_code_to_termwiz_key_code(&WK::Char(first_char));
-                    }
+                    && chars.next().is_none()
+                {
+                    // Was just a single char after all
+                    return self.win_key_code_to_termwiz_key_code(&WK::Char(first_char));
+                }
                 return Key::Composed(s.to_owned());
             }
             WK::Function(f) => KC::Function(*f),

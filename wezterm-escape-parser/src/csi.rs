@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use wezterm_dynamic::{FromDynamic, ToDynamic};
 use wezterm_input_types::Modifiers;
 
-use crate::allocate::{ToString, Box, Vec, String};
+use crate::allocate::{Box, String, ToString, Vec};
 
 pub use vtparse::CsiParam;
 
@@ -48,7 +48,6 @@ pub enum Intensity {
     Half = 2,
 }
 
-
 /// Specify just how underlined you want your `Cell` to be
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, FromDynamic, ToDynamic)]
@@ -69,7 +68,6 @@ pub enum Underline {
     /// Dashed underline
     Dashed = 5,
 }
-
 
 /// Allow converting to boolean; true means some kind of
 /// underline, false means none.  This is used in some
@@ -245,8 +243,7 @@ impl Display for CSI {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive, Default)]
 pub enum CursorStyle {
     #[default]
     Default = 0,
@@ -257,7 +254,6 @@ pub enum CursorStyle {
     BlinkingBar = 5,
     SteadyBar = 6,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum DeviceAttributeCodes {
@@ -299,7 +295,7 @@ impl DeviceAttributeFlags {
         Ok(())
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn new(attributes: Vec<DeviceAttribute>) -> Self {
         Self { attributes }
     }
@@ -358,7 +354,7 @@ pub enum XtSmGraphicsAction {
 }
 
 impl XtSmGraphicsAction {
-    #[must_use] 
+    #[must_use]
     pub const fn to_i64(&self) -> i64 {
         match self {
             Self::ReadAttribute => 1,
@@ -378,7 +374,7 @@ pub enum XtSmGraphicsStatus {
 }
 
 impl XtSmGraphicsStatus {
-    #[must_use] 
+    #[must_use]
     pub const fn to_i64(&self) -> i64 {
         match self {
             Self::Success => 0,
@@ -397,7 +393,7 @@ pub struct XtSmGraphics {
 }
 
 impl XtSmGraphics {
-    #[must_use] 
+    #[must_use]
     pub const fn action(&self) -> Option<XtSmGraphicsAction> {
         match self.action_or_status {
             1 => Some(XtSmGraphicsAction::ReadAttribute),
@@ -408,7 +404,7 @@ impl XtSmGraphics {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn status(&self) -> Option<XtSmGraphicsStatus> {
         match self.action_or_status {
             0 => Some(XtSmGraphicsStatus::Success),
@@ -777,7 +773,7 @@ pub enum XtermKeyModifierResource {
 }
 
 impl XtermKeyModifierResource {
-    #[must_use] 
+    #[must_use]
     pub const fn parse(value: i64) -> Option<Self> {
         Some(match value {
             0 => Self::Keyboard,
@@ -1366,10 +1362,16 @@ impl ParseParams for (OneBased, OneBased) {
         match params {
             [] | [CsiParam::P(b';')] => Ok((OneBased::new(1), OneBased::new(1))),
             [a] => Ok((OneBased::from_esc_param(a).ok_or(())?, OneBased::new(1))),
-            [a, CsiParam::P(b';'), b] => {
-                Ok((OneBased::from_esc_param(a).ok_or(())?, OneBased::from_esc_param(b).ok_or(())?))
+            [a, CsiParam::P(b';'), b] => Ok((
+                OneBased::from_esc_param(a).ok_or(())?,
+                OneBased::from_esc_param(b).ok_or(())?,
+            )),
+            [CsiParam::P(b';'), b] => {
+                Ok((OneBased::new(1), OneBased::from_esc_param(b).ok_or(())?))
             }
-            [CsiParam::P(b';'), b] => Ok((OneBased::new(1), OneBased::from_esc_param(b).ok_or(())?)),
+            [a, CsiParam::P(b';')] => {
+                Ok((OneBased::from_esc_param(a).ok_or(())?, OneBased::new(1)))
+            }
             _ => Err(()),
         }
     }
@@ -1837,20 +1839,18 @@ impl<'a> CSIParser<'a> {
                 .req_secondary_device_attributes(params)
                 .map(|dev| CSI::Device(Box::new(dev))),
 
-            ('m' | 'M', [CsiParam::P(b'<'), ..]) => {
-                self.mouse_sgr1006(params).map(CSI::Mouse)
-            }
+            ('m' | 'M', [CsiParam::P(b'<'), ..]) => self.mouse_sgr1006(params).map(CSI::Mouse),
 
             ('c', [CsiParam::P(b'?'), ..]) => self
                 .secondary_device_attributes(params)
                 .map(|dev| CSI::Device(Box::new(dev))),
 
             ('S', [CsiParam::P(b'?'), ..]) => XtSmGraphics::parse(params),
-            ('p',
-[CsiParam::Integer(_), CsiParam::P(b'$')] |
-[CsiParam::P(b'?'), CsiParam::Integer(_), CsiParam::P(b'$')]) => {
-                self.decrqm(params)
-            }
+            (
+                'p',
+                [CsiParam::Integer(_), CsiParam::P(b'$')]
+                | [CsiParam::P(b'?'), CsiParam::Integer(_), CsiParam::P(b'$')],
+            ) => self.decrqm(params),
             ('h', [CsiParam::P(b'?'), ..]) => self
                 .dec(self.focus(params, 1, 0))
                 .map(|mode| CSI::Mode(Mode::SetDecPrivateMode(mode))),
@@ -2130,8 +2130,8 @@ impl<'a> CSIParser<'a> {
     fn xterm_key_modifier(&mut self, params: &'a [CsiParam]) -> Result<CSI, ()> {
         match params {
             [CsiParam::P(b'>'), a, CsiParam::P(b';'), b] => {
-                let resource = XtermKeyModifierResource::parse(a.as_integer().ok_or(())?)
-                    .ok_or(())?;
+                let resource =
+                    XtermKeyModifierResource::parse(a.as_integer().ok_or(())?).ok_or(())?;
                 Ok(self.advance_by(
                     4,
                     params,
@@ -2142,8 +2142,8 @@ impl<'a> CSIParser<'a> {
                 ))
             }
             [CsiParam::P(b'>'), a, CsiParam::P(b';')] => {
-                let resource = XtermKeyModifierResource::parse(a.as_integer().ok_or(())?)
-                    .ok_or(())?;
+                let resource =
+                    XtermKeyModifierResource::parse(a.as_integer().ok_or(())?).ok_or(())?;
                 Ok(self.advance_by(
                     3,
                     params,
@@ -2154,8 +2154,8 @@ impl<'a> CSIParser<'a> {
                 ))
             }
             [CsiParam::P(b'>'), p] => {
-                let resource = XtermKeyModifierResource::parse(p.as_integer().ok_or(())?)
-                    .ok_or(())?;
+                let resource =
+                    XtermKeyModifierResource::parse(p.as_integer().ok_or(())?).ok_or(())?;
                 Ok(self.advance_by(
                     2,
                     params,
@@ -2410,9 +2410,7 @@ impl<'a> CSIParser<'a> {
     }
 
     fn terminal_mode(&mut self, params: &'a [CsiParam]) -> Result<TerminalMode, ()> {
-        let p0 = params.first()
-            .and_then(CsiParam::as_integer)
-            .ok_or(())?;
+        let p0 = params.first().and_then(CsiParam::as_integer).ok_or(())?;
         match FromPrimitive::from_i64(p0) {
             None => {
                 Ok(self.advance_by(1, params, TerminalMode::Unspecified(p0.to_u16().ok_or(())?)))

@@ -295,9 +295,10 @@ impl ClusteredLine {
 
     fn compute_last_cell_width(&mut self) -> Option<NonZeroU8> {
         if self.last_cell_width.is_none()
-            && let Some(last_cell) = self.iter().last() {
-                self.last_cell_width = NonZeroU8::new(last_cell.width() as u8);
-            }
+            && let Some(last_cell) = self.iter().last()
+        {
+            self.last_cell_width = NonZeroU8::new(last_cell.width() as u8);
+        }
         self.last_cell_width
     }
 

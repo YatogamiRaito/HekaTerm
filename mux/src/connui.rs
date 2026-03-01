@@ -1,13 +1,15 @@
 use crate::termwiztermtab;
-use anyhow::{anyhow, bail, Context as _};
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use anyhow::{Context as _, anyhow, bail};
+use crossbeam::channel::{Receiver, Sender, unbounded};
 use finl_unicode::grapheme_clusters::Graphemes;
-use promise::spawn::block_on;
+use parking_lot::Mutex;
 use promise::Promise;
-use std::sync::Mutex;
+use promise::spawn::block_on;
 use std::time::{Duration, Instant};
-use termwiz::cell::{unicode_column_width, CellAttributes};
-use termwiz::lineedit::{BasicHistory, LineEditorHost, History, OutputElement, LineEditor, NopLineEditorHost};
+use termwiz::cell::{CellAttributes, unicode_column_width};
+use termwiz::lineedit::{
+    BasicHistory, History, LineEditor, LineEditorHost, NopLineEditorHost, OutputElement,
+};
 use termwiz::surface::{Change, Position};
 use termwiz::terminal::Terminal;
 use wezterm_term::TerminalSize;
@@ -254,12 +256,12 @@ impl Default for ConnectionUI {
 }
 
 impl ConnectionUI {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::with_params(Default::default())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_params(params: ConnectionUIParams) -> Self {
         let (tx, rx) = unbounded();
         promise::spawn::spawn_into_main_thread(termwiztermtab::run(
@@ -287,7 +289,7 @@ impl ConnectionUI {
         Self { tx }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn new_with_no_close_delay() -> Self {
         Self::with_params(ConnectionUIParams {
             disable_close_delay: true,
@@ -295,7 +297,7 @@ impl ConnectionUI {
         })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn new_headless() -> Self {
         let (tx, rx) = unbounded();
         std::thread::spawn(move || {
@@ -423,7 +425,7 @@ impl ConnectionUI {
         self.tx.send(UIRequest::Close).ok();
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn test_alive(&self) -> bool {
         if self.tx.send(UIRequest::Output(vec![])).is_err() {
             return false;
@@ -433,10 +435,11 @@ impl ConnectionUI {
     }
 }
 
-static ERROR_WINDOW: std::sync::LazyLock<Mutex<Option<ConnectionUI>>> = std::sync::LazyLock::new(|| Mutex::new(None));
+static ERROR_WINDOW: std::sync::LazyLock<Mutex<Option<ConnectionUI>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
 
 fn get_error_window() -> ConnectionUI {
-    let mut err = ERROR_WINDOW.lock().unwrap();
+    let mut err = ERROR_WINDOW.lock();
     if let Some(ui) = err.as_ref().map(std::clone::Clone::clone) {
         ui.output_str("\n");
         if ui.test_alive() {

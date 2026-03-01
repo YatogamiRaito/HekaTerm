@@ -10,8 +10,8 @@ use std::convert::TryFrom;
 use std::path::PathBuf;
 use wezterm_dynamic::{FromDynamic, FromDynamicOptions, ToDynamic, Value};
 use wezterm_input_types::{KeyCode, Modifiers};
-use wezterm_term::input::MouseButton;
 use wezterm_term::SemanticType;
+use wezterm_term::input::MouseButton;
 
 #[derive(Default, Debug, Clone, FromDynamic, ToDynamic, PartialEq, Eq)]
 pub struct LauncherActionArgs {
@@ -126,8 +126,7 @@ pub enum SelectionMode {
     Block,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum Pattern {
     CaseSensitiveString(String),
     CaseInSensitiveString(String),
@@ -137,7 +136,7 @@ pub enum Pattern {
 }
 
 impl Pattern {
-    #[must_use] 
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         match self {
             Self::CaseSensitiveString(s) | Self::CaseInSensitiveString(s) | Self::Regex(s) => {
@@ -147,7 +146,6 @@ impl Pattern {
         }
     }
 }
-
 
 /// A mouse event that can trigger an action
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, FromDynamic, ToDynamic)]
@@ -165,8 +163,7 @@ pub enum MouseEventTrigger {
 
 /// When spawning a tab, specify which domain should be used to
 /// host/spawn that tab.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum SpawnTabDomain {
     /// Use the default domain
     DefaultDomain,
@@ -178,7 +175,6 @@ pub enum SpawnTabDomain {
     /// Use a specific domain by id
     DomainId(usize),
 }
-
 
 #[derive(Default, Clone, PartialEq, FromDynamic, ToDynamic)]
 pub struct SpawnCommand {
@@ -290,9 +286,10 @@ impl PaneDirection {
                 && let Ok(direction) = Self::from_dynamic(
                     &Value::String(candidate.to_string()),
                     FromDynamicOptions::default(),
-                ) {
-                    return Ok(direction);
-                }
+                )
+            {
+                return Ok(direction);
+            }
         }
         Err(format!(
             "invalid direction {arg}, possible values are {:?}",
@@ -301,17 +298,16 @@ impl PaneDirection {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, FromDynamic, ToDynamic, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, FromDynamic, ToDynamic, Serialize, Deserialize, Default,
+)]
 pub enum ScrollbackEraseMode {
     #[default]
     ScrollbackOnly,
     ScrollbackAndViewport,
 }
 
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum ClipboardCopyDestination {
     Clipboard,
     PrimarySelection,
@@ -320,18 +316,14 @@ pub enum ClipboardCopyDestination {
 }
 impl_lua_conversion_dynamic!(ClipboardCopyDestination);
 
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum ClipboardPasteSource {
     #[default]
     Clipboard,
     PrimarySelection,
 }
 
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum PaneSelectMode {
     #[default]
     Activate,
@@ -340,7 +332,6 @@ pub enum PaneSelectMode {
     MoveToNewTab,
     MoveToNewWindow,
 }
-
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
 pub struct PaneSelectArguments {
@@ -355,8 +346,7 @@ pub struct PaneSelectArguments {
     pub show_pane_ids: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum CharSelectGroup {
     RecentlyUsed,
     #[default]
@@ -408,7 +398,6 @@ char_select_group_impl_next_prev! (
     UnicodeNames => ShortCodes,
     ShortCodes => RecentlyUsed,
 );
-
 
 #[derive(Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
 pub struct CharSelectArguments {

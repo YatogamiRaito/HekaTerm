@@ -97,7 +97,7 @@ pub struct TlsDomainClient {
 }
 
 impl TlsDomainClient {
-    #[must_use] 
+    #[must_use]
     pub fn ssh_parameters(&self) -> Option<anyhow::Result<SshParameters>> {
         self.bootstrap_via_ssh
             .as_ref()

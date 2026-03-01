@@ -51,25 +51,25 @@ pub struct FT_Pos(PosStorage);
 
 impl FT_Pos {
     /// Return the value expressed in font-units
-    #[must_use] 
+    #[must_use]
     pub const fn font_units(self) -> PosStorage {
         self.0
     }
 
     /// Construct a pos expressed in font-units
-    #[must_use] 
+    #[must_use]
     pub const fn from_font_units(v: PosStorage) -> Self {
         Self(v)
     }
 
     /// Extract the `FT_Fixed/F16Dot16` equivalent value
-    #[must_use] 
+    #[must_use]
     pub const fn f16d16(self) -> <PosStorage as SelectFixedStorage<U16>>::Storage {
         <PosStorage as SelectFixedStorage<U16>>::Storage::from_bits(self.0)
     }
 
     /// Extract the `F26Dot6` equivalent value
-    #[must_use] 
+    #[must_use]
     pub const fn f26d6(self) -> <PosStorage as SelectFixedStorage<U6>>::Storage {
         <PosStorage as SelectFixedStorage<U6>>::Storage::from_bits(self.0)
     }

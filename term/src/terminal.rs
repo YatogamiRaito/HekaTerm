@@ -1,4 +1,6 @@
-use super::{Serialize, Deserialize, FromDynamic, ToDynamic, str, TerminalState, Deref, DerefMut, TerminalConfiguration};
+use super::{Deref, DerefMut, FromDynamic, TerminalConfiguration, TerminalState, ToDynamic, str};
+#[cfg(feature = "use_serde")]
+use super::{Deserialize, Serialize};
 use crate::terminalstate::performer::Performer;
 use std::sync::Arc;
 use wezterm_escape_parser::parser::Parser;

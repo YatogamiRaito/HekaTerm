@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Context as _};
-use config::{create_user_owned_dirs, UnixDomain};
+use anyhow::{Context as _, anyhow};
+use config::{UnixDomain, create_user_owned_dirs};
 use promise::spawn::spawn_into_main_thread;
 use wezterm_uds::UnixListener;
 
@@ -8,7 +8,7 @@ pub struct LocalListener {
 }
 
 impl LocalListener {
-    #[must_use] 
+    #[must_use]
     pub const fn new(listener: UnixListener) -> Self {
         Self { listener }
     }

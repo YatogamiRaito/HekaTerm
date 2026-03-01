@@ -5,12 +5,10 @@ use config::{ConfigHandle, Dimension, GeometryOrigin};
 use promise::Future;
 use std::any::Any;
 use std::path::PathBuf;
-use std::rc::Rc;
 use thiserror::Error;
 use url::Url;
 pub mod bitmaps;
 pub use wezterm_color_types as color;
-mod configuration;
 pub mod connection;
 pub mod os;
 pub mod screen;
@@ -23,7 +21,7 @@ pub(crate) const DEFAULT_DPI: f64 = 72.0;
 #[cfg(not(target_os = "macos"))]
 pub(crate) const DEFAULT_DPI: f64 = 96.0;
 
-#[must_use] 
+#[must_use]
 pub fn default_dpi() -> f64 {
     match Connection::get() {
         Some(conn) => conn.default_dpi(),
@@ -31,22 +29,17 @@ pub fn default_dpi() -> f64 {
     }
 }
 
-mod egl;
-
 pub use bitmaps::{BitmapImage, Image};
 pub use connection::*;
-pub use glium;
 pub use os::*;
 pub use wezterm_input_types::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Clipboard {
     #[default]
     Clipboard,
     PrimarySelection,
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Dimensions {
@@ -117,17 +110,17 @@ bitflags! {
 }
 
 impl WindowState {
-    #[must_use] 
+    #[must_use]
     pub fn can_resize(self) -> bool {
         !self.intersects(Self::FULL_SCREEN | Self::MAXIMIZED)
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn can_paint(self) -> bool {
         !self.contains(Self::HIDDEN)
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn as_window_level(self) -> WindowLevel {
         if self.contains(Self::ALWAYS_ON_TOP) {
             WindowLevel::AlwaysOnTop
@@ -258,19 +251,16 @@ pub trait WindowOps {
     where
         Self: Sized;
 
-    /// Setup opengl for rendering
-    async fn enable_opengl(&self) -> anyhow::Result<Rc<glium::backend::Context>>;
-    /// Advise the window that a frame is finished
-    fn finish_frame(&self, frame: glium::Frame) -> anyhow::Result<()> {
-        frame.finish()?;
-        Ok(())
-    }
-
     /// Hide a visible window
     fn hide(&self);
 
     /// Schedule the window to be closed
     fn close(&self);
+
+    /// Indicates whether the window is currently drawing client-side decorations (CSD).
+    fn is_csd(&self) -> bool {
+        false
+    }
 
     /// Change the cursor
     fn set_cursor(&self, cursor: Option<MouseCursor>);
@@ -382,7 +372,7 @@ pub struct ResizeIncrement {
 
 impl ResizeIncrement {
     /// Use this as a readable shorthand for disabling the feature
-    #[must_use] 
+    #[must_use]
     pub const fn disabled() -> Self {
         Self {
             x: 1,

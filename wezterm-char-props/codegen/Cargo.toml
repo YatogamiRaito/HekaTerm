@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+parking_lot.workspace = true
 # This crate is excluded from the workspace, so its
 # deps are managed explicitly here
 human-sort = "0.2"

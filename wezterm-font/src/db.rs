@@ -45,10 +45,7 @@ impl FontDatabase {
         let mut font_info = vec![];
         for path in &config.font_dirs {
             for entry in walkdir::WalkDir::new(path).into_iter() {
-                let entry = match entry {
-                    Ok(entry) => entry,
-                    Err(_) => continue,
-                };
+                let Ok(entry) = entry else { continue };
 
                 let source = FontDataSource::OnDisk(entry.path().to_path_buf());
                 parse_and_collect_font_info(&source, &mut font_info, FontOrigin::FontDirs)

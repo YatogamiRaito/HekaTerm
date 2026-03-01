@@ -1,24 +1,35 @@
 use crate::domain::{ClientDomain, ClientDomainConfig};
 use crate::pane::ClientPane;
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use async_ossl::AsyncSslStream;
 use async_trait::async_trait;
-use codec::{Pdu, CODEC_VERSION, DecodedPdu, WindowTitleChanged, RenameWorkspace, TabTitleChanged, GetTlsCredsResponse, GetCodecVersionResponse, GetCodecVersion, SetClientId, CorruptResponse, Pong, Ping, ListPanesResponse, ListPanes, SpawnV2, SpawnResponse, SplitPane, MovePaneToNewTab, MovePaneToNewTabResponse, WriteToPane, UnitResponse, SendPaste, SendKeyDown, SendMouseEvent, Resize, SetPaneZoomed, ActivatePaneDirection, GetPaneRenderChanges, LivenessResponse, GetLines, GetLinesResponse, GetPaneRenderableDimensions, GetPaneRenderableDimensionsResponse, GetTlsCreds, SearchScrollbackRequest, SearchScrollbackResponse, KillPane, GetClientListResponse, GetClientList, SetWindowWorkspace, SetFocusedPane, GetImageCell, GetImageCellResponse, SetPalette, EraseScrollbackRequest, GetPaneDirection, GetPaneDirectionResponse, AdjustPaneSize};
-use config::{configuration, SshDomain, TlsDomainClient, UnixDomain, UnixTarget};
+use codec::{
+    ActivatePaneDirection, AdjustPaneSize, CODEC_VERSION, CorruptResponse, DecodedPdu,
+    EraseScrollbackRequest, GetClientList, GetClientListResponse, GetCodecVersion,
+    GetCodecVersionResponse, GetImageCell, GetImageCellResponse, GetLines, GetLinesResponse,
+    GetPaneDirection, GetPaneDirectionResponse, GetPaneRenderChanges, GetPaneRenderableDimensions,
+    GetPaneRenderableDimensionsResponse, GetTlsCreds, GetTlsCredsResponse, KillPane, ListPanes,
+    ListPanesResponse, LivenessResponse, MovePaneToNewTab, MovePaneToNewTabResponse, Pdu, Ping,
+    Pong, RenameWorkspace, Resize, SearchScrollbackRequest, SearchScrollbackResponse, SendKeyDown,
+    SendMouseEvent, SendPaste, SetClientId, SetFocusedPane, SetPalette, SetPaneZoomed,
+    SetWindowWorkspace, SpawnResponse, SpawnV2, SplitPane, TabTitleChanged, UnitResponse,
+    WindowTitleChanged, WriteToPane,
+};
+use config::{SshDomain, TlsDomainClient, UnixDomain, UnixTarget, configuration};
 use filedescriptor::FileDescriptor;
 use futures::FutureExt;
+use mux::Mux;
 use mux::client::ClientId;
 use mux::connui::ConnectionUI;
 use mux::domain::DomainId;
 use mux::pane::PaneId;
 use mux::ssh::ssh_connect_with_ui;
-use mux::Mux;
 use openssl::ssl::{SslConnector, SslFiletype, SslMethod};
 use openssl::x509::X509;
 use portable_pty::Child;
-use smol::channel::{bounded, unbounded, Receiver, Sender};
+use smol::channel::{Receiver, Sender, bounded, unbounded};
 use smol::prelude::*;
-use smol::{block_on, Async};
+use smol::{Async, block_on};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::marker::Unpin;
@@ -126,12 +137,9 @@ async fn process_unilateral_inner_async(
     local_domain_id: DomainId,
     decoded: DecodedPdu,
 ) -> anyhow::Result<()> {
-    let mux = match Mux::try_get() {
-        Some(mux) => mux,
-        None => {
-            // This can happen for some client scenarios; it is ok to ignore it.
-            return Ok(());
-        }
+    let Some(mux) = Mux::try_get() else {
+        // This can happen for some client scenarios; it is ok to ignore it.
+        return Ok(());
     };
 
     let client_domain = mux
@@ -144,26 +152,25 @@ async fn process_unilateral_inner_async(
     // If we get a push for a pane that we don't yet know about,
     // it means that some other client has manipulated the mux
     // topology; we need to re-sync.
-    let local_pane_id = if let Some(p) = client_domain.remote_to_local_pane_id(pane_id) { p } else {
+    let local_pane_id = if let Some(p) = client_domain.remote_to_local_pane_id(pane_id) {
+        p
+    } else {
         log::debug!("got {decoded:?}, pane not found locally, resync");
         client_domain.resync().await?;
         client_domain
             .remote_to_local_pane_id(pane_id)
-            .ok_or_else(|| {
-                anyhow!("remote pane id {pane_id} does not have a local pane id")
-            })?
+            .ok_or_else(|| anyhow!("remote pane id {pane_id} does not have a local pane id"))?
     };
 
-    let pane = if let Some(p) = mux.get_pane(local_pane_id) { p } else {
+    let pane = if let Some(p) = mux.get_pane(local_pane_id) {
+        p
+    } else {
         log::debug!("got {decoded:?}, but local pane {local_pane_id} no longer exists; resync");
         client_domain.resync().await?;
 
-        let local_pane_id =
-            client_domain
-                .remote_to_local_pane_id(pane_id)
-                .ok_or_else(|| {
-                    anyhow!("remote pane id {pane_id} does not have a local pane id")
-                })?;
+        let local_pane_id = client_domain
+            .remote_to_local_pane_id(pane_id)
+            .ok_or_else(|| anyhow!("remote pane id {pane_id} does not have a local pane id"))?;
 
         mux.get_pane(local_pane_id)
             .ok_or_else(|| anyhow!("local pane {local_pane_id} not found"))?
@@ -189,7 +196,7 @@ fn process_unilateral(
     local_domain_id: Option<DomainId>,
     decoded: DecodedPdu,
 ) -> anyhow::Result<()> {
-    let local_domain_id = if let Some(id) = local_domain_id { id } else {
+    let Some(local_domain_id) = local_domain_id else {
         // FIXME: We currently get a bunch of these; we'll need
         // to do something to advise the server when we want them.
         // For now, we just ignore them.
@@ -730,9 +737,7 @@ impl Reconnectable {
                 if no_auto_start || unix_dom.no_serve_automatically || !initial {
                     bail!("failed to connect to {target:?}: {e}");
                 }
-                log::warn!(
-                    "While connecting to {target:?}: {e}.  Will try spawning the server."
-                );
+                log::warn!("While connecting to {target:?}: {e}.  Will try spawning the server.");
                 ui.output_str(&format!("Error: {e}.  Will try spawning server.\n"));
 
                 let argv = unix_dom.serve_command()?;
@@ -759,13 +764,15 @@ impl Reconnectable {
                 std::thread::spawn(move || match child.wait_with_output() {
                     Ok(out) => {
                         if let Ok(stdout) = std::str::from_utf8(&out.stdout)
-                            && !stdout.is_empty() {
-                                log::warn!("stdout: {stdout}");
-                            }
+                            && !stdout.is_empty()
+                        {
+                            log::warn!("stdout: {stdout}");
+                        }
                         if let Ok(stderr) = std::str::from_utf8(&out.stderr)
-                            && !stderr.is_empty() {
-                                log::warn!("stderr: {stderr}");
-                            }
+                            && !stderr.is_empty()
+                        {
+                            log::warn!("stderr: {stderr}");
+                        }
                     }
                     Err(err) => {
                         log::error!("spawn: {err:#}");
@@ -834,79 +841,80 @@ impl Reconnectable {
         }
 
         if let Some(Ok(ssh_params)) = tls_client.ssh_parameters()
-            && self.tls_creds.is_none() {
-                // We need to bootstrap via an ssh session
+            && self.tls_creds.is_none()
+        {
+            // We need to bootstrap via an ssh session
 
-                let mut ssh_config = wezterm_ssh::Config::new();
-                ssh_config.add_default_config_files();
+            let mut ssh_config = wezterm_ssh::Config::new();
+            ssh_config.add_default_config_files();
 
-                let mut fields = ssh_params.host_and_port.split(':');
-                let host = fields
-                    .next()
-                    .ok_or_else(|| anyhow::anyhow!("no host component somehow"))?;
-                let port = fields.next();
+            let mut fields = ssh_params.host_and_port.split(':');
+            let host = fields
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("no host component somehow"))?;
+            let port = fields.next();
 
-                let mut ssh_config = ssh_config.for_host(host);
-                if let Some(username) = &ssh_params.username {
-                    ssh_config.insert("user".to_string(), username.clone());
-                }
-                if let Some(port) = port {
-                    ssh_config.insert("port".to_string(), port.to_string());
-                }
-
-                let sess = ssh_connect_with_ui(ssh_config, ui)?;
-
-                let creds = ui.run_and_log_error(|| {
-                    // The `tlscreds` command will start the server if needed and then
-                    // obtain client credentials that we can use for tls.
-                    let cmd = format!(
-                        "{} cli tlscreds",
-                        Self::wezterm_bin_path(&tls_client.remote_wezterm_path)
-                    );
-
-                    ui.output_str(&format!("Running: {cmd}\n"));
-                    let mut exec = smol::block_on(sess.exec(&cmd, None))
-                        .with_context(|| format!("executing `{cmd}` on remote host"))?;
-
-                    log::debug!("waiting for command to finish");
-                    let status = exec.child.wait()?;
-                    if !status.success() {
-                        anyhow::bail!("{cmd} failed");
-                    }
-
-                    drop(exec.stdin);
-
-                    let mut stderr = exec.stderr;
-                    thread::spawn(move || {
-                        // stderr is ideally empty
-                        let mut err = String::new();
-                        let _ = stderr.read_to_string(&mut err);
-                        if !err.is_empty() {
-                            log::error!("remote: `{cmd}` stderr -> `{err}`");
-                        }
-                    });
-
-                    let creds = match Pdu::decode(exec.stdout)
-                        .context("reading tlscreds response")?
-                        .pdu
-                    {
-                        Pdu::GetTlsCredsResponse(creds) => *creds,
-                        _ => bail!("unexpected response to tlscreds"),
-                    };
-
-                    // Save the credentials to disk, as that is currently the easiest
-                    // way to get them into openssl.  Ideally we'd keep these entirely
-                    // in memory.
-                    std::fs::write(&self.tls_creds_ca_path()?, creds.ca_cert_pem.as_bytes())?;
-                    std::fs::write(
-                        &self.tls_creds_cert_path()?,
-                        creds.client_cert_pem.as_bytes(),
-                    )?;
-                    log::info!("got TLS creds");
-                    Ok(creds)
-                })?;
-                self.tls_creds.replace(creds);
+            let mut ssh_config = ssh_config.for_host(host);
+            if let Some(username) = &ssh_params.username {
+                ssh_config.insert("user".to_string(), username.clone());
             }
+            if let Some(port) = port {
+                ssh_config.insert("port".to_string(), port.to_string());
+            }
+
+            let sess = ssh_connect_with_ui(ssh_config, ui)?;
+
+            let creds = ui.run_and_log_error(|| {
+                // The `tlscreds` command will start the server if needed and then
+                // obtain client credentials that we can use for tls.
+                let cmd = format!(
+                    "{} cli tlscreds",
+                    Self::wezterm_bin_path(&tls_client.remote_wezterm_path)
+                );
+
+                ui.output_str(&format!("Running: {cmd}\n"));
+                let mut exec = smol::block_on(sess.exec(&cmd, None))
+                    .with_context(|| format!("executing `{cmd}` on remote host"))?;
+
+                log::debug!("waiting for command to finish");
+                let status = exec.child.wait()?;
+                if !status.success() {
+                    anyhow::bail!("{cmd} failed");
+                }
+
+                drop(exec.stdin);
+
+                let mut stderr = exec.stderr;
+                thread::spawn(move || {
+                    // stderr is ideally empty
+                    let mut err = String::new();
+                    let _ = stderr.read_to_string(&mut err);
+                    if !err.is_empty() {
+                        log::error!("remote: `{cmd}` stderr -> `{err}`");
+                    }
+                });
+
+                let creds = match Pdu::decode(exec.stdout)
+                    .context("reading tlscreds response")?
+                    .pdu
+                {
+                    Pdu::GetTlsCredsResponse(creds) => *creds,
+                    _ => bail!("unexpected response to tlscreds"),
+                };
+
+                // Save the credentials to disk, as that is currently the easiest
+                // way to get them into openssl.  Ideally we'd keep these entirely
+                // in memory.
+                std::fs::write(&self.tls_creds_ca_path()?, creds.ca_cert_pem.as_bytes())?;
+                std::fs::write(
+                    &self.tls_creds_cert_path()?,
+                    creds.client_cert_pem.as_bytes(),
+                )?;
+                log::info!("got TLS creds");
+                Ok(creds)
+            })?;
+            self.tls_creds.replace(creds);
+        }
 
         let cloned_ui = ui.clone();
         let stream = cloned_ui.run_and_log_error({
@@ -975,9 +983,10 @@ impl Reconnectable {
         }
 
         if let Ok(ca_path) = self.tls_creds_ca_path()
-            && ca_path.exists() {
-                connector.cert_store_mut().add_cert(load_cert(&ca_path)?)?;
-            }
+            && ca_path.exists()
+        {
+            connector.cert_store_mut().add_cert(load_cert(&ca_path)?)?;
+        }
 
         let connector = connector.build();
         let connector = connector
@@ -1001,9 +1010,7 @@ impl Reconnectable {
                     stream,
                 )
                 .with_context(|| {
-                    format!(
-                        "SslConnector for {remote_address} with host name {remote_host_name}",
-                    )
+                    format!("SslConnector for {remote_address} with host name {remote_host_name}",)
                 })?,
         ))?);
         ui.output_str("TLS Connected!\n");
@@ -1034,11 +1041,12 @@ impl Client {
                     let local_domain_id = local_domain_id.expect("checked above");
 
                     if let Some(ioerr) = e.root_cause().downcast_ref::<std::io::Error>()
-                        && ioerr.kind() == std::io::ErrorKind::UnexpectedEof {
-                            // Don't reconnect for a simple EOF
-                            log::error!("server closed connection ({e})");
-                            break;
-                        }
+                        && ioerr.kind() == std::io::ErrorKind::UnexpectedEof
+                    {
+                        // Don't reconnect for a simple EOF
+                        log::error!("server closed connection ({e})");
+                        break;
+                    }
 
                     if let Some(err) = e.root_cause().downcast_ref::<NotReconnectableError>() {
                         log::error!("{err}; won't try to reconnect");
@@ -1113,7 +1121,7 @@ impl Client {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn into_client_domain_config(self) -> ClientDomainConfig {
         self.client_domain_config
     }
@@ -1188,7 +1196,7 @@ impl Client {
     }
 
     #[allow(dead_code)]
-    #[must_use] 
+    #[must_use]
     pub const fn local_domain_id(&self) -> Option<DomainId> {
         self.local_domain_id
     }
@@ -1203,14 +1211,14 @@ impl Client {
                 ..Default::default()
             }),
             Some(_) | None => {
-                if !prefer_mux
-                    && let Ok(gui) = crate::discovery::resolve_gui_sock_path(class_name) {
-                        return Ok(config::UnixDomain {
-                            socket_path: Some(gui),
-                            no_serve_automatically: true,
-                            ..Default::default()
-                        });
-                    }
+                if !prefer_mux && let Ok(gui) = crate::discovery::resolve_gui_sock_path(class_name)
+                {
+                    return Ok(config::UnixDomain {
+                        socket_path: Some(gui),
+                        no_serve_automatically: true,
+                        ..Default::default()
+                    });
+                }
 
                 let config = configuration();
                 Ok(config

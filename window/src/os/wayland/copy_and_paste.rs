@@ -1,8 +1,9 @@
 use anyhow::{anyhow, bail};
+use parking_lot::Mutex;
 use smithay_client_toolkit as toolkit;
 use std::io::Write;
 use std::os::fd::AsRawFd;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use toolkit::data_device_manager::data_offer::SelectionOffer;
 use toolkit::data_device_manager::{ReadPipe, WritePipe};
 use toolkit::primary_selection::device::PrimarySelectionDeviceHandler;
@@ -98,7 +99,7 @@ impl WaylandState {
         let active_surface_id = self.active_surface_id.borrow();
         let active_surface_id = active_surface_id.as_ref()?;
         let pending = self.surface_to_pending.get(active_surface_id)?;
-        Some(Arc::clone(&pending.lock().unwrap().copy_and_paste))
+        Some(Arc::clone(&pending.lock().copy_and_paste))
     }
 }
 

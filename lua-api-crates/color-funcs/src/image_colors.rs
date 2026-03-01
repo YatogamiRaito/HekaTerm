@@ -18,9 +18,9 @@ use deltae::LabValue;
 use image::Pixel;
 use lru::LruCache;
 use luahelper::impl_lua_conversion_dynamic;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::sync::Mutex;
 use std::time::SystemTime;
 use wezterm_dynamic::{FromDynamic, ToDynamic};
 
@@ -128,7 +128,9 @@ struct CachedAnalysis {
     colors: Vec<ColorWrap>,
 }
 
-static IMG_COLOR_CACHE: std::sync::LazyLock<Mutex<LruCache<(String, ExtractColorParams), CachedAnalysis>>> = std::sync::LazyLock::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(16).unwrap())));
+static IMG_COLOR_CACHE: std::sync::LazyLock<
+    Mutex<LruCache<(String, ExtractColorParams), CachedAnalysis>>,
+> = std::sync::LazyLock::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(16).unwrap())));
 
 fn color_diff_lab(a: &LabValue, b: &LabValue) -> f32 {
     *deltae::DeltaE::new(a, b, deltae::DEMethod::DE2000).value()
@@ -190,7 +192,7 @@ pub fn extract_colors_from_image(
             ))
         })?;
 
-    let mut cache = IMG_COLOR_CACHE.lock().unwrap();
+    let mut cache = IMG_COLOR_CACHE.lock();
     if let Some(hit) = cache.get(&(file_name.clone(), params)) {
         if hit.modified == modified {
             return Ok(hit.colors.clone());
@@ -232,12 +234,8 @@ pub fn extract_colors_from_image(
     for (pixel, _) in ordered_pixels {
         let channels = pixel.channels();
         let color = csscolorparser::Color::from_rgba8(channels[0], channels[1], channels[2], 255);
-        let (l, a, b, _alpha) = color.to_lab();
-        all_colors.push(LabValue {
-            l: l as f32,
-            a: a as f32,
-            b: b as f32,
-        });
+        let [l, a, b, _alpha] = color.to_laba();
+        all_colors.push(LabValue { l, a, b });
     }
 
     log::trace!("collected {} colors", all_colors.len());
@@ -281,18 +279,8 @@ pub fn extract_colors_from_image(
     let colors: Vec<ColorWrap> = result
         .into_iter()
         .map(|color| {
-            let color = csscolorparser::Color::from_lab(
-                color.l.into(),
-                color.a.into(),
-                color.b.into(),
-                1.0,
-            );
-            let tuple = SrgbaTuple(
-                color.r as f32,
-                color.g as f32,
-                color.b as f32,
-                color.a as f32,
-            );
+            let color = csscolorparser::Color::from_laba(color.l, color.a, color.b, 1.0);
+            let tuple = SrgbaTuple(color.r, color.g, color.b, color.a);
             ColorWrap(tuple.into())
         })
         .collect();

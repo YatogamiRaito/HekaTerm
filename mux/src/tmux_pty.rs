@@ -1,6 +1,6 @@
+use crate::DomainId;
 use crate::tmux::{RefTmuxRemotePane, TmuxCmdQueue, TmuxDomainState};
 use crate::tmux_commands::{Resize, SendKeys};
-use crate::DomainId;
 use filedescriptor::FileDescriptor;
 use parking_lot::{Condvar, Mutex};
 use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty};
@@ -110,9 +110,7 @@ impl ChildKiller for TmuxChildKiller {
 
 impl ChildKiller for TmuxChild {
     fn kill(&mut self) -> std::io::Result<()> {
-        Err(std::io::Error::other(
-            "TmuxPty: kill not implemented!",
-        ))
+        Err(std::io::Error::other("TmuxPty: kill not implemented!"))
     }
 
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {

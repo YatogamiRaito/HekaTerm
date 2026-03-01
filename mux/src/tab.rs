@@ -1,14 +1,14 @@
 use crate::domain::DomainId;
-use crate::pane::{Pane, CachePolicy, PaneId, CloseReason};
+use crate::pane::{CachePolicy, CloseReason, Pane, PaneId};
 use crate::renderable::StableCursorPosition;
 use crate::{Mux, MuxNotification, WindowId};
+use ahash::AHashMap as HashMap;
 use bintree::PathBranch;
 use config::configuration;
 use config::keyassignment::PaneDirection;
 use parking_lot::Mutex;
 use rangeset::intersects_range;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::Arc;
 use url::Url;
@@ -156,7 +156,7 @@ impl SplitDirectionAndSize {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn width(&self) -> usize {
         if self.direction == SplitDirection::Horizontal {
             self.first.cols + self.second.cols + 1
@@ -165,7 +165,7 @@ impl SplitDirectionAndSize {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn height(&self) -> usize {
         if self.direction == SplitDirection::Vertical {
             self.first.rows + self.second.rows + 1
@@ -174,7 +174,7 @@ impl SplitDirectionAndSize {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn size(&self) -> TerminalSize {
         let cell_width = self.first.pixel_width / self.first.cols;
         let cell_height = self.first.pixel_height / self.first.rows;
@@ -224,20 +224,13 @@ struct PaneTreeContext<'a> {
     workspace: &'a str,
 }
 
-fn pane_tree(
-    tree: &Tree,
-    ctx: &PaneTreeContext,
-    left_col: usize,
-    top_row: usize,
-) -> PaneNode {
+fn pane_tree(tree: &Tree, ctx: &PaneTreeContext, left_col: usize, top_row: usize) -> PaneNode {
     match tree {
         Tree::Empty => PaneNode::Empty,
         Tree::Node { left, right, data } => {
             let data = data.unwrap();
             PaneNode::Split {
-                left: Box::new(pane_tree(
-                    left, ctx, left_col, top_row,
-                )),
+                left: Box::new(pane_tree(left, ctx, left_col, top_row)),
                 right: Box::new(pane_tree(
                     right,
                     ctx,
@@ -510,7 +503,7 @@ const fn cell_dimensions(size: &TerminalSize) -> TerminalSize {
 }
 
 impl Tab {
-    #[must_use] 
+    #[must_use]
     pub fn new(size: &TerminalSize) -> Self {
         let inner = TabInner::new(size);
         let tab_id = inner.id;
@@ -528,10 +521,12 @@ impl Tab {
         let mut inner = self.inner.lock();
         if inner.title != title {
             inner.title = title.to_string();
-            if let Some(mux) = Mux::try_get() { mux.notify(MuxNotification::TabTitleChanged {
+            if let Some(mux) = Mux::try_get() {
+                mux.notify(MuxNotification::TabTitleChanged {
                     tab_id: inner.id,
                     title: title.to_string(),
-                }); }
+                });
+            }
         }
     }
 
@@ -823,14 +818,15 @@ impl TabInner {
     fn codec_pane_tree(&mut self) -> PaneNode {
         let mux = Mux::get();
         let tab_id = self.id;
-        let window_id = if let Some(w) = mux.window_containing_tab(tab_id) { w } else {
+        let Some(window_id) = mux.window_containing_tab(tab_id) else {
             log::error!("no window contains tab {tab_id}");
             return PaneNode::Empty;
         };
 
-        let workspace = if let Some(ws) = mux
+        let Some(workspace) = mux
             .get_window(window_id)
-            .map(|w| w.get_workspace().to_string()) { ws } else {
+            .map(|w| w.get_workspace().to_string())
+        else {
             log::error!("window id {window_id} doesn't have a window!?");
             return PaneNode::Empty;
         };
@@ -905,7 +901,9 @@ impl TabInner {
                 self.zoomed.replace(pane);
             }
         }
-        if let Some(mux) = Mux::try_get() { mux.notify(MuxNotification::TabResized(self.id)) }
+        if let Some(mux) = Mux::try_get() {
+            mux.notify(MuxNotification::TabResized(self.id))
+        }
     }
 
     fn contains_pane(&self, pane: PaneId) -> bool {
@@ -994,29 +992,30 @@ impl TabInner {
                 }
             }
         }
-        if let Some(mux) = Mux::try_get() { mux.notify(MuxNotification::TabResized(self.id)) }
+        if let Some(mux) = Mux::try_get() {
+            mux.notify(MuxNotification::TabResized(self.id))
+        }
     }
 
     fn iter_panes_impl(&mut self, respect_zoom_state: bool) -> Vec<PositionedPane> {
         let mut panes = vec![];
 
-        if respect_zoom_state
-            && let Some(zoomed) = self.zoomed.as_ref() {
-                let size = self.size;
-                panes.push(PositionedPane {
-                    index: 0,
-                    is_active: true,
-                    is_zoomed: true,
-                    left: 0,
-                    top: 0,
-                    width: size.cols,
-                    pixel_width: size.pixel_width,
-                    height: size.rows,
-                    pixel_height: size.pixel_height,
-                    pane: Arc::clone(zoomed),
-                });
-                return panes;
-            }
+        if respect_zoom_state && let Some(zoomed) = self.zoomed.as_ref() {
+            let size = self.size;
+            panes.push(PositionedPane {
+                index: 0,
+                is_active: true,
+                is_zoomed: true,
+                left: 0,
+                top: 0,
+                width: size.cols,
+                pixel_width: size.pixel_width,
+                height: size.rows,
+                pixel_height: size.pixel_height,
+                pane: Arc::clone(zoomed),
+            });
+            return panes;
+        }
 
         let active_idx = self.active;
         let zoomed_id = self.zoomed.as_ref().map(|p| p.pane_id());
@@ -1089,10 +1088,11 @@ impl TabInner {
                 let mut top = 0usize;
                 for (branch, p) in cursor.path_to_root() {
                     if let Some(p) = p
-                        && branch == PathBranch::IsRight {
-                            left += p.left_of_second();
-                            top += p.top_of_second();
-                        }
+                        && branch == PathBranch::IsRight
+                    {
+                        left += p.left_of_second();
+                        top += p.top_of_second();
+                    }
                 }
                 if let Ok(Some(node)) = cursor.node_mut() {
                     match node.direction {
@@ -1174,7 +1174,9 @@ impl TabInner {
             apply_sizes_from_splits(self.pane.as_mut().unwrap(), &size);
         }
 
-        if let Some(mux) = Mux::try_get() { mux.notify(MuxNotification::TabResized(self.id)) }
+        if let Some(mux) = Mux::try_get() {
+            mux.notify(MuxNotification::TabResized(self.id))
+        }
     }
 
     fn apply_pane_size(&mut self, pane_size: TerminalSize, cursor: &mut Cursor) {
@@ -1246,10 +1248,13 @@ impl TabInner {
         }
 
         if let Some(root) = self.pane.as_mut()
-            && let Some(size) = compute_size(root) {
-                self.size = size;
-            }
-        if let Some(mux) = Mux::try_get() { mux.notify(MuxNotification::TabResized(self.id)) }
+            && let Some(size) = compute_size(root)
+        {
+            self.size = size;
+        }
+        if let Some(mux) = Mux::try_get() {
+            mux.notify(MuxNotification::TabResized(self.id))
+        }
     }
 
     fn resize_split_by(&mut self, split_index: usize, delta: isize) {
@@ -1282,7 +1287,9 @@ impl TabInner {
         // Now cursor is looking at the split
         self.adjust_node_at_cursor(&mut cursor, delta);
         self.cascade_size_from_cursor(cursor);
-        if let Some(mux) = Mux::try_get() { mux.notify(MuxNotification::TabResized(self.id)) }
+        if let Some(mux) = Mux::try_get() {
+            mux.notify(MuxNotification::TabResized(self.id))
+        }
     }
 
     fn adjust_node_at_cursor(&mut self, cursor: &mut Cursor, delta: isize) {
@@ -1365,7 +1372,9 @@ impl TabInner {
                 }
             }
         }
-        if let Some(mux) = Mux::try_get() { mux.notify(MuxNotification::TabResized(self.id)) }
+        if let Some(mux) = Mux::try_get() {
+            mux.notify(MuxNotification::TabResized(self.id))
+        }
     }
 
     fn adjust_pane_size(&mut self, direction: PaneDirection, amount: usize) {
@@ -1412,11 +1421,12 @@ impl TabInner {
             match cursor.go_up() {
                 Ok(mut c) => {
                     if let Ok(Some(node)) = c.node_mut()
-                        && node.direction == split_direction {
-                            self.adjust_node_at_cursor(&mut c, delta);
-                            self.cascade_size_from_cursor(c);
-                            return;
-                        }
+                        && node.direction == split_direction
+                    {
+                        self.adjust_node_at_cursor(&mut c, delta);
+                        self.cascade_size_from_cursor(c);
+                        return;
+                    }
 
                     cursor = c;
                 }
@@ -1452,12 +1462,9 @@ impl TabInner {
             self.iter_panes()
         };
 
-        let active = match panes.iter().find(|pane| pane.is_active) {
-            Some(p) => p,
-            None => {
-                // No active pane somehow...
-                return Some(0);
-            }
+        let Some(active) = panes.iter().find(|pane| pane.is_active) else {
+            // No active pane somehow...
+            return Some(0);
         };
 
         if matches!(direction, PaneDirection::Next | PaneDirection::Prev) {
@@ -1805,9 +1812,7 @@ impl TabInner {
     fn swap_active_with_index(&mut self, pane_index: usize, keep_focus: bool) -> Option<()> {
         let active_idx = self.get_active_idx();
         let mut pane = self.get_active_pane()?;
-        log::trace!(
-            "swap_active_with_index: pane_index {pane_index} active {active_idx}"
-        );
+        log::trace!("swap_active_with_index: pane_index {pane_index} active {active_idx}");
 
         {
             let mut cursor = self.pane.take().unwrap().cursor();
@@ -1881,14 +1886,12 @@ impl TabInner {
             let size = self.size;
 
             let ((width1, width2), (height1, height2)) = match request.direction {
-                SplitDirection::Horizontal => (
-                    split_dimension(size.cols, request),
-                    (size.rows, size.rows),
-                ),
-                SplitDirection::Vertical => (
-                    (size.cols, size.cols),
-                    split_dimension(size.rows, request),
-                ),
+                SplitDirection::Horizontal => {
+                    (split_dimension(size.cols, request), (size.rows, size.rows))
+                }
+                SplitDirection::Vertical => {
+                    ((size.cols, size.cols), split_dimension(size.rows, request))
+                }
             };
 
             return Some(SplitDirectionAndSize {
@@ -1958,9 +1961,7 @@ impl TabInner {
         {
             let split_info = self
                 .compute_split_size(pane_index, request)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("invalid pane_index {pane_index}; cannot split!")
-                })?;
+                .ok_or_else(|| anyhow::anyhow!("invalid pane_index {pane_index}; cannot split!"))?;
 
             let tab_size = self.size;
             if split_info.first.rows == 0
@@ -2099,7 +2100,7 @@ pub enum PaneNode {
 }
 
 impl PaneNode {
-    #[must_use] 
+    #[must_use]
     pub fn into_tree(self) -> bintree::Tree<PaneEntry, SplitDirectionAndSize> {
         match self {
             Self::Empty => bintree::Tree::Empty,
@@ -2112,7 +2113,7 @@ impl PaneNode {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn root_size(&self) -> Option<TerminalSize> {
         match self {
             Self::Empty => None,
@@ -2121,7 +2122,7 @@ impl PaneNode {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn window_and_tab_ids(&self) -> Option<(WindowId, TabId)> {
         match self {
             Self::Empty => None,
@@ -2330,15 +2331,16 @@ mod test {
         assert_eq!(80, panes[0].width);
         assert_eq!(24, panes[0].height);
 
-        assert!(tab
-            .compute_split_size(
+        assert!(
+            tab.compute_split_size(
                 1,
                 SplitRequest {
                     direction: SplitDirection::Horizontal,
                     ..Default::default()
                 }
             )
-            .is_none());
+            .is_none()
+        );
 
         let horz_size = tab
             .compute_split_size(

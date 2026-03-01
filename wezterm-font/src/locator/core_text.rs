@@ -16,7 +16,8 @@ use rangeset::RangeSet;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 
-static FALLBACK: std::sync::LazyLock<Vec<ParsedFont>> = std::sync::LazyLock::new(|| build_fallback_list());
+static FALLBACK: std::sync::LazyLock<Vec<ParsedFont>> =
+    std::sync::LazyLock::new(|| build_fallback_list());
 
 #[link(name = "CoreText", kind = "framework")]
 extern "C" {

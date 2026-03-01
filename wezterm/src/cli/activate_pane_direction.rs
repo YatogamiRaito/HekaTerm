@@ -1,5 +1,5 @@
-use clap::builder::PossibleValue;
 use clap::Parser;
+use clap::builder::PossibleValue;
 use config::keyassignment::PaneDirection;
 use mux::pane::PaneId;
 use wezterm_client::client::Client;

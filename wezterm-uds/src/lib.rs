@@ -45,9 +45,9 @@ impl IntoRawFd for UnixStream {
 }
 #[cfg(unix)]
 impl FromRawFd for UnixStream {
-    unsafe fn from_raw_fd(fd: RawFd) -> Self { unsafe {
-        Self(StreamImpl::from_raw_fd(fd))
-    }}
+    unsafe fn from_raw_fd(fd: RawFd) -> Self {
+        unsafe { Self(StreamImpl::from_raw_fd(fd)) }
+    }
 }
 #[cfg(unix)]
 impl AsRawFd for UnixStream {

@@ -1,15 +1,19 @@
 use crate::domain::ClientInner;
 use crate::pane::mousestate::MouseState;
-use crate::pane::renderable::{hydrate_lines, RenderableInner, RenderableState};
+use crate::pane::renderable::{RenderableInner, RenderableState, hydrate_lines};
 use anyhow::bail;
 use async_trait::async_trait;
-use codec::{Pdu, SetPaneZoomed, Resize, SearchScrollbackRequest, SearchScrollbackResponse, InputSerial, SendKeyDown, KillPane, EraseScrollbackRequest, SetFocusedPane, WriteToPane, SendPaste, SetPalette};
+use codec::{
+    EraseScrollbackRequest, InputSerial, KillPane, Pdu, Resize, SearchScrollbackRequest,
+    SearchScrollbackResponse, SendKeyDown, SendPaste, SetFocusedPane, SetPalette, SetPaneZoomed,
+    WriteToPane,
+};
 use config::configuration;
 use config::keyassignment::ScrollbackEraseMode;
 use mux::domain::DomainId;
 use mux::pane::{
-    alloc_pane_id, CachePolicy, CloseReason, ForEachPaneLogicalLine, LogicalLine, Pane, PaneId,
-    Pattern, SearchResult, WithPaneLines,
+    CachePolicy, CloseReason, ForEachPaneLogicalLine, LogicalLine, Pane, PaneId, Pattern,
+    SearchResult, WithPaneLines, alloc_pane_id,
 };
 use mux::renderable::{RenderableDimensions, StableCursorPosition};
 use mux::tab::TabId;
@@ -161,7 +165,10 @@ impl ClientPane {
                     clip.set_contents(p.selection, p.clipboard.clone())?;
                 }
                 None => {
-                    log::error!("ClientPane: Ignoring SetClipboard request {:?}", p.clipboard);
+                    log::error!(
+                        "ClientPane: Ignoring SetClipboard request {:?}",
+                        p.clipboard
+                    );
                 }
             },
             Pdu::SetPalette(p) => {
@@ -499,9 +506,10 @@ impl Pane for ClientPane {
         {
             let mux = Mux::get();
             if let Some(client_domain) = mux.get_domain(local_domain_id)
-                && client_domain.state() == mux::domain::DomainState::Detached {
-                    send_kill = false;
-                }
+                && client_domain.state() == mux::domain::DomainState::Detached
+            {
+                send_kill = false;
+            }
         }
 
         if send_kill {
@@ -573,7 +581,7 @@ impl Pane for ClientPane {
     }
 
     fn advise_focus(&self) {
-        let mut focused_pane = self.client.focused_remote_pane_id.lock().unwrap();
+        let mut focused_pane = self.client.focused_remote_pane_id.lock();
         if *focused_pane != Some(self.remote_pane_id) {
             focused_pane.replace(self.remote_pane_id);
             let client = Arc::clone(&self.client);

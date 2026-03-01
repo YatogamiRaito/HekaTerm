@@ -1,5 +1,5 @@
-use assert_fs::prelude::*;
 use assert_fs::TempDir;
+use assert_fs::prelude::*;
 use rstest::*;
 use std::collections::HashMap;
 use std::io::Result as IoResult;
@@ -206,11 +206,7 @@ impl SshdConfig {
     }
 
     const fn yes_str(yes: bool) -> &'static str {
-        if yes {
-            "yes"
-        } else {
-            "no"
-        }
+        if yes { "yes" } else { "no" }
     }
 }
 
@@ -384,9 +380,7 @@ impl Sshd {
             }
         }
 
-        Err(std::io::Error::other(
-            "ran out of ports when spawning sshd",
-        ))
+        Err(std::io::Error::other("ran out of ports when spawning sshd"))
     }
 }
 

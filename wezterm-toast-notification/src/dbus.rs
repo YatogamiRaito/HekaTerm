@@ -3,7 +3,7 @@
 //! See <https://developer.gnome.org/notification-spec/>
 
 use crate::ToastNotification;
-use futures_util::stream::{abortable, StreamExt};
+use futures_util::stream::{StreamExt, abortable};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use zbus::proxy;
@@ -26,7 +26,6 @@ pub struct ServerInformation {
 }
 
 #[proxy(
-
     interface = "org.freedesktop.Notifications",
     default_service = "org.freedesktop.Notifications",
     default_path = "/org/freedesktop/Notifications"
@@ -129,11 +128,12 @@ async fn show_notif_impl(notif: ToastNotification) -> Result<(), Box<dyn std::er
             while let Some(signal) = invoked_stream.next().await {
                 let args = signal.args()?;
                 if args.nid == notification
-                    && let Some(url) = notif.url.as_ref() {
-                        wezterm_open_url::open_url(url);
-                        abort_closed.abort();
-                        break;
-                    }
+                    && let Some(url) = notif.url.as_ref()
+                {
+                    wezterm_open_url::open_url(url);
+                    abort_closed.abort();
+                    break;
+                }
             }
             Ok::<(), zbus::Error>(())
         },

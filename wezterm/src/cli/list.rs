@@ -1,7 +1,7 @@
 use crate::cli::CliOutputFormatKind;
 use clap::Parser;
 use serde::Serializer as _;
-use tabout::{tabulate_output, Alignment, Column};
+use tabout::{Alignment, Column, tabulate_output};
 use wezterm_client::client::Client;
 use wezterm_term::TerminalSize;
 

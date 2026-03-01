@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "serde")]
-use ::serde::{Serialize, Deserialize};
+use ::serde::{Deserialize, Serialize};
 use alloc::sync::Arc;
 use bitflags::bitflags;
 use core::convert::TryFrom;
@@ -123,33 +123,34 @@ pub enum KeyCode {
 
 impl KeyCode {
     /// Return true if the key represents a modifier key.
-    #[must_use] 
+    #[must_use]
     pub const fn is_modifier(&self) -> bool {
-        matches!(self,
+        matches!(
+            self,
             Self::Hyper
-            | Self::CapsLock
-            | Self::Super
-            | Self::Meta
-            | Self::Shift
-            | Self::LeftShift
-            | Self::RightShift
-            | Self::Control
-            | Self::LeftControl
-            | Self::RightControl
-            | Self::Alt
-            | Self::LeftAlt
-            | Self::RightAlt
-            | Self::LeftWindows
-            | Self::RightWindows
+                | Self::CapsLock
+                | Self::Super
+                | Self::Meta
+                | Self::Shift
+                | Self::LeftShift
+                | Self::RightShift
+                | Self::Control
+                | Self::LeftControl
+                | Self::RightControl
+                | Self::Alt
+                | Self::LeftAlt
+                | Self::RightAlt
+                | Self::LeftWindows
+                | Self::RightWindows
         )
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn normalize_shift(&self, modifiers: Modifiers) -> (Self, Modifiers) {
         normalize_shift(self.clone(), modifiers)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn composed(s: &str) -> Self {
         // Prefer to send along a single Char when the string
         // is just a single char, as the keymapping layer cannot
@@ -168,7 +169,7 @@ impl KeyCode {
     /// of a US ANSI standard layout, essentially "latinizes" the keycode,
     /// so the results may not make as much sense for non-latin keyboards.
     /// It also loses the shifted state of alphabetical characters.
-    #[must_use] 
+    #[must_use]
     pub const fn to_phys(&self) -> Option<PhysKeyCode> {
         Some(match self {
             Self::Char('a' | 'A') => PhysKeyCode::A,
@@ -608,7 +609,7 @@ pub struct ModifierToStringArgs<'a> {
 }
 
 impl Modifiers {
-    #[must_use] 
+    #[must_use]
     pub const fn encode_xterm(self) -> u8 {
         let mut number = 0;
         if self.contains(Self::SHIFT) {
@@ -624,7 +625,7 @@ impl Modifiers {
     }
 
     #[allow(non_upper_case_globals)]
-    #[must_use] 
+    #[must_use]
     pub fn to_string_with_separator(&self, args: ModifierToStringArgs) -> String {
         let mut s = String::new();
         if args.want_none && *self == Self::NONE {
@@ -772,11 +773,15 @@ impl Modifiers {
 
 impl core::fmt::Display for Modifiers {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.to_string_with_separator(ModifierToStringArgs {
-            separator: "|",
-            want_none: true,
-            ui_key_cap_rendering: None,
-        }))
+        write!(
+            f,
+            "{}",
+            self.to_string_with_separator(ModifierToStringArgs {
+                separator: "|",
+                want_none: true,
+                ui_key_cap_rendering: None,
+            })
+        )
     }
 }
 
@@ -785,7 +790,7 @@ impl Modifiers {
     /// are used to carry around implementation details, but that
     /// are not bits that should be matched when matching key
     /// assignments.
-    #[must_use] 
+    #[must_use]
     pub fn remove_positional_mods(self) -> Self {
         self - (Self::LEFT_ALT
             | Self::RIGHT_ALT
@@ -925,21 +930,22 @@ pub enum PhysKeyCode {
 }
 
 impl PhysKeyCode {
-    #[must_use] 
+    #[must_use]
     pub const fn is_modifier(&self) -> bool {
-        matches!(self,
+        matches!(
+            self,
             Self::LeftShift
-            | Self::LeftControl
-            | Self::LeftWindows
-            | Self::LeftAlt
-            | Self::RightShift
-            | Self::RightControl
-            | Self::RightWindows
-            | Self::RightAlt
+                | Self::LeftControl
+                | Self::LeftWindows
+                | Self::LeftAlt
+                | Self::RightShift
+                | Self::RightControl
+                | Self::RightWindows
+                | Self::RightAlt
         )
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn to_key_code(self) -> KeyCode {
         match self {
             Self::LeftShift => KeyCode::LeftShift,
@@ -1347,7 +1353,7 @@ impl Default for Handled {
 }
 
 impl Handled {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self(Arc::new(AtomicBool::new(false)))
     }
@@ -1356,7 +1362,7 @@ impl Handled {
         self.0.store(true, core::sync::atomic::Ordering::Relaxed);
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_handled(&self) -> bool {
         self.0.load(core::sync::atomic::Ordering::Relaxed)
     }
@@ -1403,8 +1409,16 @@ impl RawKeyEvent {
 
     /// <https://sw.kovidgoyal.net/kitty/keyboard-protocol/#functional-key-definitions>
     #[deny(warnings)]
+    #[allow(clippy::too_many_lines)]
     fn kitty_function_code(&self) -> Option<u32> {
-        use KeyCode::{Function, Numpad, Decimal, Divide, Multiply, Subtract, Add, Separator, ApplicationLeftArrow, ApplicationRightArrow, ApplicationUpArrow, ApplicationDownArrow, KeyPadHome, KeyPadEnd, KeyPadBegin, KeyPadPageUp, KeyPadPageDown, Insert, MediaPlayPause, MediaStop, MediaNextTrack, MediaPrevTrack, VolumeDown, VolumeUp, VolumeMute, LeftShift, LeftControl, LeftAlt, LeftWindows, RightShift, RightControl, RightAlt, RightWindows};
+        use KeyCode::{
+            Add, ApplicationDownArrow, ApplicationLeftArrow, ApplicationRightArrow,
+            ApplicationUpArrow, Decimal, Divide, Function, Insert, KeyPadBegin, KeyPadEnd,
+            KeyPadHome, KeyPadPageDown, KeyPadPageUp, LeftAlt, LeftControl, LeftShift, LeftWindows,
+            MediaNextTrack, MediaPlayPause, MediaPrevTrack, MediaStop, Multiply, Numpad, RightAlt,
+            RightControl, RightShift, RightWindows, Separator, Subtract, VolumeDown, VolumeMute,
+            VolumeUp,
+        };
         Some(match self.key {
             // Tab => 9,
             // Backspace => 127,
@@ -1438,8 +1452,7 @@ impl RawKeyEvent {
             MediaPlayPause => 57430,
             MediaStop => 57432,
             MediaNextTrack => 57435,
-            MediaPrevTrack => 57436,
-            VolumeDown => 57436,
+            MediaPrevTrack | VolumeDown => 57436,
             VolumeUp => 57439,
             VolumeMute => 57440,
             LeftShift => 57441,
@@ -1452,7 +1465,15 @@ impl RawKeyEvent {
             RightWindows => 57450,
             _ => match &self.phys_code {
                 Some(phys) => {
-                    use PhysKeyCode::{Escape, Return, Tab, Backspace, CapsLock, NumLock, F13, F14, F15, F16, F17, F18, F19, F20, F21, F22, F23, F24, Keypad0, Keypad1, Keypad2, Keypad3, Keypad4, Keypad5, Keypad6, Keypad7, Keypad8, Keypad9, KeypadDecimal, KeypadDivide, KeypadMultiply, KeypadSubtract, KeypadAdd, KeypadEnter, KeypadEquals, Insert, VolumeDown, VolumeUp, VolumeMute, LeftShift, LeftControl, LeftAlt, LeftWindows, RightShift, RightControl, RightAlt, RightWindows};
+                    use PhysKeyCode::{
+                        Backspace, CapsLock, Escape, Insert, Keypad0, Keypad1, Keypad2, Keypad3,
+                        Keypad4, Keypad5, Keypad6, Keypad7, Keypad8, Keypad9, KeypadAdd,
+                        KeypadDecimal, KeypadDivide, KeypadEnter, KeypadEquals, KeypadMultiply,
+                        KeypadSubtract, LeftAlt, LeftControl, LeftShift, LeftWindows, NumLock,
+                        Return, RightAlt, RightControl, RightShift, RightWindows, Tab, VolumeDown,
+                        VolumeMute, VolumeUp, F13, F14, F15, F16, F17, F18, F19, F20, F21, F22,
+                        F23, F24,
+                    };
 
                     match *phys {
                         Escape => 27,
@@ -1581,7 +1602,7 @@ fn normalize_shift(key: KeyCode, modifiers: Modifiers) -> (KeyCode, Modifiers) {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub const fn is_ascii_control(c: char) -> Option<char> {
     let c = c as u32;
     if c < 0x20 {
@@ -1607,7 +1628,7 @@ fn normalize_ctrl(key: KeyCode, modifiers: Modifiers) -> (KeyCode, Modifiers) {
 impl KeyEvent {
     /// if SHIFT is held and we have `KeyCode::Char`('c') we want to normalize
     /// that keycode to `KeyCode::Char`('C'); that is what this function does.
-    #[must_use] 
+    #[must_use]
     pub fn normalize_shift(mut self) -> Self {
         let (key, modifiers) = normalize_shift(self.key, self.modifiers);
         self.key = key;
@@ -1620,7 +1641,7 @@ impl KeyEvent {
     /// the underlying raw event to see if we had a positional version
     /// of that key.
     /// If so, switch to the positional version.
-    #[must_use] 
+    #[must_use]
     pub fn resurface_positional_modifier_key(mut self) -> Self {
         match self.key {
             KeyCode::Control
@@ -1698,7 +1719,7 @@ impl KeyEvent {
     /// If CTRL is held down and we have `KeyCode::Char`(_) with the
     /// ASCII control value encoded, decode it back to the ASCII
     /// alpha keycode instead.
-    #[must_use] 
+    #[must_use]
     pub fn normalize_ctrl(mut self) -> Self {
         let (key, modifiers) = normalize_ctrl(self.key, self.modifiers);
         self.key = key;
@@ -1708,7 +1729,7 @@ impl KeyEvent {
     }
 
     #[cfg(not(windows))]
-    #[must_use] 
+    #[must_use]
     pub const fn encode_win32_input_mode(&self) -> Option<String> {
         None
     }
@@ -1779,7 +1800,10 @@ impl KeyEvent {
     }
 
     pub fn encode_kitty(&self, flags: KittyKeyboardFlags) -> String {
-        use KeyCode::{Char, Composed, PageUp, PageDown, Insert, LeftArrow, RightArrow, UpArrow, DownArrow, Home, End, Function};
+        use KeyCode::{
+            Char, Composed, DownArrow, End, Function, Home, Insert, LeftArrow, PageDown, PageUp,
+            RightArrow, UpArrow,
+        };
 
         if !flags.contains(KittyKeyboardFlags::REPORT_EVENT_TYPES) && !self.key_is_down {
             return String::new();
@@ -2004,10 +2028,10 @@ impl KeyEvent {
                 {
                     key_code.push(':');
                     if c != shifted_key {
-                        key_code.push_str(&format!("{}", (shifted_key as u32)));
+                        write!(&mut key_code, "{}", (shifted_key as u32)).unwrap();
                     }
                     if let Some(base) = base_layout {
-                        key_code.push_str(&format!(":{}", (base as u32)));
+                        write!(&mut key_code, ":{}", (base as u32)).unwrap();
                     }
                 }
 
@@ -2319,7 +2343,7 @@ fn us_layout_unshift(c: char) -> char {
 /// to US keyboard layout (particularly the punctuation characters
 /// produced in combination with SHIFT) that may not be 100%
 /// the right thing to do here for users with non-US layouts.
-#[must_use] 
+#[must_use]
 pub const fn ctrl_mapping(c: char) -> Option<char> {
     Some(match c {
         '@' | '`' | ' ' | '2' => '\x00',

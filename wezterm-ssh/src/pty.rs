@@ -1,12 +1,12 @@
 use crate::session::{SessionRequest, SessionSender, SignalChannel};
 use crate::sessioninner::{ChannelId, ChannelInfo, DescriptorState};
 use crate::sessionwrap::SessionWrap;
-use filedescriptor::{socketpair, FileDescriptor};
+use filedescriptor::{FileDescriptor, socketpair};
+use parking_lot::Mutex;
 use portable_pty::{ExitStatus, PtySize};
-use smol::channel::{bounded, Receiver, TryRecvError};
+use smol::channel::{Receiver, TryRecvError, bounded};
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
-use std::sync::Mutex;
 
 #[derive(Debug)]
 pub struct NewPty {
@@ -54,12 +54,12 @@ impl portable_pty::MasterPty for SshPty {
                 None,
             ))?;
 
-        *self.size.lock().unwrap() = size;
+        *self.size.lock() = size;
         Ok(())
     }
 
     fn get_size(&self) -> anyhow::Result<PtySize> {
-        Ok(*self.size.lock().unwrap())
+        Ok(*self.size.lock())
     }
 
     fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send + 'static>> {
@@ -212,11 +212,16 @@ impl crate::sessioninner::SessionInner {
 
         let mut channel = sess.open_session()?;
 
-        if self.config.get("forwardagent").map(std::string::String::as_str) == Some("yes")
+        if self
+            .config
+            .get("forwardagent")
+            .map(std::string::String::as_str)
+            == Some("yes")
             && self.identity_agent().is_some()
-                && let Err(err) = channel.request_auth_agent_forwarding() {
-                    log::error!("Failed to request agent forwarding: {err:#}");
-                }
+            && let Err(err) = channel.request_auth_agent_forwarding()
+        {
+            log::error!("Failed to request agent forwarding: {err:#}");
+        }
 
         channel.request_pty(&newpty)?;
 

@@ -1,4 +1,7 @@
-use super::{get_mux, get_or_create_module, mlua, Arc, LuaValue, Mux, MuxPane, MuxTab, MuxTabInfo, SpawnTab, ToDynamic, UserData, UserDataMethods, Window, WindowId};
+use super::{
+    get_mux, get_or_create_module, mlua, Arc, LuaValue, Mux, MuxPane, MuxTab, MuxTabInfo, SpawnTab,
+    ToDynamic, UserData, UserDataMethods, Window, WindowId,
+};
 use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard};
 
 #[derive(Clone, Copy, Debug)]
@@ -23,7 +26,7 @@ impl MuxWindow {
 }
 
 impl UserData for MuxWindow {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, (): ()| {
             Ok(format!(
                 "MuxWindow(mux_window_id:{}, pid:{})",
@@ -35,11 +38,11 @@ impl UserData for MuxWindow {
         methods.add_async_method("gui_window", |lua, this, (): ()| async move {
             // Weakly bound to the gui module; mux cannot hard-depend
             // on wezterm-gui, but we can runtime resolve the appropriate module
-            let wezterm_mod = get_or_create_module(lua, "wezterm")
+            let wezterm_mod = get_or_create_module(&lua, "wezterm")
                 .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
             let gui: mlua::Table = wezterm_mod.get("gui")?;
             let func: mlua::Function = gui.get("gui_window_for_mux_window")?;
-            func.call_async::<_, mlua::Value>(this.0).await
+            func.call_async::<mlua::Value>(this.0).await
         });
         methods.add_method("get_workspace", |_, this, (): ()| {
             let mux = get_mux()?;
@@ -53,7 +56,7 @@ impl UserData for MuxWindow {
             Ok(())
         });
         methods.add_async_method("spawn_tab", |_, this, spawn: SpawnTab| async move {
-            spawn.spawn(this).await
+            promise::spawn::spawn(async move { spawn.spawn(&this).await }).await
         });
         methods.add_method("get_title", |_, this, (): ()| {
             let mux = get_mux()?;

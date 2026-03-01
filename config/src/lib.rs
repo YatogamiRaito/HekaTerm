@@ -1,9 +1,10 @@
 //! Configuration for the gui portion of the terminal
 
-use anyhow::{anyhow, bail, Context, Error};
+use anyhow::{Context, Error, anyhow, bail};
 
 use mlua::Lua;
 use ordered_float::NotNan;
+use parking_lot::Mutex;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::cell::RefCell;
@@ -14,8 +15,8 @@ use std::fs::DirBuilder;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use wezterm_dynamic::{FromDynamic, FromDynamicOptions, ToDynamic, UnknownFieldAction, Value};
 use wezterm_term::UnicodeVersion;
@@ -65,18 +66,27 @@ pub use wsl::*;
 
 type ErrorCallback = fn(&str);
 
-pub static HOME_DIR: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| dirs_next::home_dir().expect("can't find HOME dir"));
+pub static HOME_DIR: std::sync::LazyLock<PathBuf> =
+    std::sync::LazyLock::new(|| dirs_next::home_dir().expect("can't find HOME dir"));
 pub static CONFIG_DIRS: std::sync::LazyLock<Vec<PathBuf>> = std::sync::LazyLock::new(config_dirs);
-pub static RUNTIME_DIR: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| compute_runtime_dir().unwrap());
-pub static DATA_DIR: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| compute_data_dir().unwrap());
-pub static CACHE_DIR: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| compute_cache_dir().unwrap());
+pub static RUNTIME_DIR: std::sync::LazyLock<PathBuf> =
+    std::sync::LazyLock::new(|| compute_runtime_dir().unwrap());
+pub static DATA_DIR: std::sync::LazyLock<PathBuf> =
+    std::sync::LazyLock::new(|| compute_data_dir().unwrap());
+pub static CACHE_DIR: std::sync::LazyLock<PathBuf> =
+    std::sync::LazyLock::new(|| compute_cache_dir().unwrap());
 static CONFIG: std::sync::LazyLock<Configuration> = std::sync::LazyLock::new(Configuration::new);
-static CONFIG_FILE_OVERRIDE: std::sync::LazyLock<Mutex<Option<PathBuf>>> = std::sync::LazyLock::new(|| Mutex::new(None));
-static CONFIG_SKIP: std::sync::LazyLock<AtomicBool> = std::sync::LazyLock::new(|| AtomicBool::new(false));
-static CONFIG_OVERRIDES: std::sync::LazyLock<Mutex<Vec<(String, String)>>> = std::sync::LazyLock::new(|| Mutex::new(vec![]));
-static SHOW_ERROR: std::sync::LazyLock<Mutex<Option<ErrorCallback>>> = std::sync::LazyLock::new(|| Mutex::new(Some(|e| log::error!("{e}"))));
+static CONFIG_FILE_OVERRIDE: std::sync::LazyLock<Mutex<Option<PathBuf>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
+static CONFIG_SKIP: std::sync::LazyLock<AtomicBool> =
+    std::sync::LazyLock::new(|| AtomicBool::new(false));
+static CONFIG_OVERRIDES: std::sync::LazyLock<Mutex<Vec<(String, String)>>> =
+    std::sync::LazyLock::new(|| Mutex::new(vec![]));
+static SHOW_ERROR: std::sync::LazyLock<Mutex<Option<ErrorCallback>>> =
+    std::sync::LazyLock::new(|| Mutex::new(Some(|e| log::error!("{e}"))));
 static LUA_PIPE: std::sync::LazyLock<LuaPipe> = std::sync::LazyLock::new(LuaPipe::new);
-pub static COLOR_SCHEMES: std::sync::LazyLock<HashMap<String, Palette>> = std::sync::LazyLock::new(build_default_schemes);
+pub static COLOR_SCHEMES: std::sync::LazyLock<HashMap<String, Palette>> =
+    std::sync::LazyLock::new(build_default_schemes);
 
 thread_local! {
     static LUA_CONFIG: RefCell<Option<LuaConfigState>> = const { RefCell::new(None) };
@@ -155,7 +165,7 @@ fn json_to_dynamic(value: &serde_json::Value) -> Value {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn build_default_schemes() -> HashMap<String, Palette> {
     let mut color_schemes = HashMap::new();
     for (scheme_name, data) in &scheme_data::SCHEMES {
@@ -356,12 +366,12 @@ pub fn common_init(
 }
 
 pub fn assign_error_callback(cb: ErrorCallback) {
-    let mut factory = SHOW_ERROR.lock().unwrap();
+    let mut factory = SHOW_ERROR.lock();
     factory.replace(cb);
 }
 
 pub fn show_error(err: &str) {
-    let factory = SHOW_ERROR.lock().unwrap();
+    let factory = SHOW_ERROR.lock();
     if let Some(cb) = factory.as_ref() {
         cb(err);
     }
@@ -400,14 +410,11 @@ fn config_dirs() -> Vec<PathBuf> {
 }
 
 pub fn set_config_file_override(path: &Path) {
-    CONFIG_FILE_OVERRIDE
-        .lock()
-        .unwrap()
-        .replace(path.to_path_buf());
+    CONFIG_FILE_OVERRIDE.lock().replace(path.to_path_buf());
 }
 
 pub fn set_config_overrides(items: &[(String, String)]) -> anyhow::Result<()> {
-    *CONFIG_OVERRIDES.lock().unwrap() = items.to_vec();
+    *CONFIG_OVERRIDES.lock() = items.to_vec();
 
     let _ = default_config_with_overrides_applied()?;
     Ok(())
@@ -415,8 +422,8 @@ pub fn set_config_overrides(items: &[(String, String)]) -> anyhow::Result<()> {
 
 pub fn is_config_overridden() -> bool {
     CONFIG_SKIP.load(Ordering::Relaxed)
-        || !CONFIG_OVERRIDES.lock().unwrap().is_empty()
-        || CONFIG_FILE_OVERRIDE.lock().unwrap().is_some()
+        || !CONFIG_OVERRIDES.lock().is_empty()
+        || CONFIG_FILE_OVERRIDE.lock().is_some()
 }
 
 /// Discard the current configuration and replace it with
@@ -506,9 +513,13 @@ impl ConfigInner {
 
     fn watch_path(&mut self, path: PathBuf) {
         if self.watcher.is_none() {
-            let (tx, rx) = std::sync::mpsc::channel();
+            let (tx, rx) = flume::unbounded();
             const DELAY: Duration = Duration::from_millis(200);
-            let watcher = notify::recommended_watcher(tx).unwrap();
+            let tx_clone = tx.clone();
+            let watcher = notify::recommended_watcher(move |res| {
+                let _ = tx_clone.send(res);
+            })
+            .unwrap();
             let path = path.clone();
 
             std::thread::spawn(move || {
@@ -692,7 +703,7 @@ impl Default for Configuration {
 }
 
 impl Configuration {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(ConfigInner::new()),
@@ -701,7 +712,7 @@ impl Configuration {
 
     /// Returns the effective configuration.
     pub fn get(&self) -> ConfigHandle {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         ConfigHandle {
             config: Arc::clone(&inner.config),
             generation: inner.generation,
@@ -713,54 +724,54 @@ impl Configuration {
     where
         F: Fn() -> bool + 'static + Send,
     {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.subscribe(subscriber)
     }
 
     fn unsub(&self, sub_id: usize) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.unsub(sub_id);
     }
 
     /// Reset the configuration to defaults
     pub fn use_defaults(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.use_defaults();
     }
 
     fn use_this_config(&self, cfg: Config) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.use_this_config(cfg);
     }
 
     fn overridden(&self, overrides: &wezterm_dynamic::Value) -> Result<ConfigHandle, Error> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.overridden(overrides)
     }
 
     /// Use a config that doesn't depend on the user's
     /// environment and is suitable for unit testing
     pub fn use_test(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.use_test();
     }
 
     /// Reload the configuration
     pub fn reload(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.reload();
     }
 
     /// Returns a copy of any captured error message.
     /// The error message is not cleared.
     pub fn get_error(&self) -> Option<String> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         inner.error.clone()
     }
 
     pub fn get_warnings_and_errors(&self) -> Vec<String> {
         let mut result = vec![];
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         if let Some(error) = &inner.error {
             result.push(error.clone());
         }
@@ -774,7 +785,7 @@ impl Configuration {
     /// it from the config state.
     #[allow(dead_code)]
     pub fn clear_error(&self) -> Option<String> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.error.take()
     }
 }
@@ -790,12 +801,12 @@ impl ConfigHandle {
     /// allowing consuming code to know whether the config
     /// has been reloading since they last derived some
     /// information from the configuration
-    #[must_use] 
+    #[must_use]
     pub const fn generation(&self) -> usize {
         self.generation
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn default_config() -> Self {
         Self {
             config: Arc::new(Config::default_config()),
@@ -803,7 +814,7 @@ impl ConfigHandle {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn unicode_version(&self) -> UnicodeVersion {
         UnicodeVersion {
             version: self.config.unicode_version,

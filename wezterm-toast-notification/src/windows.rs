@@ -3,13 +3,13 @@
 use crate::ToastNotification as TN;
 use xml::escape::escape_str_pcdata;
 
-use windows::core::{Error as WinError, IInspectable, Interface, HSTRING};
 use windows::Data::Xml::Dom::XmlDocument;
 use windows::Foundation::TypedEventHandler;
-use windows::Win32::Foundation::E_POINTER;
 use windows::UI::Notifications::{
     ToastActivatedEventArgs, ToastNotification, ToastNotificationManager,
 };
+use windows::Win32::Foundation::E_POINTER;
+use windows::core::{Error as WinError, HSTRING, IInspectable, Interface};
 
 fn unwrap_arg<T>(a: &Option<T>) -> Result<&T, WinError> {
     match a {

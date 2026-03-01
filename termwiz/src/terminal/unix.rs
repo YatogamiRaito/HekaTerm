@@ -1,29 +1,30 @@
 use crate::render::RenderTty;
 use crate::terminal::ProbeCapabilities;
-use crate::{bail, Context, Result};
-use filedescriptor::{poll, pollfd, FileDescriptor, POLLIN};
+use crate::{Context, Result, bail};
+use filedescriptor::{FileDescriptor, POLLIN, poll, pollfd};
 use libc::{self, winsize};
+use parking_lot::Mutex;
 use signal_hook::{self, SigId};
 use std::collections::VecDeque;
 use std::error::Error as _;
 use std::fs::OpenOptions;
-use std::io::{stdin, stdout, Error as IoError, ErrorKind, Read, Write};
+use std::io::{Error as IoError, ErrorKind, Read, Write, stdin, stdout};
 use std::mem;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use termios::{
-    cfmakeraw, tcdrain, tcflush, tcsetattr, Termios, TCIFLUSH, TCIOFLUSH, TCOFLUSH, TCSADRAIN,
-    TCSAFLUSH, TCSANOW,
+    TCIFLUSH, TCIOFLUSH, TCOFLUSH, TCSADRAIN, TCSAFLUSH, TCSANOW, Termios, cfmakeraw, tcdrain,
+    tcflush, tcsetattr,
 };
 
 use crate::caps::Capabilities;
-use crate::escape::csi::{DecPrivateMode, DecPrivateModeCode, Mode, XtermKeyModifierResource, CSI};
+use crate::escape::csi::{CSI, DecPrivateMode, DecPrivateModeCode, Mode, XtermKeyModifierResource};
 use crate::input::{InputEvent, InputParser};
 use crate::render::terminfo::TerminfoRenderer;
 use crate::surface::Change;
-use crate::terminal::{cast, Blocking, ScreenSize, Terminal};
+use crate::terminal::{Blocking, ScreenSize, Terminal, cast};
 
 const BUF_SIZE: usize = 4096;
 
@@ -127,8 +128,7 @@ impl Write for TtyWriteHandle {
 
     fn flush(&mut self) -> std::result::Result<(), IoError> {
         self.flush_local_buffer()?;
-        self.drain()
-            .map_err(|e| IoError::other(format!("{e}")))?;
+        self.drain().map_err(|e| IoError::other(format!("{e}")))?;
         Ok(())
     }
 }
@@ -298,7 +298,7 @@ pub struct UnixTerminalWaker {
 
 impl UnixTerminalWaker {
     pub fn wake(&self) -> std::result::Result<(), IoError> {
-        let mut pipe = self.pipe.lock().unwrap();
+        let mut pipe = self.pipe.lock();
         match pipe.write_all(b"W") {
             Err(e) => match e.kind() {
                 ErrorKind::WouldBlock => Ok(()),
@@ -493,9 +493,10 @@ impl Terminal for UnixTerminal {
         if pfd[2].revents != 0 {
             let mut buf = [0u8; 64];
             if let Ok(n) = self.wake_pipe.read(&mut buf)
-                && n > 0 {
-                    return Ok(Some(InputEvent::Wake));
-                }
+                && n > 0
+            {
+                return Ok(Some(InputEvent::Wake));
+            }
         }
 
         Ok(None)

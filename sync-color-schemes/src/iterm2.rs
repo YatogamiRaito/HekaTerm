@@ -1,4 +1,4 @@
-use super::{Scheme, fetch_url_as_str, apply_nightly_version};
+use super::{apply_nightly_version, fetch_url_as_str, Scheme};
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::Semaphore;

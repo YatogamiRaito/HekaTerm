@@ -8,7 +8,9 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     {
         let mut group = c.benchmark_group("Classify ASCII");
-        group.bench_function("WcWidth", |b: &mut criterion::Bencher| b.iter(|| WcWidth::from_char(black_box('a'))));
+        group.bench_function("WcWidth", |b: &mut criterion::Bencher| {
+            b.iter(|| WcWidth::from_char(black_box('a')))
+        });
         group.bench_function("WcLookupTable", |b: &mut criterion::Bencher| {
             b.iter(|| table.classify(black_box('a')))
         });

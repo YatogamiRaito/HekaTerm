@@ -11,13 +11,12 @@ build = "build.rs"
 [dev-dependencies]
 k9.workspace = true
 
-[build-dependencies]
-gl_generator.workspace = true
 
 [features]
 wayland = ["wayland-client", "smithay-client-toolkit", "wayland-egl", "wayland-protocols", "wayland-backend", "wayland-protocols-plasma"]
 
 [dependencies]
+parking_lot.workspace = true
 async-channel.workspace = true
 async-io.workspace = true
 async-task.workspace = true
@@ -41,7 +40,6 @@ raw-window-handle.workspace = true
 resize.workspace = true
 serde = {workspace=true, features = ["rc", "derive"]}
 tiny-skia.workspace = true
-glium.workspace = true
 url.workspace = true
 wezterm-bidi.workspace = true
 wezterm-color-types.workspace = true

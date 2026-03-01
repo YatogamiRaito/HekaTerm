@@ -14,6 +14,7 @@ env_logger.workspace = true
 distro-defaults = []
 
 [dependencies]
+parking_lot.workspace = true
 anyhow.workspace = true
 bitflags.workspace = true
 colorgrad.workspace = true
@@ -42,6 +43,7 @@ wezterm-dynamic.workspace = true
 wezterm-input-types.workspace = true
 wezterm-ssh.workspace = true
 wezterm-term = { workspace = true, features=["use_serde"] }
+flume.workspace = true
 
 [target."cfg(unix)".dependencies]
 nix = {workspace=true, features=["resource"]}

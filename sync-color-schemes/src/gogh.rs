@@ -1,4 +1,4 @@
-use super::{Scheme, fetch_url, apply_nightly_version};
+use super::{apply_nightly_version, fetch_url, Scheme};
 use color_funcs::schemes::gogh::GoghTheme;
 
 pub async fn sync_gogh() -> anyhow::Result<Vec<Scheme>> {

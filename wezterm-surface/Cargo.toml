@@ -10,6 +10,7 @@ documentation = "https://docs.rs/wezterm-surface"
 keywords = ["terminal", "surface", "line"]
 
 [dependencies]
+parking_lot.workspace = true
 bitflags = "2.0"
 memchr.workspace = true
 fancy-regex.workspace = true
@@ -37,4 +38,8 @@ use_image = ["wezterm-cell/use_image"] # "image", "dep:image", "wezterm-escape-p
 
 [dev-dependencies]
 k9.workspace = true
+criterion.workspace = true
 
+[[bench]]
+name = "surface_bench"
+harness = false

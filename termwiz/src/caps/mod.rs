@@ -54,7 +54,7 @@
 //! implements some heuristics (a fancy word for guessing) to compute
 //! the terminal capabilities, but also offers a `ProbeHints`
 //! that can be used by the embedding application to override those choices.
-use crate::{builder, Result};
+use crate::{Result, builder};
 use std::env::var;
 use terminfo::{self, capability as cap};
 
@@ -131,10 +131,7 @@ impl ProbeHints {
             .term_program(var("TERM_PROGRAM").ok())
             .term_program_version(var("TERM_PROGRAM_VERSION").ok());
 
-        if !std::env::var(NO_COLOR_ENV)
-            .unwrap_or_default()
-            .is_empty()
-        {
+        if !std::env::var(NO_COLOR_ENV).unwrap_or_default().is_empty() {
             probe_hints.color_level = Some(ColorLevel::MonoChrome);
         }
 
@@ -275,13 +272,11 @@ impl Capabilities {
                 Some("1") => true,
                 _ => {
                     // Look it up from terminfo
-                    terminfo_db
-                        .as_ref()
-                        .is_some_and(|db| {
-                            db.get::<cap::BackColorErase>()
-                                .unwrap_or(cap::BackColorErase(false))
-                                .0
-                        })
+                    terminfo_db.as_ref().is_some_and(|db| {
+                        db.get::<cap::BackColorErase>()
+                            .unwrap_or(cap::BackColorErase(false))
+                            .0
+                    })
                 }
             }
         });

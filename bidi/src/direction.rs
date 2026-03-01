@@ -7,7 +7,7 @@ pub enum Direction {
 }
 
 impl Direction {
-    #[must_use] 
+    #[must_use]
     pub const fn with_level(level: i8) -> Self {
         if level % 2 == 1 {
             Self::RightToLeft
@@ -16,7 +16,7 @@ impl Direction {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn opposite(self) -> Self {
         if self == Self::LeftToRight {
             Self::RightToLeft
@@ -25,7 +25,7 @@ impl Direction {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn as_bidi_class(self) -> BidiClass {
         match self {
             Self::RightToLeft => BidiClass::RightToLeft,

@@ -1,8 +1,7 @@
 use wezterm_dynamic::{FromDynamic, ToDynamic};
 
 /// <https://developer.mozilla.org/en-US/docs/Web/CSS/easing-function>
-#[derive(Debug, Clone, Copy, FromDynamic, ToDynamic, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, FromDynamic, ToDynamic, PartialEq, Default)]
 pub enum EasingFunction {
     Linear,
     CubicBezier(f32, f32, f32, f32),
@@ -15,17 +14,25 @@ pub enum EasingFunction {
 }
 
 impl EasingFunction {
-    #[must_use] 
+    #[must_use]
     pub fn evaluate_at_position(&self, position: f32) -> f32 {
         fn cubic_bezier(p0: f32, p1: f32, p2: f32, p3: f32, x: f32) -> f32 {
-            x.powi(3).mul_add(p3, (3.0 * (1.0 - x) * x.powi(2)).mul_add(p2, (1.0 - x).powi(3).mul_add(p0, 3.0 * (1.0 - x).powi(2) * x * p1)))
+            x.powi(3).mul_add(
+                p3,
+                (3.0 * (1.0 - x) * x.powi(2)).mul_add(
+                    p2,
+                    (1.0 - x)
+                        .powi(3)
+                        .mul_add(p0, 3.0 * (1.0 - x).powi(2) * x * p1),
+                ),
+            )
         }
 
         let [a, b, c, d] = self.as_bezier_array();
         cubic_bezier(a, b, c, d, position)
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn as_bezier_array(&self) -> [f32; 4] {
         match self {
             Self::Constant => [0., 0., 0., 0.],
@@ -38,7 +45,6 @@ impl EasingFunction {
         }
     }
 }
-
 
 #[derive(Default, Debug, Clone, FromDynamic, ToDynamic)]
 pub struct VisualBell {
@@ -54,20 +60,16 @@ pub struct VisualBell {
     pub target: VisualBellTarget,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum VisualBellTarget {
     #[default]
     BackgroundColor,
     CursorColor,
 }
 
-
-#[derive(Debug, Clone, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, FromDynamic, ToDynamic, Default)]
 pub enum AudibleBell {
     #[default]
     SystemBeep,
     Disabled,
 }
-

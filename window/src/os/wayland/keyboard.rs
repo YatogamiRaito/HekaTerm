@@ -7,8 +7,8 @@ use xkbcommon::xkb::CONTEXT_NO_FLAGS;
 
 use crate::x11::KeyboardWithFallback;
 
-use super::state::WaylandState;
 use super::SurfaceUserData;
+use super::state::WaylandState;
 
 // We can't use the xkbcommon feature because it is too abstract for us
 impl Dispatch<WlKeyboard, KeyboardData> for WaylandState {
@@ -44,10 +44,11 @@ impl Dispatch<WlKeyboard, KeyboardData> for WaylandState {
             WlKeyboardEvent::Leave { serial, .. } => {
                 *state.last_serial.borrow_mut() = *serial;
                 if let Some(text_input) = &state.text_input
-                    && let Some(input) = text_input.get_text_input_for_keyboard(keyboard) {
-                        input.disable();
-                        input.commit();
-                    }
+                    && let Some(input) = text_input.get_text_input_for_keyboard(keyboard)
+                {
+                    input.disable();
+                    input.commit();
+                }
             }
             WlKeyboardEvent::Key { serial, .. } | WlKeyboardEvent::Modifiers { serial, .. } => {
                 *state.last_serial.borrow_mut() = *serial;

@@ -1,27 +1,32 @@
 // The range_plus_one lint can't see when the LHS is not compatible with
 // and inclusive range
-use super::{CursorPosition, CellAttributes, Screen, Deref, DerefMut, TerminalSize, TerminalConfiguration, Range, VisibleRowIndex, MouseButton, MouseEvent, Progress, Clipboard, DeviceControlHandler, AlertHandler, DownloadHandler, str, ClipboardSelection, MouseEventKind, KeyModifiers, CSI, Alert, Error, Position, SemanticType, Hyperlink, ST, DCS, Cell, SemanticZone, StableRowIndex};
+use super::{
+    Alert, AlertHandler, CSI, Cell, CellAttributes, Clipboard, ClipboardSelection, CursorPosition,
+    DCS, Deref, DerefMut, DeviceControlHandler, DownloadHandler, Error, Hyperlink, KeyModifiers,
+    MouseButton, MouseEvent, MouseEventKind, Position, Progress, Range, ST, Screen, SemanticType,
+    SemanticZone, StableRowIndex, TerminalConfiguration, TerminalSize, VisibleRowIndex, str,
+};
 use crate::color::{ColorPalette, RgbColor};
 use crate::config::{BidiMode, NewlineCanon};
+use ahash::AHashMap;
+use flume::{Sender, unbounded as channel};
 use log::debug;
 use num_traits::ToPrimitive;
-use ahash::AHashMap;
 use std::io::{BufWriter, Write};
 use std::num::NonZeroUsize;
-use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 use terminfo::{Database, Value};
 use termwiz::input::KeyboardEncoding;
 use url::Url;
 use wezterm_bidi::ParagraphDirectionHint;
-use wezterm_cell::image::ImageData;
 use wezterm_cell::UnicodeVersion;
+use wezterm_cell::image::ImageData;
 use wezterm_escape_parser::csi::{
     Cursor, CursorStyle, DecPrivateMode, DecPrivateModeCode, Device, Edit, EraseInDisplay,
     EraseInLine, Mode, Sgr, TabulationClear, TerminalMode, TerminalModeCode, Window, XtSmGraphics,
     XtSmGraphicsAction, XtSmGraphicsItem, XtSmGraphicsStatus, XtermKeyModifierResource,
 };
-use wezterm_escape_parser::{OneBased, OperatingSystemCommand, CSI};
+use wezterm_escape_parser::{CSI, OneBased, OperatingSystemCommand};
 use wezterm_surface::{CursorShape, CursorVisibility, SequenceNo};
 
 mod image;
@@ -35,9 +40,9 @@ use crate::terminalstate::image::{ImageAttachParams, PlacementInfo};
 use crate::terminalstate::kitty::KittyImageState;
 
 static DB: std::sync::LazyLock<Database> = std::sync::LazyLock::new(|| {
-        let data = include_bytes!("../../../termwiz/data/wezterm");
-        Database::from_buffer(&data[..]).unwrap()
-    });
+    let data = include_bytes!("../../../termwiz/data/wezterm");
+    Database::from_buffer(&data[..]).unwrap()
+});
 
 pub(crate) struct TabStop {
     tabs: Vec<bool>,
@@ -577,7 +582,7 @@ impl TerminalState {
         self.suppress_initial_title_change = true;
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn current_seqno(&self) -> SequenceNo {
         self.seqno
     }
@@ -590,7 +595,7 @@ impl TerminalState {
         self.config = config;
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_config(&self) -> Arc<dyn TerminalConfiguration> {
         Arc::clone(&self.config)
     }
@@ -628,12 +633,12 @@ impl TerminalState {
     /// abbreviated information.
     /// What we do here is prefer to return the OSC 1 icon title
     /// if it is set, otherwise return the OSC 2 window title.
-    #[must_use] 
+    #[must_use]
     pub fn get_title(&self) -> &str {
         self.icon_title.as_ref().unwrap_or(&self.title)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_progress(&self) -> Progress {
         self.progress.clone()
     }
@@ -641,7 +646,7 @@ impl TerminalState {
     /// Returns the current working directory associated with the
     /// terminal session.  The working directory can be changed by
     /// the applicaiton using the OSC 7 escape sequence.
-    #[must_use] 
+    #[must_use]
     pub const fn get_current_dir(&self) -> Option<&Url> {
         self.current_dir.as_ref()
     }
@@ -653,7 +658,7 @@ impl TerminalState {
     /// However, if they have used dynamic color scheme escape
     /// sequences we'll fork a copy of the palette at that time
     /// so that we can start tracking those changes.
-    #[must_use] 
+    #[must_use]
     pub fn palette(&self) -> ColorPalette {
         self.palette
             .clone()
@@ -686,7 +691,7 @@ impl TerminalState {
 
     /// Returns a reference to the active screen (either the primary or
     /// the alternate screen).
-    #[must_use] 
+    #[must_use]
     pub fn screen(&self) -> &Screen {
         &self.screen
     }
@@ -741,12 +746,12 @@ impl TerminalState {
     /// supported mouse reporting modes.
     /// This is useful for the hosting GUI application to decide how best
     /// to dispatch mouse events to the terminal.
-    #[must_use] 
+    #[must_use]
     pub const fn is_mouse_grabbed(&self) -> bool {
         self.mouse_tracking || self.button_event_mouse || self.any_event_mouse
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn is_alt_screen_active(&self) -> bool {
         self.screen.is_alt_screen_active()
     }
@@ -754,7 +759,7 @@ impl TerminalState {
     /// Returns true if the associated application has enabled
     /// bracketed paste mode, which can be helpful to the hosting
     /// GUI application to decide about fragmenting a large paste.
-    #[must_use] 
+    #[must_use]
     pub const fn bracketed_paste_enabled(&self) -> bool {
         self.bracketed_paste
     }
@@ -792,7 +797,7 @@ impl TerminalState {
 
     /// Returns true if there is new output since the terminal
     /// lost focus
-    #[must_use] 
+    #[must_use]
     pub const fn has_unseen_output(&self) -> bool {
         !self.focused && self.seqno > self.lost_focus_seqno
     }
@@ -910,7 +915,7 @@ impl TerminalState {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_size(&self) -> TerminalSize {
         let screen = self.screen();
         TerminalSize {
@@ -940,7 +945,7 @@ impl TerminalState {
 
     /// Returns the 0-based cursor position relative to the top left of
     /// the visible screen
-    #[must_use] 
+    #[must_use]
     pub const fn cursor_pos(&self) -> CursorPosition {
         CursorPosition {
             x: self.cursor.x,
@@ -956,12 +961,12 @@ impl TerminalState {
     }
 
     /// Returns the current cell attributes of the screen
-    #[must_use] 
+    #[must_use]
     pub fn pen(&self) -> CellAttributes {
         self.pen.clone()
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn user_vars(&self) -> &AHashMap<String, String> {
         &self.user_vars
     }
@@ -1353,8 +1358,10 @@ impl TerminalState {
                             action_or_status: XtSmGraphicsStatus::Success.to_i64(),
                             value: vec![],
                         },
-                        Some(XtSmGraphicsAction::ReadMaximumAllowedValue |
-XtSmGraphicsAction::ReadAttribute) => match g.item {
+                        Some(
+                            XtSmGraphicsAction::ReadMaximumAllowedValue
+                            | XtSmGraphicsAction::ReadAttribute,
+                        ) => match g.item {
                             XtSmGraphicsItem::Unspecified(_) => unreachable!("checked above"),
                             XtSmGraphicsItem::NumberOfColorRegisters => XtSmGraphics {
                                 item: g.item,
@@ -1668,8 +1675,10 @@ XtSmGraphicsAction::ReadAttribute) => match g.item {
                 self.decqrm_response(mode, true, self.bracketed_paste);
             }
 
-            Mode::SetDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::OptEnableAlternateScreen
-| DecPrivateModeCode::EnableAlternateScreen)) => {
+            Mode::SetDecPrivateMode(DecPrivateMode::Code(
+                DecPrivateModeCode::OptEnableAlternateScreen
+                | DecPrivateModeCode::EnableAlternateScreen,
+            )) => {
                 if !self.screen.is_alt_screen_active() {
                     self.screen.activate_alt_screen(self.seqno);
                     self.pen = CellAttributes::default();
@@ -1998,11 +2007,7 @@ XtSmGraphicsAction::ReadAttribute) => match g.item {
         // on xterm, so, to prevent a lot of noise in esctest, treat them as spaces, at least when
         // asking for the checksum of a single cell (which is what esctest does).
         // See: https://github.com/wezterm/wezterm/pull/4565
-        if checksum == 0 {
-            32u16
-        } else {
-            checksum
-        }
+        if checksum == 0 { 32u16 } else { checksum }
     }
 
     fn perform_csi_window(&mut self, window: Window) {
@@ -2370,7 +2375,10 @@ XtSmGraphicsAction::ReadAttribute) => match g.item {
             }
             Cursor::BackwardTabulation(n) => {
                 for _ in 0..n {
-                    let x = self.tabs.find_prev_tab_stop(self.cursor.x).unwrap_or_default();
+                    let x = self
+                        .tabs
+                        .find_prev_tab_stop(self.cursor.x)
+                        .unwrap_or_default();
                     self.set_cursor_pos(&Position::Absolute(x as i64), &Position::Relative(0));
                 }
             }
@@ -2388,7 +2396,9 @@ XtSmGraphicsAction::ReadAttribute) => match g.item {
 
             Cursor::Left(_n) => {
                 // https://vt100.net/docs/vt510-rm/CUB.html
-                unreachable!("Actually handled in Performer::csi_dispatch by rewriting as ControlCode::Backspace");
+                unreachable!(
+                    "Actually handled in Performer::csi_dispatch by rewriting as ControlCode::Backspace"
+                );
             }
 
             Cursor::Right(n) => {
@@ -2741,12 +2751,12 @@ XtSmGraphicsAction::ReadAttribute) => match g.item {
     }
 
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn get_reverse_video(&self) -> bool {
         self.reverse_video_mode
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_keyboard_encoding(&self) -> KeyboardEncoding {
         self.screen()
             .keyboard_stack

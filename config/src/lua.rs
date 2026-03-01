@@ -4,14 +4,14 @@ use crate::{
     Config, FontAttributes, FontStretch, FontStyle, FontWeight, FreeTypeLoadTarget, RgbaColor,
     TextStyle,
 };
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use luahelper::{from_lua_value_dynamic, lua_value_to_dynamic, to_lua};
 use mlua::{FromLua, IntoLuaMulti, Lua, Table, Value, Variadic};
 use ordered_float::NotNan;
+use parking_lot::Mutex;
 use portable_pty::CommandBuilder;
 use std::convert::TryFrom;
 use std::path::Path;
-use std::sync::Mutex;
 use wezterm_dynamic::{
     FromDynamic, FromDynamicOptions, ToDynamic, UnknownFieldAction, Value as DynValue,
 };
@@ -22,13 +22,14 @@ static LUA_REGISTRY_USER_CALLBACK_COUNT: &str = "wezterm-user-callback-count";
 
 pub type SetupFunc = fn(&Lua) -> anyhow::Result<()>;
 
-static SETUP_FUNCS: std::sync::LazyLock<Mutex<Vec<SetupFunc>>> = std::sync::LazyLock::new(|| Mutex::new(vec![]));
+static SETUP_FUNCS: std::sync::LazyLock<Mutex<Vec<SetupFunc>>> =
+    std::sync::LazyLock::new(|| Mutex::new(vec![]));
 
 pub fn add_context_setup_func(func: SetupFunc) {
-    SETUP_FUNCS.lock().unwrap().push(func);
+    SETUP_FUNCS.lock().push(func);
 }
 
-pub fn get_or_create_module<'lua>(lua: &'lua Lua, name: &str) -> anyhow::Result<mlua::Table<'lua>> {
+pub fn get_or_create_module(lua: &Lua, name: &str) -> anyhow::Result<mlua::Table> {
     let globals = lua.globals();
     let package: Table = globals.get("package")?;
     let loaded: Table = package.get("loaded")?;
@@ -50,10 +51,7 @@ pub fn get_or_create_module<'lua>(lua: &'lua Lua, name: &str) -> anyhow::Result<
     }
 }
 
-pub fn get_or_create_sub_module<'lua>(
-    lua: &'lua Lua,
-    name: &str,
-) -> anyhow::Result<mlua::Table<'lua>> {
+pub fn get_or_create_sub_module(lua: &Lua, name: &str) -> anyhow::Result<mlua::Table> {
     let wezterm_mod = get_or_create_module(lua, "wezterm")?;
     let sub = wezterm_mod.get(name)?;
     match sub {
@@ -70,22 +68,19 @@ pub fn get_or_create_sub_module<'lua>(
     }
 }
 
-fn config_builder_set_strict_mode(
-    _lua: &Lua,
-    (myself, strict): (Table, bool),
-) -> mlua::Result<()> {
+fn config_builder_set_strict_mode(_lua: &Lua, (myself, strict): (Table, bool)) -> mlua::Result<()> {
     let mt = myself
-        .get_metatable()
+        .metatable()
         .ok_or_else(|| mlua::Error::external("impossible that we have no metatable"))?;
     mt.set("__strict_mode", strict)
 }
 
-fn config_builder_index<'lua>(
-    _lua: &'lua Lua,
-    (myself, key): (Table<'lua>, mlua::Value<'lua>),
-) -> mlua::Result<mlua::Value<'lua>> {
+fn config_builder_index(
+    _lua: &Lua,
+    (myself, key): (Table, mlua::Value),
+) -> mlua::Result<mlua::Value> {
     let mt = myself
-        .get_metatable()
+        .metatable()
         .ok_or_else(|| mlua::Error::external("impossible that we have no metatable"))?;
     match mt.get(key.clone()) {
         Ok(value) => Ok(value),
@@ -103,13 +98,13 @@ fn config_builder_new_index(
     let dvalue = lua_value_to_dynamic(Value::Table(stub_config)).map_err(|e| {
         mlua::Error::FromLuaConversionError {
             from: "table",
-            to: "Config",
+            to: "Config".to_string(),
             message: Some(format!("lua_value_to_dynamic: {e}")),
         }
     })?;
 
     let mt = myself
-        .get_metatable()
+        .metatable()
         .ok_or_else(|| mlua::Error::external("impossible that we have no metatable"))?;
     let strict = match mt.get("__strict_mode") {
         Ok(Value::Boolean(b)) => b,
@@ -128,7 +123,7 @@ fn config_builder_new_index(
     let config_object = Config::from_dynamic(&dvalue, options).map_err(|e| {
         mlua::Error::FromLuaConversionError {
             from: "table",
-            to: "Config",
+            to: "Config".to_string(),
             message: Some(format!("Config::from_dynamic: {e}")),
         }
     })?;
@@ -146,7 +141,7 @@ fn config_builder_new_index(
                     // Start at frame 1, our caller, as the frame for invoking this
                     // metamethod is not interesting
                     for i in 1.. {
-                        if let Some(debug) = lua.inspect_stack(i) {
+                        let frame_msg = lua.inspect_stack(i, |debug| {
                             let names = debug.names();
                             let name = names.name;
                             let name_what = names.name_what;
@@ -161,8 +156,11 @@ fn config_builder_new_index(
                                 _ => String::new(),
                             };
 
-                            let line = debug.curr_line();
-                            message.push_str(&format!("    [{i}] {source}:{line} {func_name}\n"));
+                            let line = debug.current_line().unwrap_or(0);
+                            format!("    [{i}] {source}:{line} {func_name}\n")
+                        });
+                        if let Some(frame_msg) = frame_msg {
+                            message.push_str(&frame_msg);
                         } else {
                             break;
                         }
@@ -218,7 +216,10 @@ pub fn make_lua_context(config_file: &Path) -> anyhow::Result<Lua> {
 
         let package: Table = globals.get("package").context("get _G.package")?;
         let package_path: String = package.get("path").context("get package.path as String")?;
-        let mut path_array: Vec<String> = package_path.split(';').map(std::borrow::ToOwned::to_owned).collect();
+        let mut path_array: Vec<String> = package_path
+            .split(';')
+            .map(std::borrow::ToOwned::to_owned)
+            .collect();
 
         fn prefix_path(array: &mut Vec<String>, path: &Path) {
             array.insert(0, format!("{}/?.lua", path.display()));
@@ -235,20 +236,21 @@ pub fn make_lua_context(config_file: &Path) -> anyhow::Result<Lua> {
         );
 
         if let Ok(exe) = std::env::current_exe()
-            && let Some(path) = exe.parent() {
-                wezterm_mod
-                    .set(
-                        "executable_dir",
-                        path.to_str()
-                            .ok_or_else(|| anyhow!("current_exe path is not UTF-8"))?,
-                    )
-                    .context("set wezterm.executable_dir")?;
-                if cfg!(windows) {
-                    // For a portable windows install, force in this path ahead
-                    // of the rest
-                    prefix_path(&mut path_array, &path.join("wezterm_modules"));
-                }
+            && let Some(path) = exe.parent()
+        {
+            wezterm_mod
+                .set(
+                    "executable_dir",
+                    path.to_str()
+                        .ok_or_else(|| anyhow!("current_exe path is not UTF-8"))?,
+                )
+                .context("set wezterm.executable_dir")?;
+            if cfg!(windows) {
+                // For a portable windows install, force in this path ahead
+                // of the rest
+                prefix_path(&mut path_array, &path.join("wezterm_modules"));
             }
+        }
         let config_file_str = config_file
             .to_str()
             .ok_or_else(|| anyhow!("config file path is not UTF-8"))?;
@@ -289,7 +291,7 @@ end
                     lua.create_function(config_builder_set_strict_mode)?,
                 )?;
 
-                config.set_metatable(Some(mt));
+                let _ = config.set_metatable(Some(mt));
 
                 Ok(config)
             })?,
@@ -378,7 +380,7 @@ end
             .context("assign package.path")?;
     }
 
-    for func in SETUP_FUNCS.lock().unwrap().iter() {
+    for func in SETUP_FUNCS.lock().iter() {
         func(&lua).context("calling SETUP_FUNCS")?;
     }
 
@@ -451,8 +453,8 @@ struct TextStyleAttributes {
     /// the text color for eg: bold text.
     pub foreground: Option<RgbaColor>,
 }
-impl<'lua> FromLua<'lua> for TextStyleAttributes {
-    fn from_lua(value: Value<'lua>, _lua: &'lua Lua) -> Result<Self, mlua::Error> {
+impl FromLua for TextStyleAttributes {
+    fn from_lua(value: Value, _lua: &Lua) -> Result<Self, mlua::Error> {
         let mut attr: Self = from_lua_value_dynamic(value)?;
         if let Some(italic) = attr.italic.take() {
             attr.style = if italic {
@@ -496,8 +498,8 @@ struct LuaFontAttributes {
     #[dynamic(default)]
     pub assume_emoji_presentation: Option<bool>,
 }
-impl<'lua> FromLua<'lua> for LuaFontAttributes {
-    fn from_lua(value: Value<'lua>, _lua: &'lua Lua) -> Result<Self, mlua::Error> {
+impl FromLua for LuaFontAttributes {
+    fn from_lua(value: Value, _lua: &Lua) -> Result<Self, mlua::Error> {
         match value {
             Value::String(s) => Ok(Self {
                 family: s.to_str()?.to_string(),
@@ -675,7 +677,7 @@ fn exec_domain(
         Some(_) => {
             return Err(mlua::Error::external(
                 "label function parameter must be either a string or a lua function",
-            ))
+            ));
         }
         None => None,
     };
@@ -719,10 +721,7 @@ fn split_by_newlines(_: &Lua, text: String) -> mlua::Result<Vec<String>> {
 ///
 /// wezterm.emit("event-name", "foo", "bar");
 /// ```
-pub fn register_event(
-    lua: &Lua,
-    (name, func): (String, mlua::Function),
-) -> mlua::Result<()> {
+pub fn register_event(lua: &Lua, (name, func): (String, mlua::Function)) -> mlua::Result<()> {
     let decorated_name = format!("wezterm-event-{name}");
     let tbl: mlua::Value = lua.named_registry_value(&decorated_name)?;
     match tbl {
@@ -764,18 +763,17 @@ pub fn is_event_emission(lua: &Lua) -> mlua::Result<bool> {
 /// `false`, `wezterm.emit` will return `true`.
 /// The return value indicates to the caller whether the default action
 /// should take place.
-pub async fn emit_event<'lua>(
-    lua: &'lua Lua,
-    (name, args): (String, mlua::MultiValue<'lua>),
-) -> mlua::Result<bool> {
+pub async fn emit_event(lua: Lua, (name, args): (String, mlua::MultiValue)) -> mlua::Result<bool> {
     lua.set_named_registry_value(IS_EVENT, true)?;
 
     let decorated_name = format!("wezterm-event-{name}");
     let tbl: mlua::Value = lua.named_registry_value(&decorated_name)?;
     match tbl {
         mlua::Value::Table(tbl) => {
-            for func in tbl.sequence_values::<mlua::Function>() {
-                let func = func?;
+            let funcs = tbl
+                .sequence_values::<mlua::Function>()
+                .collect::<mlua::Result<Vec<_>>>()?;
+            for func in funcs {
                 match func.call_async(args.clone()).await? {
                     mlua::Value::Boolean(b) if !b => {
                         // Default action prevented
@@ -792,12 +790,9 @@ pub async fn emit_event<'lua>(
     }
 }
 
-pub fn emit_sync_callback<'lua, A>(
-    lua: &'lua Lua,
-    (name, args): (String, A),
-) -> mlua::Result<mlua::Value<'lua>>
+pub fn emit_sync_callback<A>(lua: &Lua, (name, args): (String, A)) -> mlua::Result<mlua::Value>
 where
-    A: IntoLuaMulti<'lua>,
+    A: IntoLuaMulti,
 {
     let decorated_name = format!("wezterm-event-{name}");
     let tbl: mlua::Value = lua.named_registry_value(&decorated_name)?;
@@ -813,12 +808,12 @@ where
     }
 }
 
-pub async fn emit_async_callback<'lua, A>(
-    lua: &'lua Lua,
+pub async fn emit_async_callback<A>(
+    lua: &Lua,
     (name, args): (String, A),
-) -> mlua::Result<mlua::Value<'lua>>
+) -> mlua::Result<mlua::Value>
 where
-    A: IntoLuaMulti<'lua>,
+    A: IntoLuaMulti,
 {
     let decorated_name = format!("wezterm-event-{name}");
     let tbl: mlua::Value = lua.named_registry_value(&decorated_name)?;
@@ -852,10 +847,7 @@ fn utf16_to_utf8(_: &Lua, text: mlua::String) -> mlua::Result<String> {
     String::from_utf16(wide).map_err(mlua::Error::external)
 }
 
-pub fn add_to_config_reload_watch_list(
-    lua: &Lua,
-    args: Variadic<String>,
-) -> mlua::Result<()> {
+pub fn add_to_config_reload_watch_list(lua: &Lua, args: Variadic<String>) -> mlua::Result<()> {
     let mut watch_paths: Vec<String> = lua.named_registry_value("wezterm-watch-paths")?;
     watch_paths.extend_from_slice(&args);
     lua.set_named_registry_value("wezterm-watch-paths", watch_paths)?;
@@ -865,7 +857,8 @@ pub fn add_to_config_reload_watch_list(
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::sync::{Arc, Mutex};
+    use parking_lot::Mutex;
+    use std::sync::Arc;
 
     #[test]
     fn can_register_and_emit_multiple_events() -> anyhow::Result<()> {
@@ -881,7 +874,7 @@ mod test {
         let first = lua.create_function({
             let total = total.clone();
             move |_lua: &mlua::Lua, n: i32| {
-                let mut l = total.lock().unwrap();
+                let mut l = total.lock();
                 *l += n;
                 Ok(())
             }
@@ -890,7 +883,7 @@ mod test {
         let second = lua.create_function({
             let total = total.clone();
             move |_lua: &mlua::Lua, n: i32| {
-                let mut l = total.lock().unwrap();
+                let mut l = total.lock();
                 *l += n * 2;
                 // Prevent any later functions from being called
                 Ok(false)
@@ -900,7 +893,7 @@ mod test {
         let third = lua.create_function({
             let total = total.clone();
             move |_lua: &mlua::Lua, n: i32| {
-                let mut l = total.lock().unwrap();
+                let mut l = total.lock();
                 *l += n * 3;
                 Ok(())
             }
@@ -947,7 +940,7 @@ assert(wezterm.emit('bar', 42, 'woot') == true)
             .exec_async(),
         )?;
 
-        assert_eq!(*total.lock().unwrap(), 6);
+        assert_eq!(*total.lock(), 6);
 
         Ok(())
     }

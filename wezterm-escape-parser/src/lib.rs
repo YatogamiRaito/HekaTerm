@@ -17,7 +17,7 @@ use wezterm_color_types::LinearRgba;
 extern crate alloc;
 
 mod allocate;
-use allocate::{String, Box, Vec, ToString};
+use allocate::{Box, String, ToString, Vec};
 
 pub mod apc;
 pub mod color;
@@ -308,7 +308,7 @@ pub struct Sixel {
 
 impl Sixel {
     /// Returns the width, height of the image
-    #[must_use] 
+    #[must_use]
     pub fn dimensions(&self) -> (u32, u32) {
         if let (Some(w), Some(h)) = (self.pixel_width, self.pixel_height) {
             return (w, h);
@@ -463,10 +463,7 @@ impl Display for SixelData {
                 hue_angle,
                 lightness,
                 saturation,
-            } => write!(
-                f,
-                "#{color_number};1;{hue_angle};{lightness};{saturation}"
-            ),
+            } => write!(f, "#{color_number};1;{hue_angle};{lightness};{saturation}"),
             Self::SelectColorMapEntry(n) => write!(f, "#{n}"),
             Self::CarriageReturn => write!(f, "$"),
             Self::NewLine => write!(f, "-"),
@@ -551,7 +548,7 @@ pub struct OneBased {
 }
 
 impl OneBased {
-    #[must_use] 
+    #[must_use]
     pub fn new(value: u32) -> Self {
         debug_assert!(
             value != 0,
@@ -560,7 +557,7 @@ impl OneBased {
         Self { value }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn from_zero_based(value: u32) -> Self {
         Self { value: value + 1 }
     }
@@ -583,9 +580,7 @@ impl OneBased {
     /// 0 is equivalent to `max_value`.
     pub fn from_esc_param_with_big_default(v: &CsiParam) -> Option<Self> {
         match v {
-            CsiParam::Integer(v) if *v == 0 => Some(Self {
-                value: u32::MAX,
-            }),
+            CsiParam::Integer(v) if *v == 0 => Some(Self { value: u32::MAX }),
             CsiParam::Integer(v) if *v > 0 && *v <= i64::from(u32::MAX) => {
                 Some(Self { value: *v as u32 })
             }
@@ -599,12 +594,12 @@ impl OneBased {
     }
 
     /// Return the underlying value as a 0-based value
-    #[must_use] 
+    #[must_use]
     pub const fn as_zero_based(self) -> u32 {
         self.value.saturating_sub(1)
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn as_one_based(self) -> u32 {
         self.value
     }

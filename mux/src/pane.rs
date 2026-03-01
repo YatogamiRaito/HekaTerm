@@ -1,13 +1,13 @@
-use crate::domain::DomainId;
-use crate::renderable::{StableCursorPosition, RenderableDimensions};
 use crate::ExitBehavior;
+use crate::domain::DomainId;
+use crate::renderable::{RenderableDimensions, StableCursorPosition};
 use async_trait::async_trait;
 use config::keyassignment::{KeyAssignment, ScrollbackEraseMode};
-use downcast_rs::{impl_downcast, Downcast};
+use downcast_rs::{Downcast, impl_downcast};
 use parking_lot::MappedMutexGuard;
 use rangeset::RangeSet;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
 use std::ops::Range;
 use std::sync::Arc;
 use termwiz::hyperlink::Rule;
@@ -258,8 +258,8 @@ pub trait Pane: Downcast + Send + Sync {
         KeyboardEncoding::Xterm
     }
 
-    fn copy_user_vars(&self) -> HashMap<String, String> {
-        HashMap::new()
+    fn copy_user_vars(&self) -> std::collections::HashMap<String, String> {
+        std::collections::HashMap::new()
     }
 
     fn erase_scrollback(&self, _erase_mode: ScrollbackEraseMode) {}

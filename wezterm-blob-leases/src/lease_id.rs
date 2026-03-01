@@ -20,14 +20,14 @@ impl Default for LeaseId {
 }
 
 impl LeaseId {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let uuid = Uuid::new_v4();
         let pid = std::process::id();
         Self { uuid, pid }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn pid(&self) -> u32 {
         self.pid
     }

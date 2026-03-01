@@ -116,8 +116,6 @@ impl<K: Hash + Eq + Clone + Debug, V, S: Default + BuildHasher> LfuCache<K, V, S
     }
 
     fn bucket_for_key<Q: Hash>(&self, k: &Q) -> usize {
-        
-        
         (self.hasher.hash_one(k) as usize) % self.buckets.len()
     }
 
@@ -211,7 +209,9 @@ impl<K: Hash + Eq + Clone + Debug, V, S: Default + BuildHasher> LfuCache<K, V, S
                     .unwrap()
                     .cursor_mut_from_ptr(&raw const *entry)
                     .remove();
-                self.recency_index.cursor_mut_from_ptr(&raw const *entry).remove();
+                self.recency_index
+                    .cursor_mut_from_ptr(&raw const *entry)
+                    .remove();
             }
             self.len -= 1;
         }

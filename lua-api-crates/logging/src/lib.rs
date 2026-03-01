@@ -58,10 +58,15 @@ fn print_helper(args: Variadic<Value>) -> String {
         }
 
         match item {
-            Value::String(s) => if let Ok(s) = s.to_str() { output.push_str(s) } else {
-                let item = String::from_utf8_lossy(s.as_bytes());
-                output.push_str(&item);
-            },
+            Value::String(s) => {
+                if let Ok(s) = s.to_str() {
+                    output.push_str(s.as_ref())
+                } else {
+                    let bytes = s.as_bytes();
+                    let item = String::from_utf8_lossy(&bytes);
+                    output.push_str(&item);
+                }
+            }
             item => {
                 let item = format!("{:#?}", ValuePrinter(item));
                 output.push_str(&item);

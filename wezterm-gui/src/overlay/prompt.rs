@@ -4,7 +4,7 @@ use mux::termwiztermtab::TermWizTerminal;
 use mux_lua::MuxPane;
 use std::rc::Rc;
 use termwiz::input::{InputEvent, KeyCode, KeyEvent};
-use termwiz::lineedit::{BasicHistory, LineEditorHost, History, LineEditor, Action};
+use termwiz::lineedit::{Action, BasicHistory, History, LineEditor, LineEditorHost};
 use termwiz::surface::Change;
 use termwiz::terminal::Terminal;
 
@@ -53,11 +53,8 @@ pub fn show_line_prompt_overlay(
     window: GuiWin,
     pane: MuxPane,
 ) -> anyhow::Result<()> {
-    let name = match *args.action {
-        KeyAssignment::EmitEvent(id) => id,
-        _ => anyhow::bail!(
-            "PromptInputLine requires action to be defined by wezterm.action_callback"
-        ),
+    let KeyAssignment::EmitEvent(name) = *args.action else {
+        anyhow::bail!("PromptInputLine requires action to be defined by wezterm.action_callback")
     };
 
     term.no_grab_mouse_in_raw_mode();
@@ -98,7 +95,7 @@ async fn do_event(
     if let Some(lua) = lua {
         let args = lua.pack_multi((window, pane, line))?;
 
-        if let Err(err) = config::lua::emit_event(&lua, (name.clone(), args)).await {
+        if let Err(err) = config::lua::emit_event((*lua).clone(), (name.clone(), args)).await {
             log::error!("while processing {name} event: {err:#}");
         }
     }

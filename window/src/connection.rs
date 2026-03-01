@@ -1,11 +1,11 @@
 use crate::screen::Screens;
 use crate::{Appearance, Connection, GeometryOrigin, RequestedWindowGeometry, ResolvedGeometry};
 use anyhow::Result as Fallible;
-use config::keyassignment::KeyAssignment;
 use config::DimensionContext;
+use config::keyassignment::KeyAssignment;
+use parking_lot::Mutex;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Mutex;
 
 thread_local! {
     static CONN: RefCell<Option<Rc<Connection>>> = const { RefCell::new(None) };
@@ -27,7 +27,7 @@ pub enum ApplicationEvent {
 }
 
 pub trait ConnectionOps {
-    #[must_use] 
+    #[must_use]
     fn get() -> Option<Rc<Connection>> {
         let mut res = None;
         CONN.with(|m| {
@@ -41,12 +41,12 @@ pub trait ConnectionOps {
     fn name(&self) -> String;
 
     fn set_event_handler(&self, func: fn(ApplicationEvent)) {
-        let mut handler = EVENT_HANDLER.lock().unwrap();
+        let mut handler = EVENT_HANDLER.lock();
         *handler = func;
     }
 
     fn dispatch_app_event(&self, event: ApplicationEvent) {
-        let func = EVENT_HANDLER.lock().unwrap();
+        let func = EVENT_HANDLER.lock();
         func(event);
     }
 
@@ -91,15 +91,19 @@ pub trait ConnectionOps {
                     GeometryOrigin::ScreenCoordinateSystem => screens.virtual_rect,
                     GeometryOrigin::MainScreen => screens.main.rect,
                     GeometryOrigin::ActiveScreen => screens.active.rect,
-                    GeometryOrigin::Named(name) => if let Some(info) = screens.by_name.get(&name) { info.rect } else {
-                        log::error!(
-                        "Requested display {} was not found; available displays are: {:?}. \
+                    GeometryOrigin::Named(name) => {
+                        if let Some(info) = screens.by_name.get(&name) {
+                            info.rect
+                        } else {
+                            log::error!(
+                                "Requested display {} was not found; available displays are: {:?}. \
                          Using primary display instead",
-                        name,
-                        screens.by_name,
-                    );
-                        screens.main.rect
-                    },
+                                name,
+                                screens.by_name,
+                            );
+                            screens.main.rect
+                        }
+                    }
                 }
             }
             Err(_) => euclid::rect(0, 0, 65535, 65535),

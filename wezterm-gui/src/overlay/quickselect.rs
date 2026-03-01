@@ -1,13 +1,13 @@
 use crate::selection::{SelectionCoordinate, SelectionRange};
 use crate::termwindow::{TermWindow, TermWindowNotif};
-use config::keyassignment::{ClipboardCopyDestination, QuickSelectArguments, ScrollbackEraseMode};
 use config::ConfigHandle;
+use config::keyassignment::{ClipboardCopyDestination, QuickSelectArguments, ScrollbackEraseMode};
 use mux::domain::DomainId;
 use mux::pane::{
     CachePolicy, ForEachPaneLogicalLine, LogicalLine, Pane, PaneId, Pattern, SearchResult,
     WithPaneLines,
 };
-use mux::renderable::{StableCursorPosition, RenderableDimensions};
+use mux::renderable::{RenderableDimensions, StableCursorPosition};
 use parking_lot::{MappedMutexGuard, Mutex};
 use rangeset::RangeSet;
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use termwiz::cell::{Cell, CellAttributes};
 use termwiz::color::AnsiColor;
-use termwiz::surface::{SequenceNo, SEQ_ZERO};
+use termwiz::surface::{SEQ_ZERO, SequenceNo};
 use url::Url;
 use wezterm_term::color::ColorPalette;
 use wezterm_term::{
@@ -97,10 +97,7 @@ fn compute_labels_for_alphabet_impl(
         // so steal one of the single character options from the end
         // of the alphabet and use it to generate a two character
         // label
-        let prefix = match primary.pop() {
-            Some(p) => p,
-            None => break,
-        };
+        let Some(prefix) = primary.pop() else { break };
 
         // Generate a two character label for each of the alphabet
         // characters.  This ignores later alphabet characters;
@@ -350,8 +347,8 @@ impl Pane for QuickSelectOverlay {
         let mods = mods.remove_positional_mods();
         match (key, mods) {
             (KeyCode::Escape, KeyModifiers::NONE) => self.renderer.lock().close(),
-            (KeyCode::UpArrow | KeyCode::Enter, KeyModifiers::NONE) |
-(KeyCode::Char('p'), KeyModifiers::CTRL) => {
+            (KeyCode::UpArrow | KeyCode::Enter, KeyModifiers::NONE)
+            | (KeyCode::Char('p'), KeyModifiers::CTRL) => {
                 // Move to prior match
                 let mut r = self.renderer.lock();
                 if let Some(cur) = r.result_pos.as_ref() {
@@ -698,7 +695,8 @@ impl Pane for QuickSelectOverlay {
                     }
                     for (idx, c) in m.label.chars().enumerate() {
                         let mut attr = line
-                            .get_cell(idx).map_or_else(CellAttributes::default, |cell| cell.attrs().clone());
+                            .get_cell(idx)
+                            .map_or_else(CellAttributes::default, |cell| cell.attrs().clone());
                         attr.set_background(
                             colors
                                 .quick_select_label_bg
@@ -729,7 +727,7 @@ impl QuickSelectRenderable {
     fn compute_search_row(&self) -> StableRowIndex {
         let dims = self.delegate.get_dimensions();
         let top = self.viewport.unwrap_or(dims.physical_top);
-        
+
         (top + dims.viewport_rows as StableRowIndex).saturating_sub(1)
     }
 
@@ -789,21 +787,20 @@ impl QuickSelectRenderable {
         // bottom-right-most result first and so on
         for (result_index, res) in self.results.iter().enumerate().rev() {
             // Figure out which label to use based on the match_id
-            let label_index = if let Some(idx) = assigned_labels.get(&res.match_id).copied() { idx } else {
+            let label_index = if let Some(idx) = assigned_labels.get(&res.match_id).copied() {
+                idx
+            } else {
                 let idx = assigned_labels.len();
                 assigned_labels.insert(res.match_id, idx);
                 idx
             };
-            let label = match labels.get(label_index) {
-                Some(l) => l,
-                None => {
-                    // There are more result candidates than the alphabet
-                    // can support, so we skip this one and keep looking:
-                    // we may still have matches that have an assigned
-                    // label, so we keep going rather than breaking
-                    // out of the loop.
-                    continue;
-                }
+            let Some(label) = labels.get(label_index) else {
+                // There are more result candidates than the alphabet
+                // can support, so we skip this one and keep looking:
+                // we may still have matches that have an assigned
+                // label, so we keep going rather than breaking
+                // out of the loop.
+                continue;
             };
 
             self.by_label.entry(label.clone()).or_insert(result_index);
@@ -878,31 +875,29 @@ impl QuickSelectRenderable {
                     if let Some(overlay) = state.overlay.as_ref()
                         && let Some(search_overlay) =
                             overlay.pane.downcast_ref::<QuickSelectOverlay>()
-                        {
-                            let mut r = search_overlay.renderer.lock();
-                            r.results = results.take().unwrap();
-                            r.recompute_results();
-                            let num_results = r.results.len();
+                    {
+                        let mut r = search_overlay.renderer.lock();
+                        r.results = results.take().unwrap();
+                        r.recompute_results();
+                        let num_results = r.results.len();
 
-                            if r.results.is_empty() {
-                                if !is_initial_run {
-                                    r.set_viewport(None);
+                        if r.results.is_empty() {
+                            if !is_initial_run {
+                                r.set_viewport(None);
+                            }
+                            r.clear_selection();
+                        } else {
+                            match &r.viewport {
+                                Some(y) if is_initial_run => {
+                                    r.result_pos =
+                                        r.results.iter().position(|result| result.start_y >= *y);
                                 }
-                                r.clear_selection();
-                            } else {
-                                match &r.viewport {
-                                    Some(y) if is_initial_run => {
-                                        r.result_pos = r
-                                            .results
-                                            .iter()
-                                            .position(|result| result.start_y >= *y);
-                                    }
-                                    _ => {
-                                        r.activate_match_number(num_results - 1);
-                                    }
+                                _ => {
+                                    r.activate_match_number(num_results - 1);
                                 }
                             }
                         }
+                    }
                 })));
                 anyhow::Result::<()>::Ok(())
             })

@@ -3,8 +3,8 @@ use wezterm_dynamic::{FromDynamic, ToDynamic};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum FrontEndSelection {
-    #[default]
     OpenGL,
+    #[default]
     WebGpu,
     Software,
 }
@@ -45,11 +45,9 @@ impl std::fmt::Display for GpuInfo {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum WebGpuPowerPreference {
     #[default]
     LowPower,
     HighPerformance,
 }
-

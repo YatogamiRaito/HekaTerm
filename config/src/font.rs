@@ -8,9 +8,19 @@ use std::fmt::Display;
 use wezterm_dynamic::{FromDynamic, FromDynamicOptions, ToDynamic, Value};
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Display, PartialOrd, Ord, FromDynamic, ToDynamic,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Display,
+    PartialOrd,
+    Ord,
+    FromDynamic,
+    ToDynamic,
+    Default,
 )]
-#[derive(Default)]
 pub enum FontStyle {
     #[default]
     Normal,
@@ -18,11 +28,20 @@ pub enum FontStyle {
     Oblique,
 }
 
-
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Display, PartialOrd, Ord, FromDynamic, ToDynamic,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Display,
+    PartialOrd,
+    Ord,
+    FromDynamic,
+    ToDynamic,
+    Default,
 )]
-#[derive(Default)]
 pub enum FontStretch {
     UltraCondensed,
     ExtraCondensed,
@@ -37,7 +56,7 @@ pub enum FontStretch {
 }
 
 impl FontStretch {
-    #[must_use] 
+    #[must_use]
     pub const fn from_opentype_stretch(w: u16) -> Self {
         match w {
             1 => Self::UltraCondensed,
@@ -54,7 +73,7 @@ impl FontStretch {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn to_opentype_stretch(self) -> u16 {
         match self {
             Self::UltraCondensed => 1,
@@ -69,7 +88,6 @@ impl FontStretch {
         }
     }
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FontWeight(u16);
@@ -197,22 +215,22 @@ impl Default for FontWeight {
 }
 
 impl FontWeight {
-    #[must_use] 
+    #[must_use]
     pub const fn from_opentype_weight(w: u16) -> Self {
         Self(w)
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn to_opentype_weight(self) -> u16 {
         self.0
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn lighter(self) -> Self {
         Self::from_opentype_weight(self.to_opentype_weight().saturating_sub(200))
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn bolder(self) -> Self {
         Self::from_opentype_weight(self.to_opentype_weight() + 200)
     }
@@ -270,7 +288,6 @@ bitflags! {
     }
 }
 
-
 impl FromDynamic for FreeTypeLoadFlags {
     fn from_dynamic(
         value: &wezterm_dynamic::Value,
@@ -288,7 +305,7 @@ impl ToDynamic for FreeTypeLoadFlags {
 }
 
 impl FreeTypeLoadFlags {
-    #[must_use] 
+    #[must_use]
     pub const fn default_hidpi() -> Self {
         Self::NO_HINTING
     }
@@ -410,7 +427,7 @@ impl std::fmt::Display for FontAttributes {
 }
 
 impl FontAttributes {
-    #[must_use] 
+    #[must_use]
     pub fn new(family: &str) -> Self {
         Self {
             family: family.into(),
@@ -428,7 +445,7 @@ impl FontAttributes {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn new_fallback(family: &str) -> Self {
         Self {
             family: family.into(),
@@ -502,7 +519,7 @@ impl TextStyle {
     /// we have a parsed font to compare with.
     ///
     /// <https://github.com/wezterm/wezterm/issues/456>
-    #[must_use] 
+    #[must_use]
     pub fn reduce_first_font_to_family(&self) -> Self {
         fn reduce(mut family: &str) -> String {
             loop {
@@ -552,7 +569,7 @@ impl TextStyle {
     }
 
     /// Make a version of this style with bold enabled.
-    #[must_use] 
+    #[must_use]
     pub fn make_bold(&self) -> Self {
         Self {
             foreground: self.foreground,
@@ -569,7 +586,7 @@ impl TextStyle {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn make_half_bright(&self) -> Self {
         Self {
             foreground: self.foreground,
@@ -587,7 +604,7 @@ impl TextStyle {
     }
 
     /// Make a version of this style with italic enabled.
-    #[must_use] 
+    #[must_use]
     pub fn make_italic(&self) -> Self {
         Self {
             foreground: self.foreground,
@@ -605,7 +622,7 @@ impl TextStyle {
     }
 
     #[allow(clippy::let_and_return)]
-    #[must_use] 
+    #[must_use]
     pub fn font_with_fallback(&self) -> Vec<FontAttributes> {
         let mut font = self.font.clone();
 
@@ -673,15 +690,13 @@ pub struct StyleRule {
     pub font: TextStyle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum AllowSquareGlyphOverflow {
     Never,
     Always,
     #[default]
     WhenFollowedBySpace,
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
 pub enum FontLocatorSelection {

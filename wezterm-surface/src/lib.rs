@@ -45,18 +45,15 @@ pub enum Position {
 }
 
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Hash, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, Hash, Copy, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
 pub enum CursorVisibility {
     Hidden,
     #[default]
     Visible,
 }
 
-
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, FromDynamic, ToDynamic)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, FromDynamic, ToDynamic, Default)]
 pub enum CursorShape {
     #[default]
     Default,
@@ -68,9 +65,8 @@ pub enum CursorShape {
     SteadyBar,
 }
 
-
 impl CursorShape {
-    #[must_use] 
+    #[must_use]
     pub const fn is_blinking(self) -> bool {
         matches!(
             self,
@@ -201,7 +197,7 @@ impl DiffState {
 
 impl Surface {
     /// Create a new Surface with the specified width and height.
-    #[must_use] 
+    #[must_use]
     pub fn new(width: usize, height: usize) -> Self {
         let mut scr = Self {
             width,
@@ -213,27 +209,27 @@ impl Surface {
     }
 
     /// Returns the (width, height) of the surface
-    #[must_use] 
+    #[must_use]
     pub const fn dimensions(&self) -> (usize, usize) {
         (self.width, self.height)
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn cursor_position(&self) -> (usize, usize) {
         (self.xpos, self.ypos)
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn cursor_shape(&self) -> Option<CursorShape> {
         self.cursor_shape
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn cursor_visibility(&self) -> CursorVisibility {
         self.cursor_visibility
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn title(&self) -> &str {
         &self.title
     }
@@ -332,8 +328,10 @@ impl Surface {
     fn add_image(&mut self, image: &Image) {
         use ordered_float::NotNan;
 
-        let xsize = (image.bottom_right.x - image.top_left.x) / image.width as f32;
-        let ysize = (image.bottom_right.y - image.top_left.y) / image.height as f32;
+        let xsize =
+            (image.bottom_right.x - image.top_left.x) / NotNan::new(image.width as f32).unwrap();
+        let ysize =
+            (image.bottom_right.y - image.top_left.y) / NotNan::new(image.height as f32).unwrap();
 
         if self.ypos + image.height > self.height {
             let scroll = (self.ypos + image.height) - self.height;
@@ -503,7 +501,7 @@ impl Surface {
     /// Only the character data is returned.  The end of each line is
     /// returned as a \n character.
     /// This function exists primarily for testing purposes.
-    #[must_use] 
+    #[must_use]
     pub fn screen_chars_to_string(&self) -> String {
         let mut s = String::new();
 
@@ -542,7 +540,7 @@ impl Surface {
     /// of `Change` entries that will update the display accordingly.
     /// The worst case is that this function will fabricate a sequence
     /// of Change entries to paint the screen from scratch.
-    #[must_use] 
+    #[must_use]
     pub fn get_changes(&self, seq: SequenceNo) -> (SequenceNo, Cow<'_, [Change]>) {
         // Do we have continuity in the sequence numbering?
         let first = self.seqno.saturating_sub(self.changes.len());
@@ -563,12 +561,12 @@ impl Surface {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn has_changes(&self, seq: SequenceNo) -> bool {
         self.seqno != seq
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn current_seqno(&self) -> SequenceNo {
         self.seqno
     }
@@ -751,7 +749,7 @@ impl Surface {
     ///
     /// The returned list of `Change`s can be passed to the `add_changes` method
     /// to make the region within self match the region within other.
-    #[must_use] 
+    #[must_use]
     pub fn diff_region(
         &self,
         rect: (usize, usize, usize, usize),
@@ -784,7 +782,7 @@ impl Surface {
         diff_state.changes
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn diff_lines(&self, other_lines: Vec<&Line>) -> Vec<Change> {
         let mut diff_state = DiffState::default();
         for ((row_num, line), other_line) in self.lines.iter().enumerate().zip(other_lines.iter()) {
@@ -803,7 +801,7 @@ impl Surface {
 
     /// Computes the change stream required to make `self` have the same
     /// screen contents as `other`.
-    #[must_use] 
+    #[must_use]
     pub fn diff_screens(&self, other: &Self) -> Vec<Change> {
         self.diff_region((0, 0, self.width, self.height), other, (0, 0))
     }
@@ -902,7 +900,7 @@ fn diff_line(
 /// Applies a Position update to either the x or y position.
 /// The value is clamped to be in the range: 0..limit
 fn compute_position_change(current: usize, pos: &Position, limit: usize) -> usize {
-    use self::Position::{Relative, Absolute, EndRelative};
+    use self::Position::{Absolute, EndRelative, Relative};
     match pos {
         Relative(delta) => {
             if *delta >= 0 {
@@ -922,8 +920,10 @@ fn compute_position_change(current: usize, pos: &Position, limit: usize) -> usiz
 #[cfg(test)]
 mod test {
     use super::*;
+    #[cfg(feature = "use_image")]
     use alloc::sync::Arc;
     use wezterm_cell::color::AnsiColor;
+    #[cfg(feature = "use_image")]
     use wezterm_cell::image::ImageData;
     use wezterm_cell::{AttributeChange, Intensity};
 
@@ -1656,6 +1656,7 @@ mod test {
         assert_eq!(s.screen_chars_to_string(), "A\u{200b}B \n");
     }
 
+    #[cfg(feature = "use_image")]
     #[test]
     fn images() {
         // a dummy image blob with nonsense content

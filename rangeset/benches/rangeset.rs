@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use rangeset::RangeSet;
 
 fn build_contig_rangeset(size: usize) -> RangeSet<usize> {

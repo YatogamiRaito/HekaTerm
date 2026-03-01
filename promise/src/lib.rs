@@ -1,6 +1,7 @@
 use anyhow::Error;
+use parking_lot::Mutex;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 use thiserror::Error;
 
@@ -32,7 +33,7 @@ impl<T> Default for Promise<T> {
 }
 
 impl<T> Promise<T> {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             core: Arc::new(Mutex::new(Core {
@@ -57,7 +58,7 @@ impl<T> Promise<T> {
     }
 
     pub fn result(&mut self, result: Result<T, Error>) -> bool {
-        let mut core = self.core.lock().unwrap();
+        let mut core = self.core.lock();
         core.result.replace(result);
         if let Some(waker) = core.waker.take() {
             waker.wake();
@@ -75,7 +76,7 @@ impl<T: Send + 'static> Future<T> {
 
     /// Create a leaf future which is immediately ready with
     /// the provided error
-    #[must_use] 
+    #[must_use]
     pub fn err(err: Error) -> Self {
         Self::result(Err(err))
     }
@@ -98,7 +99,7 @@ impl<T: Send + 'static> std::future::Future for Future<T> {
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         let waker = ctx.waker().clone();
 
-        let mut core = self.core.lock().unwrap();
+        let mut core = self.core.lock();
         if let Some(result) = core.result.take() {
             Poll::Ready(result)
         } else {

@@ -9,10 +9,11 @@ mod csi;
 // mod selection; FIXME: port to render layer
 use crate::color::ColorPalette;
 use k9::assert_equal as assert_eq;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use wezterm_escape_parser::csi::{Edit, EraseInDisplay, EraseInLine};
-use wezterm_escape_parser::{OneBased, OperatingSystemCommand, CSI};
-use wezterm_surface::{CursorShape, CursorVisibility, SequenceNo, SEQ_ZERO};
+use wezterm_escape_parser::{CSI, OneBased, OperatingSystemCommand};
+use wezterm_surface::{CursorShape, CursorVisibility, SEQ_ZERO, SequenceNo};
 
 #[derive(Debug)]
 struct LocalClip {
@@ -33,7 +34,7 @@ impl Clipboard for LocalClip {
         _selection: ClipboardSelection,
         clip: Option<String>,
     ) -> anyhow::Result<()> {
-        *self.clip.lock().unwrap() = clip;
+        *self.clip.lock() = clip;
         Ok(())
     }
 }

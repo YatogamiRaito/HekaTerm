@@ -89,14 +89,14 @@ pub enum UnixTarget {
 }
 
 impl UnixDomain {
-    #[must_use] 
+    #[must_use]
     pub fn socket_path(&self) -> PathBuf {
         self.socket_path
             .clone()
             .unwrap_or_else(|| RUNTIME_DIR.join("sock"))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn target(&self) -> UnixTarget {
         if let Some(proxy) = &self.proxy_command {
             UnixTarget::Proxy(proxy.clone())
@@ -105,7 +105,7 @@ impl UnixDomain {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn default_unix_domains() -> Vec<Self> {
         vec![Self {
             name: "unix".to_string(),

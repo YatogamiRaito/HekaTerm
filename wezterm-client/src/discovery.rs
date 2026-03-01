@@ -22,7 +22,7 @@ mod windows {
     use std::io::Error as IoError;
     use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
     use winapi::um::memoryapi::{
-        CreateFileMappingW, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_ALL_ACCESS,
+        CreateFileMappingW, FILE_MAP_ALL_ACCESS, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile,
     };
     use winapi::um::synchapi::{CreateMutexW, ReleaseMutex, WaitForSingleObject};
     use winapi::um::winbase::{INFINITE, WAIT_OBJECT_0};
@@ -249,7 +249,7 @@ mod windows {
 
 #[cfg(unix)]
 mod unix {
-    use super::{PathBuf, Path, Context};
+    use super::{Context, Path, PathBuf};
 
     pub struct NameHolder {
         published: PathBuf,
@@ -260,10 +260,11 @@ mod unix {
         fn drop(&mut self) {
             // If it still points to us, remove the symlink
             if let Ok(target) = std::fs::read_link(&self.name)
-                && target == self.published {
-                    log::trace!("removing {}", self.name.display());
-                    std::fs::remove_file(&self.name).ok();
-                }
+                && target == self.published
+            {
+                log::trace!("removing {}", self.name.display());
+                std::fs::remove_file(&self.name).ok();
+            }
         }
     }
 
@@ -273,17 +274,18 @@ mod unix {
             {
                 let config = config::configuration();
                 if config.enable_wayland
-                    && let Ok(wayland) = std::env::var("WAYLAND_DISPLAY") {
-                        return format!("wayland-{wayland}-{class_name}");
-                    }
-                    // We don't assume a default WAYLAND_DISPLAY here because
-                    // we don't know if the default should be used or if we
-                    // should fall back to X11 without connecting to wayland.
-                    // We cannot introduce a dep on a wayland client library
-                    // here, but we could potentially try to construct a
-                    // unix domain socket client to see if our assumed default
-                    // is a working unix socket.
-                    // Something to fill in later as/when that question arises!
+                    && let Ok(wayland) = std::env::var("WAYLAND_DISPLAY")
+                {
+                    return format!("wayland-{wayland}-{class_name}");
+                }
+                // We don't assume a default WAYLAND_DISPLAY here because
+                // we don't know if the default should be used or if we
+                // should fall back to X11 without connecting to wayland.
+                // We cannot introduce a dep on a wayland client library
+                // here, but we could potentially try to construct a
+                // unix domain socket client to see if our assumed default
+                // is a working unix socket.
+                // Something to fill in later as/when that question arises!
                 let x11 = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
                 format!("x11-{x11}-{class_name}")
             }
@@ -339,7 +341,7 @@ pub fn resolve_gui_sock_path(class_name: &str) -> anyhow::Result<PathBuf> {
 /// instances of wezterm-gui.
 /// The list is pruned of any entries that are not live
 /// and then sorted with the eldest instance first.
-#[must_use] 
+#[must_use]
 pub fn discover_gui_socks() -> Vec<PathBuf> {
     let mut socks = vec![];
 
@@ -371,17 +373,18 @@ pub fn discover_gui_socks() -> Vec<PathBuf> {
         for entry in dir {
             if let Ok(entry) = entry
                 && let Some(name) = entry.file_name().to_str()
-                    && name.starts_with("gui-sock-") {
-                        let path = entry.path();
-                        if let Ok(meta) = entry.metadata() {
-                            let age = meta_age(&meta);
-                            if is_sock_dead(&path) && age > Duration::from_secs(1) {
-                                let _ = std::fs::remove_file(&path);
-                            } else {
-                                socks.push(Entry { path, age });
-                            }
-                        }
+                && name.starts_with("gui-sock-")
+            {
+                let path = entry.path();
+                if let Ok(meta) = entry.metadata() {
+                    let age = meta_age(&meta);
+                    if is_sock_dead(&path) && age > Duration::from_secs(1) {
+                        let _ = std::fs::remove_file(&path);
+                    } else {
+                        socks.push(Entry { path, age });
                     }
+                }
+            }
         }
     }
 

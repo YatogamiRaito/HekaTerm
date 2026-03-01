@@ -252,7 +252,7 @@ pub struct cairo_bool_t {
 }
 
 impl cairo_bool_t {
-    #[must_use] 
+    #[must_use]
     pub const fn as_bool(self) -> bool {
         self.value != 0
     }

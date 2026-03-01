@@ -50,7 +50,7 @@ impl XcbImage {
         Ok(Self(image))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn put(
         &self,
         conn: &xcb::Connection,

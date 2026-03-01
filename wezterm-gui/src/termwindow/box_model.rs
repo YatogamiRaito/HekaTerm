@@ -13,15 +13,14 @@ use config::{Dimension, DimensionContext};
 use finl_unicode::grapheme_clusters::Graphemes;
 use std::cell::RefCell;
 use std::rc::Rc;
-use termwiz::cell::{grapheme_column_width, Presentation};
+use termwiz::cell::{Presentation, grapheme_column_width};
 use termwiz::surface::Line;
-use wezterm_font::units::PixelUnit;
 use wezterm_font::LoadedFont;
+use wezterm_font::units::PixelUnit;
 use wezterm_term::color::{ColorAttribute, ColorPalette};
 use window::bitmaps::atlas::Sprite;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VerticalAlign {
     #[default]
     Top,
@@ -29,21 +28,18 @@ pub enum VerticalAlign {
     Middle,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisplayType {
     Block,
     Inline,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Float {
     #[default]
     None,
     Right,
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct PixelDimension {
@@ -140,8 +136,7 @@ impl BoxDimension {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum InheritableColor {
     #[default]
     Inherited,
@@ -153,7 +148,6 @@ pub enum InheritableColor {
         one_shot: bool,
     },
 }
-
 
 impl From<LinearRgba> for InheritableColor {
     fn from(color: LinearRgba) -> Self {
@@ -268,33 +262,34 @@ impl Element {
             // <https://github.com/wezterm/wezterm/issues/2560>
             if let Some(prior) = content.last_mut() {
                 let (fg, bg) = prior_attr.as_ref().unwrap();
-                if cluster.attrs.background() == *bg && cluster.attrs.foreground() == *fg
-                    && let ElementContent::Text(t) = &mut prior.content {
-                        t.push_str(&cluster.text);
-                        continue;
-                    }
+                if cluster.attrs.background() == *bg
+                    && cluster.attrs.foreground() == *fg
+                    && let ElementContent::Text(t) = &mut prior.content
+                {
+                    t.push_str(&cluster.text);
+                    continue;
+                }
             }
 
-            let child =
-                Self::new(font, ElementContent::Text(cluster.text)).colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: if cluster.attrs.background() == ColorAttribute::Default {
-                        InheritableColor::Inherited
-                    } else {
-                        palette
-                            .resolve_bg(cluster.attrs.background())
-                            .to_linear()
-                            .into()
-                    },
-                    text: if cluster.attrs.foreground() == ColorAttribute::Default {
-                        InheritableColor::Inherited
-                    } else {
-                        palette
-                            .resolve_fg(cluster.attrs.foreground())
-                            .to_linear()
-                            .into()
-                    },
-                });
+            let child = Self::new(font, ElementContent::Text(cluster.text)).colors(ElementColors {
+                border: BorderColor::default(),
+                bg: if cluster.attrs.background() == ColorAttribute::Default {
+                    InheritableColor::Inherited
+                } else {
+                    palette
+                        .resolve_bg(cluster.attrs.background())
+                        .to_linear()
+                        .into()
+                },
+                text: if cluster.attrs.foreground() == ColorAttribute::Default {
+                    InheritableColor::Inherited
+                } else {
+                    palette
+                        .resolve_fg(cluster.attrs.foreground())
+                        .to_linear()
+                        .into()
+                },
+            });
 
             content.push(child);
             prior_attr.replace((cluster.attrs.foreground(), cluster.attrs.background()));
@@ -835,11 +830,7 @@ impl super::TermWindow {
                         }
                         None => false,
                     } && matches!(self.current_mouse_capture, None | Some(MouseCapture::UI));
-                if hovering {
-                    hc
-                } else {
-                    &element.colors
-                }
+                if hovering { hc } else { &element.colors }
             }
             None => &element.colors,
         };

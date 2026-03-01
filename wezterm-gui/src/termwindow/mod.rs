@@ -1,12 +1,12 @@
-use super::renderstate::{RenderState, RenderFrame, RenderContext};
+use super::renderstate::{RenderContext, RenderFrame, RenderState};
 use super::utilsprites::RenderMetrics;
 use crate::colorease::ColorEase;
 use crate::frontend::{front_end, try_front_end};
 use crate::inputmap::InputMap;
 use crate::overlay::{
+    CopyModeParams, CopyOverlay, LauncherArgs, LauncherFlags, QuickSelectOverlay,
     confirm_close_pane, confirm_close_tab, confirm_close_window, confirm_quit_program, launcher,
-    start_overlay, start_overlay_pane, CopyModeParams, CopyOverlay, LauncherArgs, LauncherFlags,
-    QuickSelectOverlay,
+    start_overlay, start_overlay_pane,
 };
 use crate::resize_increment_calculator::ResizeIncrementCalculator;
 use crate::scripting::guiwin::GuiWin;
@@ -15,7 +15,7 @@ use crate::selection::Selection;
 use crate::shapecache::{BorrowedShapeCacheKey, ShapeCacheKey, ShapedInfo};
 use crate::tabbar::{TabBarItem, TabBarState};
 use crate::termwindow::background::{
-    load_background_image, reload_background_image, LoadedBackgroundLayer,
+    LoadedBackgroundLayer, load_background_image, reload_background_image,
 };
 use crate::termwindow::keyevent::{KeyTableArgs, KeyTableState};
 use crate::termwindow::modal::Modal;
@@ -26,16 +26,20 @@ use crate::termwindow::render::{
 };
 use crate::termwindow::webgpu::WebGpuState;
 use ::wezterm_term::input::{ClickPosition, MouseButton as TMB};
-use ::window::{parameters, Connection, ConnectionOps, DeadKeyStatus, Dimensions, Image, KeyboardLedStatus, Modifiers, MouseEvent, MouseEventKind, MousePress, Point, Rect, RequestedWindowGeometry, Window, WindowEvent, WindowOps, WindowState, glium};
-use anyhow::{anyhow, ensure, Context};
+use ::window::{
+    Connection, ConnectionOps, DeadKeyStatus, Dimensions, Image, KeyboardLedStatus, Modifiers,
+    MouseEvent, MouseEventKind, MousePress, Point, Rect, RequestedWindowGeometry, Window,
+    WindowEvent, WindowOps, WindowState, parameters,
+};
+use anyhow::{Context, anyhow, ensure};
 use config::keyassignment::{
     Confirmation, KeyAssignment, LauncherActionArgs, PaneDirection, Pattern, PromptInputLine,
     QuickSelectArguments, RotationDirection, SpawnCommand, SplitSize,
 };
 use config::window::WindowLevel;
 use config::{
-    configuration, AudibleBell, ConfigHandle, Dimension, DimensionContext, FrontEndSelection,
-    GeometryOrigin, GuiPosition, TermConfig, WindowCloseConfirmation,
+    AudibleBell, ConfigHandle, Dimension, DimensionContext, FrontEndSelection, GeometryOrigin,
+    GuiPosition, TermConfig, WindowCloseConfirmation, configuration,
 };
 use lfucache::{LfuCache, LfuCacheU64};
 use mlua::{FromLua, LuaSerdeExt, UserData, UserDataFields};
@@ -50,14 +54,15 @@ use mux::tab::{
 use mux::window::WindowId as MuxWindowId;
 use mux::{Mux, MuxNotification};
 use mux_lua::MuxPane;
-use smol::channel::Sender;
+use parking_lot::RwLock;
 use smol::Timer;
+use smol::channel::Sender;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, LinkedList};
 use std::ops::Add;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use termwiz::hyperlink::Hyperlink;
 use termwiz::surface::SequenceNo;
@@ -87,21 +92,24 @@ use prevcursor::PrevCursorPos;
 
 const ATLAS_SIZE: usize = 128;
 
-static WINDOW_CLASS: std::sync::LazyLock<Mutex<String>> = std::sync::LazyLock::new(|| Mutex::new(wezterm_gui_subcommands::DEFAULT_WINDOW_CLASS.to_owned()));
-static POSITION: std::sync::LazyLock<Mutex<Option<GuiPosition>>> = std::sync::LazyLock::new(|| Mutex::new(None));
+static WINDOW_CLASS: std::sync::LazyLock<RwLock<String>> = std::sync::LazyLock::new(|| {
+    RwLock::new(wezterm_gui_subcommands::DEFAULT_WINDOW_CLASS.to_owned())
+});
+static POSITION: std::sync::LazyLock<RwLock<Option<GuiPosition>>> =
+    std::sync::LazyLock::new(|| RwLock::new(None));
 
 pub const ICON_DATA: &[u8] = include_bytes!("../../../assets/icon/terminal.png");
 
 pub fn set_window_position(pos: GuiPosition) {
-    POSITION.lock().unwrap().replace(pos);
+    POSITION.write().replace(pos);
 }
 
 pub fn set_window_class(cls: &str) {
-    *WINDOW_CLASS.lock().unwrap() = cls.to_owned();
+    *WINDOW_CLASS.write() = cls.to_owned();
 }
 
 pub fn get_window_class() -> String {
-    WINDOW_CLASS.lock().unwrap().clone()
+    WINDOW_CLASS.read().clone()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -216,17 +224,13 @@ pub struct TabInformation {
 }
 
 impl UserData for TabInformation {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<'lua, F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("tab_id", |_, this| Ok(this.tab_id));
         fields.add_field_method_get("tab_index", |_, this| Ok(this.tab_index));
         fields.add_field_method_get("is_active", |_, this| Ok(this.is_active));
         fields.add_field_method_get("is_last_active", |_, this| Ok(this.is_last_active));
-        fields.add_field_method_get("active_pane", |_, this| {
-            if let Some(pane) = &this.active_pane {
-                Ok(Some(pane.clone()))
-            } else {
-                Ok(None)
-            }
+        fields.add_field_method_get("active_pane", |_, this: &TabInformation| {
+            Ok::<_, mlua::Error>(this.active_pane.clone())
         });
         fields.add_field_method_get("panes", |_, this| {
             let mux = Mux::get();
@@ -272,7 +276,7 @@ pub struct PaneInformation {
 }
 
 impl UserData for PaneInformation {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<'lua, F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("pane_id", |_, this| Ok(this.pane_id));
         fields.add_field_method_get("pane_index", |_, this| Ok(this.pane_index));
         fields.add_field_method_get("is_active", |_, this| Ok(this.is_active));
@@ -284,15 +288,18 @@ impl UserData for PaneInformation {
         fields.add_field_method_get("height", |_, this| Ok(this.height));
         fields.add_field_method_get("pixel_width", |_, this| Ok(this.pixel_width));
         fields.add_field_method_get("pixel_height", |_, this| Ok(this.pixel_height));
-        fields.add_field_method_get("progress", |lua, this| lua.to_value(&this.progress));
+        fields.add_field_method_get("progress", |lua: &mlua::Lua, this: &PaneInformation| {
+            lua.to_value(&this.progress)
+        });
         fields.add_field_method_get("title", |_, this| Ok(this.title.clone()));
         fields.add_field_method_get("user_vars", |_, this| Ok(this.user_vars.clone()));
         fields.add_field_method_get("foreground_process_name", |_, this| {
             let mut name = None;
             if let Some(mux) = Mux::try_get()
-                && let Some(pane) = mux.get_pane(this.pane_id) {
-                    name = pane.get_foreground_process_name(CachePolicy::AllowStale);
-                }
+                && let Some(pane) = mux.get_pane(this.pane_id)
+            {
+                name = pane.get_foreground_process_name(CachePolicy::AllowStale);
+            }
             match name {
                 Some(name) => Ok(name),
                 None => Ok(String::new()),
@@ -301,29 +308,32 @@ impl UserData for PaneInformation {
         fields.add_field_method_get("tty_name", |_, this| {
             let mut name = None;
             if let Some(mux) = Mux::try_get()
-                && let Some(pane) = mux.get_pane(this.pane_id) {
-                    name = pane.tty_name();
-                }
+                && let Some(pane) = mux.get_pane(this.pane_id)
+            {
+                name = pane.tty_name();
+            }
             Ok(name)
         });
         fields.add_field_method_get("current_working_dir", |_, this| {
             if let Some(mux) = Mux::try_get()
-                && let Some(pane) = mux.get_pane(this.pane_id) {
-                    return Ok(pane
-                        .get_current_working_dir(CachePolicy::AllowStale)
-                        .map(|url| url_funcs::Url { url }));
-                }
+                && let Some(pane) = mux.get_pane(this.pane_id)
+            {
+                return Ok(pane
+                    .get_current_working_dir(CachePolicy::AllowStale)
+                    .map(|url| url_funcs::Url { url }));
+            }
             Ok(None)
         });
         fields.add_field_method_get("domain_name", |_, this| {
             let mut name = None;
             if let Some(mux) = Mux::try_get()
-                && let Some(pane) = mux.get_pane(this.pane_id) {
-                    let domain_id = pane.domain_id();
-                    name = mux
-                        .get_domain(domain_id)
-                        .map(|dom| dom.domain_name().to_string());
-                }
+                && let Some(pane) = mux.get_pane(this.pane_id)
+            {
+                let domain_id = pane.domain_id();
+                name = mux
+                    .get_domain(domain_id)
+                    .map(|dom| dom.domain_name().to_string());
+            }
             match name {
                 Some(name) => Ok(name),
                 None => Ok(String::new()),
@@ -372,7 +382,7 @@ pub struct TermWindow {
     /// Terminal dimensions
     terminal_size: TerminalSize,
     pub mux_window_id: MuxWindowId,
-    pub mux_window_id_for_subscriptions: Arc<Mutex<MuxWindowId>>,
+    pub mux_window_id_for_subscriptions: Arc<RwLock<MuxWindowId>>,
     pub render_metrics: RenderMetrics,
     render_state: Option<RenderState>,
     input_map: InputMap,
@@ -453,7 +463,6 @@ pub struct TermWindow {
 
     connection_name: String,
 
-    gl: Option<Rc<glium::backend::Context>>,
     webgpu: Option<Rc<WebGpuState>>,
     config_subscription: Option<config::ConfigSubscription>,
 }
@@ -481,7 +490,7 @@ impl TermWindow {
                 front_end().forget_known_window(window);
             }
             WindowCloseConfirmation::AlwaysPrompt => {
-                let tab = if let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) { tab } else {
+                let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
                     mux.kill_window(self.mux_window_id);
                     window.close();
                     front_end().forget_known_window(window);
@@ -570,13 +579,22 @@ impl TermWindow {
 }
 
 impl TermWindow {
+    pub fn use_integrated_title_buttons(&self) -> bool {
+        self.config
+            .window_decorations
+            .contains(window::WindowDecorations::INTEGRATED_BUTTONS)
+            || self.window.as_ref().map(|w| w.is_csd()).unwrap_or(false)
+    }
+
     pub async fn new_window(mux_window_id: MuxWindowId) -> anyhow::Result<()> {
         let config = configuration();
         let dpi = config.dpi.unwrap_or_else(::window::default_dpi) as usize;
         let fontconfig = Rc::new(FontConfiguration::new(Some(config.clone()), dpi)?);
 
         let mux = Mux::get();
-        let size = if let Some(tab) = mux.get_active_tab_for_window(mux_window_id) { tab.get_size() } else {
+        let size = if let Some(tab) = mux.get_active_tab_for_window(mux_window_id) {
+            tab.get_size()
+        } else {
             log::debug!("new_window has no tabs... yet?");
             Default::default()
         };
@@ -666,7 +684,6 @@ impl TermWindow {
             fps: 0.,
             config_subscription: None,
             os_parameters: None,
-            gl: None,
             webgpu: None,
             window: None,
             window_background,
@@ -675,7 +692,7 @@ impl TermWindow {
             palette: None,
             focused: None,
             mux_window_id,
-            mux_window_id_for_subscriptions: Arc::new(Mutex::new(mux_window_id)),
+            mux_window_id_for_subscriptions: Arc::new(RwLock::new(mux_window_id)),
             fonts: Rc::clone(&fontconfig),
             render_metrics,
             dimensions,
@@ -780,7 +797,7 @@ impl TermWindow {
         if let Some(position) = mux
             .get_window(mux_window_id)
             .and_then(|window| window.get_initial_position().clone())
-            .or_else(|| POSITION.lock().unwrap().take())
+            .or_else(|| POSITION.write().take())
         {
             x.replace(position.x);
             y.replace(position.y);
@@ -824,11 +841,6 @@ impl TermWindow {
             }
         });
 
-        let gl = match config.front_end {
-            FrontEndSelection::WebGpu => None,
-            _ => Some(window.enable_opengl().await?),
-        };
-
         let webgpu = match config.front_end {
             FrontEndSelection::WebGpu => Some(Rc::new(
                 WebGpuState::new(&window, dimensions, &config).await?,
@@ -855,10 +867,6 @@ impl TermWindow {
                 );
             }
 
-            if let Some(gl) = gl {
-                myself.gl.replace(Rc::clone(&gl));
-                myself.created(RenderContext::Glium(Rc::clone(&gl)))?;
-            }
             if let Some(webgpu) = webgpu {
                 myself.webgpu.replace(Rc::clone(&webgpu));
                 myself.created(RenderContext::WebGpu(Rc::clone(&webgpu)))?;
@@ -997,17 +1005,15 @@ impl TermWindow {
                 Ok(true)
             }
             WindowEvent::DroppedString(text) => {
-                let pane = match self.get_active_pane_or_overlay() {
-                    Some(pane) => pane,
-                    None => return Ok(true),
+                let Some(pane) = self.get_active_pane_or_overlay() else {
+                    return Ok(true);
                 };
                 pane.send_paste(text.as_str())?;
                 Ok(true)
             }
             WindowEvent::DroppedUrl(urls) => {
-                let pane = match self.get_active_pane_or_overlay() {
-                    Some(pane) => pane,
-                    None => return Ok(true),
+                let Some(pane) = self.get_active_pane_or_overlay() else {
+                    return Ok(true);
                 };
                 let urls = urls
                     .iter()
@@ -1019,9 +1025,8 @@ impl TermWindow {
                 Ok(true)
             }
             WindowEvent::DroppedFile(paths) => {
-                let pane = match self.get_active_pane_or_overlay() {
-                    Some(pane) => pane,
-                    None => return Ok(true),
+                let Some(pane) = self.get_active_pane_or_overlay() else {
+                    return Ok(true);
                 };
                 let paths = paths
                     .iter()
@@ -1040,28 +1045,8 @@ impl TermWindow {
         }
     }
 
-    fn do_paint(&mut self, window: &Window) -> bool {
-        let gl = match self.gl.as_ref() {
-            Some(gl) => gl,
-            None => return false,
-        };
-
-        if gl.is_context_lost() {
-            log::error!("opengl context was lost; should reinit");
-            window.close();
-            front_end().forget_known_window(window);
-            return false;
-        }
-
-        let mut frame = glium::Frame::new(
-            Rc::clone(gl),
-            (
-                self.dimensions.pixel_width as u32,
-                self.dimensions.pixel_height as u32,
-            ),
-        );
-        self.paint_impl(&mut RenderFrame::Glium(&mut frame));
-        window.finish_frame(frame).is_ok()
+    fn do_paint(&mut self, _window: &Window) -> bool {
+        false
     }
 
     fn do_paint_webgpu(&mut self) -> anyhow::Result<bool> {
@@ -1069,7 +1054,9 @@ impl TermWindow {
         match self.do_paint_webgpu_impl() {
             Ok(ok) => Ok(ok),
             Err(err) => {
-                if let Some(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) = err.downcast_ref::<wgpu::SurfaceError>() {
+                if let Some(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) =
+                    err.downcast_ref::<wgpu::SurfaceError>()
+                {
                     self.webgpu.as_mut().unwrap().resize(self.dimensions);
                     return self.do_paint_webgpu_impl();
                 }
@@ -1312,7 +1299,7 @@ impl TermWindow {
             }
             TermWindowNotif::SwitchToMuxWindow(mux_window_id) => {
                 self.mux_window_id = mux_window_id;
-                *self.mux_window_id_for_subscriptions.lock().unwrap() = mux_window_id;
+                *self.mux_window_id_for_subscriptions.write() = mux_window_id;
 
                 self.clear_all_overlays();
                 self.current_highlight.take();
@@ -1391,9 +1378,8 @@ impl TermWindow {
 
     fn is_pane_visible(&mut self, pane_id: PaneId) -> bool {
         let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return false,
+        let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+            return false;
         };
 
         let tab_id = tab.tab_id();
@@ -1412,9 +1398,10 @@ impl TermWindow {
     fn mux_pane_output_event(&mut self, pane_id: PaneId) {
         metrics::histogram!("mux.pane_output_event.rate").record(1.);
         if self.is_pane_visible(pane_id)
-            && let Some(ref win) = self.window {
-                win.invalidate();
-            }
+            && let Some(ref win) = self.window
+        {
+            win.invalidate();
+        }
     }
 
     fn mux_pane_output_event_callback(
@@ -1524,7 +1511,7 @@ impl TermWindow {
             if dead.load(Ordering::Relaxed) {
                 return false;
             }
-            let mux_window_id = *mux_window_id.lock().unwrap();
+            let mux_window_id = *mux_window_id.read();
             let window = window.clone();
             let dead = dead.clone();
             promise::spawn::spawn_into_main_thread(async move {
@@ -1565,7 +1552,9 @@ impl TermWindow {
             let again = if let Some(lua) = lua {
                 let args = lua.pack_multi((window.clone(), pane))?;
 
-                if let Err(err) = config::lua::emit_event(&lua, (name.clone(), args)).await {
+                if let Err(err) =
+                    config::lua::emit_event((*lua).clone(), (name.clone(), args)).await
+                {
                     log::error!("while processing {name} event: {err:#}");
                 }
                 true
@@ -1716,9 +1705,8 @@ impl TermWindow {
         self.palette.take();
 
         let mux = Mux::get();
-        let window = match mux.get_window(self.mux_window_id) {
-            Some(window) => window,
-            _ => return,
+        let Some(window) = mux.get_window(self.mux_window_id) else {
+            return;
         };
         if window.len() == 1 {
             self.show_tab_bar = config.enable_tab_bar && !config.hide_tab_bar_if_only_one_tab;
@@ -1764,7 +1752,9 @@ impl TermWindow {
         self.invalidate_modal();
         self.input_map = InputMap::new(&config);
         self.leader_is_down = None;
-        if let Some(rs) = self.render_state.as_mut() { rs.config_changed() }
+        if let Some(rs) = self.render_state.as_mut() {
+            rs.config_changed()
+        }
         let dimensions = self.dimensions;
 
         if let Err(err) = self.fonts.config_changed(&config) {
@@ -1844,9 +1834,8 @@ impl TermWindow {
             return;
         }
 
-        let tab = match self.get_active_pane_or_overlay() {
-            Some(tab) => tab,
-            None => return,
+        let Some(tab) = self.get_active_pane_or_overlay() else {
+            return;
         };
 
         let render_dims = tab.get_dimensions();
@@ -1872,9 +1861,8 @@ impl TermWindow {
     fn window_contains_pane(&mut self, pane_id: PaneId) -> bool {
         let mux = Mux::get();
 
-        let (_domain, window_id, _tab_id) = match mux.resolve_pane_id(pane_id) {
-            Some(tuple) => tuple,
-            None => return false,
+        let Some((_domain, window_id, _tab_id)) = mux.resolve_pane_id(pane_id) else {
+            return false;
         };
 
         window_id == self.mux_window_id
@@ -1902,7 +1890,8 @@ impl TermWindow {
             if let Some(lua) = lua {
                 let args = lua.pack_multi((window.clone(), pane, name, value))?;
                 if let Err(err) =
-                    config::lua::emit_event(&lua, ("user-var-changed".to_string(), args)).await
+                    config::lua::emit_event((*lua).clone(), ("user-var-changed".to_string(), args))
+                        .await
                 {
                     log::error!("while processing user-var-changed event: {err:#}");
                 }
@@ -1931,9 +1920,8 @@ impl TermWindow {
 
     fn update_title_impl(&mut self) {
         let mux = Mux::get();
-        let window = match mux.get_window(self.mux_window_id) {
-            Some(window) => window,
-            _ => return,
+        let Some(window) = mux.get_window(self.mux_window_id) else {
+            return;
         };
         let tabs = self.get_tab_information();
         let panes = self.get_pane_information();
@@ -1970,6 +1958,7 @@ impl TermWindow {
             &panes,
             self.config.resolved_palette.tab_bar.as_ref(),
             &self.config,
+            self.use_integrated_title_buttons(),
             &self.left_status,
             &self.right_status,
         );
@@ -2243,16 +2232,14 @@ impl TermWindow {
 
     fn show_input_selector(&mut self, args: &config::keyassignment::InputSelector) {
         let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
+        let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+            return;
         };
 
         // Ignore any current overlay: we're going to cancel it out below
         // and we don't want this new one to reference that cancelled pane
-        let pane = match self.get_active_pane_no_overlay() {
-            Some(pane) => pane,
-            None => return,
+        let Some(pane) = self.get_active_pane_no_overlay() else {
+            return;
         };
 
         let args = args.clone();
@@ -2269,14 +2256,12 @@ impl TermWindow {
 
     fn show_prompt_input_line(&mut self, args: &PromptInputLine) {
         let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
+        let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+            return;
         };
 
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
         };
 
         let args = args.clone();
@@ -2293,14 +2278,12 @@ impl TermWindow {
 
     fn show_confirmation(&mut self, args: &Confirmation) {
         let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
+        let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+            return;
         };
 
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
         };
 
         let args = args.clone();
@@ -2317,9 +2300,8 @@ impl TermWindow {
 
     fn show_debug_overlay(&mut self) {
         let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
+        let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+            return;
         };
 
         let gui_win = GuiWin::new(self);
@@ -2372,14 +2354,12 @@ impl TermWindow {
         let window = self.window.as_ref().unwrap().clone();
 
         let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
+        let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+            return;
         };
 
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
         };
 
         let domain_id_of_current_pane = tab
@@ -2435,10 +2415,7 @@ impl TermWindow {
 
     /// Returns the Prompt semantic zones
     fn get_semantic_prompt_zones(&mut self, pane: &Arc<dyn Pane>) -> &[StableRowIndex] {
-        let cache = self
-            .semantic_zones
-            .entry(pane.pane_id())
-            .or_default();
+        let cache = self.semantic_zones.entry(pane.pane_id()).or_default();
 
         let seqno = pane.get_current_seqno();
         if cache.seqno != seqno {
@@ -2489,9 +2466,11 @@ impl TermWindow {
 
     fn scroll_by_page(&mut self, amount: f64, pane: &Arc<dyn Pane>) -> anyhow::Result<()> {
         let dims = pane.get_dimensions();
-        let position = amount.mul_add(dims.viewport_rows as f64, self
-            .get_viewport(pane.pane_id())
-            .unwrap_or(dims.physical_top) as f64);
+        let position = amount.mul_add(
+            dims.viewport_rows as f64,
+            self.get_viewport(pane.pane_id())
+                .unwrap_or(dims.physical_top) as f64,
+        );
         self.set_viewport(pane.pane_id(), Some(position as isize), dims);
         if let Some(win) = self.window.as_ref() {
             win.invalidate();
@@ -2551,12 +2530,32 @@ impl TermWindow {
         pane: &Arc<dyn Pane>,
         assignment: &KeyAssignment,
     ) -> anyhow::Result<PerformAssignmentResult> {
-        use KeyAssignment::{ActivateKeyTable, PopKeyTable, ClearKeyTableStack, Multiple, SpawnTab, SpawnWindow, SpawnCommandInNewTab, SpawnCommandInNewWindow, SplitHorizontal, SplitVertical, ToggleFullScreen, ToggleAlwaysOnTop, ToggleAlwaysOnBottom, SetWindowLevel, CopyTo, CopyTextTo, PasteFrom, ActivateTabRelative, ActivateTabRelativeNoWrap, ActivateLastTab, DecreaseFontSize, IncreaseFontSize, ResetFontSize, ResetFontAndWindowSize, ActivateTab, ActivateWindow, ActivateWindowRelative, ActivateWindowRelativeNoWrap, SendString, SendKey, Hide, Show, CloseCurrentTab, CloseCurrentPane, Nop, DisableDefaultAssignment, ReloadConfiguration, MoveTab, MoveTabRelative, ScrollByPage, ScrollByLine, ScrollByCurrentEventWheelDelta, ScrollToPrompt, ScrollToTop, ScrollToBottom, ShowTabNavigator, ShowDebugOverlay, ShowLauncher, ShowLauncherArgs, HideApplication, QuitApplication, SelectTextAtMouseCursor, ExtendSelectionToMouseCursor, ClearSelection, StartWindowDrag, OpenLinkAtMouseCursor, EmitEvent, CompleteSelectionOrOpenLinkAtMouseCursor, CompleteSelection, ClearScrollback, Search, QuickSelect, QuickSelectArgs, ActivateCopyMode, AdjustPaneSize, ActivatePaneByIndex, ActivatePaneDirection, TogglePaneZoomState, SetPaneZoomState, SwitchWorkspaceRelative, SwitchToWorkspace, DetachDomain, AttachDomain, CopyMode, RotatePanes, SplitPane, PaneSelect, CharSelect, ResetTerminal, OpenUri, ActivateCommandPalette, PromptInputLine, InputSelector, Confirmation};
+        use KeyAssignment::{
+            ActivateCommandPalette, ActivateCopyMode, ActivateKeyTable, ActivateLastTab,
+            ActivatePaneByIndex, ActivatePaneDirection, ActivateTab, ActivateTabRelative,
+            ActivateTabRelativeNoWrap, ActivateWindow, ActivateWindowRelative,
+            ActivateWindowRelativeNoWrap, AdjustPaneSize, AttachDomain, CharSelect,
+            ClearKeyTableStack, ClearScrollback, ClearSelection, CloseCurrentPane, CloseCurrentTab,
+            CompleteSelection, CompleteSelectionOrOpenLinkAtMouseCursor, Confirmation, CopyMode,
+            CopyTextTo, CopyTo, DecreaseFontSize, DetachDomain, DisableDefaultAssignment,
+            EmitEvent, ExtendSelectionToMouseCursor, Hide, HideApplication, IncreaseFontSize,
+            InputSelector, MoveTab, MoveTabRelative, Multiple, Nop, OpenLinkAtMouseCursor, OpenUri,
+            PaneSelect, PasteFrom, PopKeyTable, PromptInputLine, QuickSelect, QuickSelectArgs,
+            QuitApplication, ReloadConfiguration, ResetFontAndWindowSize, ResetFontSize,
+            ResetTerminal, RotatePanes, ScrollByCurrentEventWheelDelta, ScrollByLine, ScrollByPage,
+            ScrollToBottom, ScrollToPrompt, ScrollToTop, Search, SelectTextAtMouseCursor, SendKey,
+            SendString, SetPaneZoomState, SetWindowLevel, Show, ShowDebugOverlay, ShowLauncher,
+            ShowLauncherArgs, ShowTabNavigator, SpawnCommandInNewTab, SpawnCommandInNewWindow,
+            SpawnTab, SpawnWindow, SplitHorizontal, SplitPane, SplitVertical, StartWindowDrag,
+            SwitchToWorkspace, SwitchWorkspaceRelative, ToggleAlwaysOnBottom, ToggleAlwaysOnTop,
+            ToggleFullScreen, TogglePaneZoomState,
+        };
 
         if let Some(modal) = self.get_modal()
-            && modal.perform_assignment(assignment, self) {
-                return Ok(PerformAssignmentResult::Handled);
-            }
+            && modal.perform_assignment(assignment, self)
+        {
+            return Ok(PerformAssignmentResult::Handled);
+        }
 
         match pane.perform_assignment(assignment) {
             PerformAssignmentResult::Unhandled => {}
@@ -2768,9 +2767,8 @@ impl TermWindow {
                         con.terminate_message_loop();
                     }
                     WindowCloseConfirmation::AlwaysPrompt => {
-                        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-                            Some(tab) => tab,
-                            None => anyhow::bail!("no active tab!?"),
+                        let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+                            anyhow::bail!("no active tab!?")
                         };
 
                         let window = self.window.clone().unwrap();
@@ -2843,16 +2841,16 @@ impl TermWindow {
                         )?;
                         self.assign_overlay_for_pane(pane.pane_id(), search);
                     }
-                    if let Some(overlay) = self.pane_state(pane.pane_id())
-                        .overlay
-                        .as_mut() { overlay.key_table_state.activate(KeyTableArgs {
-                                name: "search_mode",
-                                timeout_milliseconds: None,
-                                replace_current,
-                                one_shot: false,
-                                until_unknown: false,
-                                prevent_fallback: false,
-                            }); }
+                    if let Some(overlay) = self.pane_state(pane.pane_id()).overlay.as_mut() {
+                        overlay.key_table_state.activate(KeyTableArgs {
+                            name: "search_mode",
+                            timeout_milliseconds: None,
+                            replace_current,
+                            one_shot: false,
+                            until_unknown: false,
+                            prevent_fallback: false,
+                        });
+                    }
                 }
             }
             QuickSelect => {
@@ -2890,23 +2888,22 @@ impl TermWindow {
                         )?;
                         self.assign_overlay_for_pane(pane.pane_id(), copy);
                     }
-                    if let Some(overlay) = self.pane_state(pane.pane_id())
-                        .overlay
-                        .as_mut() { overlay.key_table_state.activate(KeyTableArgs {
-                                name: "copy_mode",
-                                timeout_milliseconds: None,
-                                replace_current,
-                                one_shot: false,
-                                until_unknown: false,
-                                prevent_fallback: false,
-                            }); }
+                    if let Some(overlay) = self.pane_state(pane.pane_id()).overlay.as_mut() {
+                        overlay.key_table_state.activate(KeyTableArgs {
+                            name: "copy_mode",
+                            timeout_milliseconds: None,
+                            replace_current,
+                            one_shot: false,
+                            until_unknown: false,
+                            prevent_fallback: false,
+                        });
+                    }
                 }
             }
             AdjustPaneSize(direction, amount) => {
                 let mux = Mux::get();
-                let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-                    Some(tab) => tab,
-                    None => return Ok(PerformAssignmentResult::Handled),
+                let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+                    return Ok(PerformAssignmentResult::Handled);
                 };
 
                 let tab_id = tab.tab_id();
@@ -2917,9 +2914,8 @@ impl TermWindow {
             }
             ActivatePaneByIndex(index) => {
                 let mux = Mux::get();
-                let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-                    Some(tab) => tab,
-                    None => return Ok(PerformAssignmentResult::Handled),
+                let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+                    return Ok(PerformAssignmentResult::Handled);
                 };
 
                 let tab_id = tab.tab_id();
@@ -2933,9 +2929,8 @@ impl TermWindow {
             }
             ActivatePaneDirection(direction) => {
                 let mux = Mux::get();
-                let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-                    Some(tab) => tab,
-                    None => return Ok(PerformAssignmentResult::Handled),
+                let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+                    return Ok(PerformAssignmentResult::Handled);
                 };
 
                 let tab_id = tab.tab_id();
@@ -2946,17 +2941,15 @@ impl TermWindow {
             }
             TogglePaneZoomState => {
                 let mux = Mux::get();
-                let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-                    Some(tab) => tab,
-                    None => return Ok(PerformAssignmentResult::Handled),
+                let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+                    return Ok(PerformAssignmentResult::Handled);
                 };
                 tab.toggle_zoom();
             }
             SetPaneZoomState(zoomed) => {
                 let mux = Mux::get();
-                let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-                    Some(tab) => tab,
-                    None => return Ok(PerformAssignmentResult::Handled),
+                let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+                    return Ok(PerformAssignmentResult::Handled);
                 };
                 tab.set_zoomed(*zoomed);
             }
@@ -2979,7 +2972,8 @@ impl TermWindow {
             SwitchToWorkspace { name, spawn } => {
                 let activity = crate::Activity::new();
                 let mux = Mux::get();
-                let name = name.clone()
+                let name = name
+                    .clone()
                     .unwrap_or_else(|| mux.generate_workspace_name());
                 let switcher = crate::frontend::WorkspaceSwitcher::new(&name);
                 mux.set_active_workspace(&name);
@@ -3055,9 +3049,8 @@ impl TermWindow {
             }
             RotatePanes(direction) => {
                 let mux = Mux::get();
-                let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-                    Some(tab) => tab,
-                    None => return Ok(PerformAssignmentResult::Handled),
+                let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+                    return Ok(PerformAssignmentResult::Handled);
                 };
                 match direction {
                     RotationDirection::Clockwise => tab.rotate_clockwise(),
@@ -3143,7 +3136,7 @@ impl TermWindow {
                 let default_click = match lua {
                     Some(lua) => {
                         let args = lua.pack_multi((window, pane, link.clone()))?;
-                        config::lua::emit_event(&lua, ("open-uri".to_string(), args))
+                        config::lua::emit_event((*lua).clone(), ("open-uri".to_string(), args))
                             .await
                             .map_err(|e| {
                                 log::error!("while processing open-uri event: {e:#}");
@@ -3168,13 +3161,11 @@ impl TermWindow {
     fn close_current_pane(&mut self, confirm: bool) {
         let mux_window_id = self.mux_window_id;
         let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(mux_window_id) {
-            Some(tab) => tab,
-            None => return,
+        let Some(tab) = mux.get_active_tab_for_window(mux_window_id) else {
+            return;
         };
-        let pane = match tab.get_active_pane() {
-            Some(p) => p,
-            None => return,
+        let Some(pane) = tab.get_active_pane() else {
+            return;
         };
 
         let pane_id = pane.pane_id();
@@ -3193,9 +3184,8 @@ impl TermWindow {
     fn close_specific_tab(&mut self, tab_idx: usize, confirm: bool) {
         let mux = Mux::get();
         let mux_window_id = self.mux_window_id;
-        let mux_window = match mux.get_window(mux_window_id) {
-            Some(w) => w,
-            None => return,
+        let Some(mux_window) = mux.get_window(mux_window_id) else {
+            return;
         };
 
         let tab = match mux_window.get_by_idx(tab_idx) {
@@ -3223,9 +3213,8 @@ impl TermWindow {
 
     fn close_current_tab(&mut self, confirm: bool) {
         let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
+        let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+            return;
         };
         let tab_id = tab.tab_id();
         let mux_window_id = self.mux_window_id;
@@ -3263,21 +3252,21 @@ impl TermWindow {
         }
         for (pane_id, state) in self.pane_state.borrow().iter() {
             if let Some(overlay) = state.overlay.as_ref().map(|o| &o.pane)
-                && let Some(pane) = mux.get_pane(*pane_id) {
-                    let dims = pane.get_dimensions();
-                    overlay
-                        .resize(TerminalSize {
-                            cols: dims.cols,
-                            rows: dims.viewport_rows,
-                            dpi: self.terminal_size.dpi,
-                            pixel_height: (self.terminal_size.pixel_height
-                                / self.terminal_size.rows)
-                                * dims.viewport_rows,
-                            pixel_width: (self.terminal_size.pixel_width / self.terminal_size.cols)
-                                * dims.cols,
-                        })
-                        .ok();
-                }
+                && let Some(pane) = mux.get_pane(*pane_id)
+            {
+                let dims = pane.get_dimensions();
+                overlay
+                    .resize(TerminalSize {
+                        cols: dims.cols,
+                        rows: dims.viewport_rows,
+                        dpi: self.terminal_size.dpi,
+                        pixel_height: (self.terminal_size.pixel_height / self.terminal_size.rows)
+                            * dims.viewport_rows,
+                        pixel_width: (self.terminal_size.pixel_width / self.terminal_size.cols)
+                            * dims.cols,
+                    })
+                    .ok();
+            }
         }
     }
 
@@ -3373,9 +3362,8 @@ impl TermWindow {
 
     fn get_splits(&mut self) -> Vec<PositionedSplit> {
         let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return vec![],
+        let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+            return vec![];
         };
 
         let tab_id = tab.tab_id();
@@ -3408,9 +3396,8 @@ impl TermWindow {
 
     fn get_tab_information(&mut self) -> Vec<TabInformation> {
         let mux = Mux::get();
-        let window = match mux.get_window(self.mux_window_id) {
-            Some(window) => window,
-            _ => return vec![],
+        let Some(window) = mux.get_window(self.mux_window_id) else {
+            return vec![];
         };
         let tab_index = window.get_active_idx();
 
@@ -3480,9 +3467,8 @@ impl TermWindow {
 
     fn get_panes_to_render(&self) -> Vec<PositionedPane> {
         let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return vec![],
+        let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+            return vec![];
         };
 
         self.get_pos_panes_for_tab(&tab)
@@ -3572,8 +3558,9 @@ impl Drop for TermWindow {
     fn drop(&mut self) {
         self.clear_all_overlays();
         if let Some(window) = self.window.take()
-            && let Some(fe) = try_front_end() {
-                fe.forget_known_window(&window);
-            }
+            && let Some(fe) = try_front_end()
+        {
+            fe.forget_known_window(&window);
+        }
     }
 }

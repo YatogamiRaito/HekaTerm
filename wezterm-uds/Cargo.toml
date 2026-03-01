@@ -8,5 +8,6 @@ license = "MIT"
 documentation = "https://docs.rs/wezterm-uds"
 
 [dependencies]
+parking_lot.workspace = true
 async-io.workspace = true
 uds_windows.workspace = true

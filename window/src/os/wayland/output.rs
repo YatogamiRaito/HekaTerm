@@ -9,7 +9,7 @@ use smithay_client_toolkit::reexports::protocols_wlr::output_management::v1::cli
 use wayland_client::{Dispatch, event_created_child, Proxy};
 use wayland_client::globals::{GlobalList, BindError};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use wayland_client::backend::ObjectId;
 use wayland_client::protocol::wl_output::Transform;
 
@@ -70,7 +70,7 @@ impl OutputManagerState {
     }
 
     pub fn screens(&self) -> Option<Screens> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
 
         let mut by_name = HashMap::new();
         let mut virtual_rect: ScreenRect = euclid::rect(0, 0, 0, 0);
@@ -156,7 +156,7 @@ impl Dispatch<ZwlrOutputManagerV1, GlobalData, WaylandState> for OutputManagerSt
         _qhandle: &wayland_client::QueueHandle<WaylandState>,
     ) {
         log::debug!("handle_zwlr_output_event {event:?}");
-        let mut inner = state.output_manager.as_mut().unwrap().inner.lock().unwrap();
+        let mut inner = state.output_manager.as_mut().unwrap().inner.lock();
 
         if let ZwlrOutputEvent::Head { head } = event {
             inner.zwlr_heads.insert(head.id(), head);
@@ -179,7 +179,7 @@ impl Dispatch<ZwlrOutputHeadV1, OutputManagerData, WaylandState> for OutputManag
     ) {
         log::debug!("handle_zwlr_head_event {event:?}");
 
-        let mut inner = state.output_manager.as_mut().unwrap().inner.lock().unwrap();
+        let mut inner = state.output_manager.as_mut().unwrap().inner.lock();
         let id = head.id();
         let info = inner
             .zwlr_head_info
@@ -256,7 +256,7 @@ impl Dispatch<ZwlrOutputModeV1, OutputManagerData, WaylandState> for OutputManag
         _qhandle: &wayland_client::QueueHandle<WaylandState>,
     ) {
         log::debug!("handle_zwlr_mode_event {event:?}");
-        let mut inner = state.output_manager.as_mut().unwrap().inner.lock().unwrap();
+        let mut inner = state.output_manager.as_mut().unwrap().inner.lock();
 
         let id = mode.id();
         let info = inner

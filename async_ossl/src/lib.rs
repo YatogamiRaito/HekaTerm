@@ -14,7 +14,7 @@ pub struct AsyncSslStream {
 unsafe impl async_io::IoSafe for AsyncSslStream {}
 
 impl AsyncSslStream {
-    #[must_use] 
+    #[must_use]
     pub const fn new(s: SslStream<TcpStream>) -> Self {
         Self { s }
     }

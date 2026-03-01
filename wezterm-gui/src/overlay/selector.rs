@@ -117,7 +117,11 @@ impl SelectorState {
         ];
 
         let labels = &self.labels;
-        let max_label_len = labels.iter().map(std::string::String::len).max().unwrap_or(0);
+        let max_label_len = labels
+            .iter()
+            .map(std::string::String::len)
+            .max()
+            .unwrap_or(0);
         let mut labels_iter = labels.iter();
 
         let config = configuration();
@@ -300,9 +304,16 @@ impl SelectorState {
                         self.selection.pop();
                     }
                 }
-                InputEvent::Key(KeyEvent {
-key: KeyCode::Char('G' | 'C'), modifiers: Modifiers::CTRL } | KeyEvent {
-key: KeyCode::Escape, .. }) => {
+                InputEvent::Key(
+                    KeyEvent {
+                        key: KeyCode::Char('G' | 'C'),
+                        modifiers: Modifiers::CTRL,
+                    }
+                    | KeyEvent {
+                        key: KeyCode::Escape,
+                        ..
+                    },
+                ) => {
                     self.trigger_event(None);
                     break;
                 }
@@ -349,10 +360,9 @@ key: KeyCode::Escape, .. }) => {
                     if y > 0 && y as usize <= self.filtered_entries.len() {
                         self.active_idx = self.top_row + y as usize - 1;
 
-                        if mouse_buttons == MouseButtons::LEFT
-                            && self.launch(self.active_idx) {
-                                break;
-                            }
+                        if mouse_buttons == MouseButtons::LEFT && self.launch(self.active_idx) {
+                            break;
+                        }
                     }
                     if mouse_buttons != MouseButtons::NONE {
                         // Treat any other mouse button as cancel
@@ -398,7 +408,7 @@ async fn do_event(
 
         let args = lua.pack_multi((window, pane, id, label))?;
 
-        if let Err(err) = config::lua::emit_event(&lua, (name.clone(), args)).await {
+        if let Err(err) = config::lua::emit_event((*lua).clone(), (name.clone(), args)).await {
             log::error!("while processing {name} event: {err:#}");
         }
     }

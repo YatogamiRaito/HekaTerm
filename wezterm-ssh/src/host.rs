@@ -1,9 +1,11 @@
 use crate::session::SessionEvent;
 use anyhow::Context;
-use smol::channel::{bounded, Sender};
+use smol::channel::{Sender, bounded};
 
 #[derive(Debug, thiserror::Error)]
-#[error("host key mismatch for ssh server {remote_address}. Got fingerprint {key} instead of the expected value from your known hosts file {file:?}.")]
+#[error(
+    "host key mismatch for ssh server {remote_address}. Got fingerprint {key} instead of the expected value from your known hosts file {file:?}."
+)]
 pub struct HostVerificationFailed {
     pub remote_address: String,
     pub key: String,
@@ -64,9 +66,10 @@ impl crate::sessioninner::SessionInner {
             libssh_rs::KnownHosts::Changed => {
                 let mut file = None;
                 if let Some(kh) = self.config.get("userknownhostsfile")
-                    && let Some(candidate) = kh.split_whitespace().next() {
-                        file.replace(candidate.into());
-                    }
+                    && let Some(candidate) = kh.split_whitespace().next()
+                {
+                    file.replace(candidate.into());
+                }
 
                 let failed = HostVerificationFailed {
                     remote_address: format!("{hostname}:{port}"),

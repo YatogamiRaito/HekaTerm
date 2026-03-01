@@ -1,10 +1,11 @@
 #![cfg(test)]
 
 use super::*;
+use crate::SEQ_ZERO;
 use crate::hyperlink::{Hyperlink, Rule};
 use crate::line::clusterline::ClusteredLine;
-use crate::SEQ_ZERO;
 use alloc::sync::Arc;
+use alloc::{format, vec, vec::Vec};
 use k9::assert_equal as assert_eq;
 use wezterm_cell::{Cell, CellAttributes};
 
@@ -291,11 +292,6 @@ Line {
     bits: LineBits(
         0x0,
     ),
-    appdata: Mutex {
-        data: None,
-        poisoned: false,
-        ..
-    },
 }
 "#
     );
@@ -603,11 +599,6 @@ Line {
     bits: LineBits(
         0x0,
     ),
-    appdata: Mutex {
-        data: None,
-        poisoned: false,
-        ..
-    },
 }
 "#
     );

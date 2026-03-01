@@ -4,29 +4,27 @@ pub use mlua;
 use mlua::{IntoLua, Value as LuaValue};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fmt::Write as _;
 use std::rc::Rc;
 use wezterm_dynamic::{FromDynamic, ToDynamic, Value as DynValue};
 
 pub mod enumctor;
 
-pub fn to_lua<T: ToDynamic>(
-    lua: &mlua::Lua,
-    value: T,
-) -> Result<mlua::Value<'_>, mlua::Error> {
+pub fn to_lua<T: ToDynamic>(lua: &mlua::Lua, value: T) -> Result<mlua::Value, mlua::Error> {
     let value = value.to_dynamic();
     dynamic_to_lua_value(lua, value)
 }
 
-pub fn from_lua<T: FromDynamic>(value: mlua::Value<'_>) -> Result<T, mlua::Error> {
+pub fn from_lua<T: FromDynamic>(value: mlua::Value) -> Result<T, mlua::Error> {
     let lua_type = value.type_name();
     let value = lua_value_to_dynamic(value).map_err(|e| mlua::Error::FromLuaConversionError {
         from: lua_type,
-        to: std::any::type_name::<T>(),
+        to: std::any::type_name::<T>().to_string(),
         message: Some(e.to_string()),
     })?;
     T::from_dynamic(&value, Default::default()).map_err(|e| mlua::Error::FromLuaConversionError {
         from: lua_type,
-        to: std::any::type_name::<T>(),
+        to: std::any::type_name::<T>().to_string(),
         message: Some(e.to_string()),
     })
 }
@@ -41,19 +39,19 @@ pub fn from_lua<T: FromDynamic>(value: mlua::Value<'_>) -> Result<T, mlua::Error
 #[macro_export]
 macro_rules! impl_lua_conversion_dynamic {
     ($struct:ident) => {
-        impl<'lua> $crate::mlua::IntoLua<'lua> for $struct {
+        impl $crate::mlua::IntoLua for $struct {
             fn into_lua(
                 self,
-                lua: &'lua $crate::mlua::Lua,
-            ) -> Result<$crate::mlua::Value<'lua>, $crate::mlua::Error> {
+                lua: &$crate::mlua::Lua,
+            ) -> Result<$crate::mlua::Value, $crate::mlua::Error> {
                 $crate::to_lua(lua, self)
             }
         }
 
-        impl<'lua> $crate::mlua::FromLua<'lua> for $struct {
+        impl $crate::mlua::FromLua for $struct {
             fn from_lua(
-                value: $crate::mlua::Value<'lua>,
-                _lua: &'lua $crate::mlua::Lua,
+                value: $crate::mlua::Value,
+                _lua: &$crate::mlua::Lua,
             ) -> Result<Self, $crate::mlua::Error> {
                 $crate::from_lua(value)
             }
@@ -61,10 +59,7 @@ macro_rules! impl_lua_conversion_dynamic {
     };
 }
 
-pub fn dynamic_to_lua_value(
-    lua: &mlua::Lua,
-    value: DynValue,
-) -> mlua::Result<mlua::Value<'_>> {
+pub fn dynamic_to_lua_value(lua: &mlua::Lua, value: DynValue) -> mlua::Result<mlua::Value> {
     Ok(match value {
         DynValue::Null => LuaValue::Nil,
         DynValue::Bool(b) => LuaValue::Boolean(b),
@@ -121,74 +116,83 @@ fn lua_value_to_dynamic_impl(
         LuaValue::LightUserData(_) => {
             return Err(mlua::Error::FromLuaConversionError {
                 from: "userdata",
-                to: "wezterm_dynamic::Value",
+                to: "wezterm_dynamic::Value".to_string(),
                 message: None,
-            })
+            });
         }
-        LuaValue::UserData(ud) => match ud.get_metatable() {
+        LuaValue::UserData(ud) => match ud.metatable() {
             Ok(mt) => {
                 if let Ok(to_dynamic) = mt.get::<mlua::Function>("__wezterm_to_dynamic") {
-                    match to_dynamic.call(LuaValue::UserData(ud.clone())) {
+                    match to_dynamic.call::<mlua::Value>(LuaValue::UserData(ud.clone())) {
                         Ok(value) => {
                             return lua_value_to_dynamic_impl(value, visited);
                         }
                         Err(err) => {
                             return Err(mlua::Error::FromLuaConversionError {
                                 from: "userdata",
-                                to: "wezterm_dynamic::Value",
+                                to: "wezterm_dynamic::Value".to_string(),
                                 message: Some(format!(
                                     "error calling __wezterm_to_dynamic: {err:#}"
                                 )),
-                            })
+                            });
                         }
                     }
                 }
 
-                match mt.get::<mlua::Function>(mlua::MetaMethod::ToString) {
-                    Ok(to_string) => match to_string.call(LuaValue::UserData(ud.clone())) {
-                        Ok(value) => {
-                            return lua_value_to_dynamic_impl(value, visited);
+                match mt.get::<mlua::Function>("__tostring") {
+                    Ok(to_string) => {
+                        match to_string.call::<mlua::Value>(LuaValue::UserData(ud.clone())) {
+                            Ok(value) => {
+                                return lua_value_to_dynamic_impl(value, visited);
+                            }
+                            Err(err) => {
+                                return Err(mlua::Error::FromLuaConversionError {
+                                    from: "userdata",
+                                    to: "wezterm_dynamic::Value".to_string(),
+                                    message: Some(format!("error calling tostring: {err:#}")),
+                                });
+                            }
                         }
-                        Err(err) => {
-                            return Err(mlua::Error::FromLuaConversionError {
-                                from: "userdata",
-                                to: "wezterm_dynamic::Value",
-                                message: Some(format!("error calling tostring: {err:#}")),
-                            })
-                        }
-                    },
+                    }
                     Err(err) => {
                         return Err(mlua::Error::FromLuaConversionError {
                             from: "userdata",
-                            to: "wezterm_dynamic::Value",
+                            to: "wezterm_dynamic::Value".to_string(),
                             message: Some(format!("error getting tostring: {err:#}")),
-                        })
+                        });
                     }
                 }
             }
             Err(err) => {
                 return Err(mlua::Error::FromLuaConversionError {
                     from: "userdata",
-                    to: "wezterm_dynamic::Value",
+                    to: "wezterm_dynamic::Value".to_string(),
                     message: Some(format!("error getting metatable: {err:#}")),
-                })
+                });
             }
         },
         LuaValue::Function(_) => {
             return Err(mlua::Error::FromLuaConversionError {
                 from: "function",
-                to: "wezterm_dynamic::Value",
+                to: "wezterm_dynamic::Value".to_string(),
                 message: None,
-            })
+            });
+        }
+        LuaValue::Other(_) => {
+            return Err(mlua::Error::FromLuaConversionError {
+                from: "other",
+                to: "wezterm_dynamic::Value".to_string(),
+                message: None,
+            });
         }
         LuaValue::Thread(_) => {
             return Err(mlua::Error::FromLuaConversionError {
                 from: "thread",
-                to: "wezterm_dynamic::Value",
+                to: "wezterm_dynamic::Value".to_string(),
                 message: None,
-            })
+            });
         }
-        LuaValue::Error(e) => return Err(e),
+        LuaValue::Error(e) => return Err(*e),
         LuaValue::Table(table) => {
             if matches!(table.contains_key(1), Ok(true)) {
                 let mut array = vec![];
@@ -208,7 +212,7 @@ fn lua_value_to_dynamic_impl(
                             let key = ValuePrinter(key);
                             return Err(mlua::Error::FromLuaConversionError {
                                 from: type_name,
-                                to: "numeric array index",
+                                to: "numeric array index".to_string(),
                                 message: Some(format!(
                                     "Unexpected key {key:?} for array style table"
                                 )),
@@ -227,7 +231,7 @@ fn lua_value_to_dynamic_impl(
                     let value = lua_value_to_dynamic(value).map_err(|e| {
                         mlua::Error::FromLuaConversionError {
                             from: lua_type,
-                            to: "value",
+                            to: "value".to_string(),
                             message: Some(format!("while processing {key:?}: {e}")),
                         }
                     })?;
@@ -244,7 +248,7 @@ pub fn from_lua_value_dynamic<T: FromDynamic>(value: LuaValue) -> mlua::Result<T
     let value = lua_value_to_dynamic(value)?;
     T::from_dynamic(&value, Default::default()).map_err(|e| mlua::Error::FromLuaConversionError {
         from: type_name,
-        to: "Rust Type",
+        to: "Rust Type".to_string(),
         message: Some(e.to_string()),
     })
 }
@@ -255,9 +259,9 @@ pub struct ValueLua {
 }
 impl_lua_conversion_dynamic!(ValueLua);
 
-pub struct ValuePrinter<'lua>(pub LuaValue<'lua>);
+pub struct ValuePrinter(pub LuaValue);
 
-impl std::fmt::Debug for ValuePrinter<'_> {
+impl std::fmt::Debug for ValuePrinter {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::result::Result<(), std::fmt::Error> {
         let visited = Rc::new(RefCell::new(HashSet::new()));
         ValuePrinterHelper {
@@ -270,27 +274,27 @@ impl std::fmt::Debug for ValuePrinter<'_> {
 }
 
 #[allow(clippy::mutable_key_type)]
-struct ValuePrinterHelper<'lua> {
+struct ValuePrinterHelper {
     visited: Rc<RefCell<HashSet<usize>>>,
-    value: LuaValue<'lua>,
+    value: LuaValue,
     is_cycle: bool,
 }
 
-impl PartialEq for ValuePrinterHelper<'_> {
+impl PartialEq for ValuePrinterHelper {
     fn eq(&self, rhs: &Self) -> bool {
         self.value.eq(&rhs.value)
     }
 }
 
-impl Eq for ValuePrinterHelper<'_> {}
+impl Eq for ValuePrinterHelper {}
 
-impl PartialOrd for ValuePrinterHelper<'_> {
+impl PartialOrd for ValuePrinterHelper {
     fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(rhs))
     }
 }
 
-impl Ord for ValuePrinterHelper<'_> {
+impl Ord for ValuePrinterHelper {
     fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
         let lhs = lua_value_to_dynamic(self.value.clone()).unwrap_or(DynValue::Null);
         let rhs = lua_value_to_dynamic(rhs.value.clone()).unwrap_or(DynValue::Null);
@@ -298,7 +302,7 @@ impl Ord for ValuePrinterHelper<'_> {
     }
 }
 
-impl ValuePrinterHelper<'_> {
+impl ValuePrinterHelper {
     fn has_cycle(&self, value: &mlua::Value) -> bool {
         self.visited
             .borrow()
@@ -333,7 +337,7 @@ fn is_array_style_table(t: &mlua::Table) -> bool {
     true
 }
 
-impl std::fmt::Debug for ValuePrinterHelper<'_> {
+impl std::fmt::Debug for ValuePrinterHelper {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::result::Result<(), std::fmt::Error> {
         match &self.value {
             LuaValue::Table(_) if self.is_cycle => {
@@ -399,41 +403,41 @@ impl std::fmt::Debug for ValuePrinterHelper<'_> {
                 fmt.write_fmt(format_args!("userdata: {:?}", self.value.to_pointer()))
             }
             LuaValue::UserData(ud) => {
-                if let Ok(mt) = ud.get_metatable()
-                    && let Ok(to_dynamic) = mt.get::<mlua::Function>("__wezterm_to_dynamic") {
-                        return match to_dynamic.call(LuaValue::UserData(ud.clone())) {
-                            Ok(value) => Self {
-                                visited: Rc::clone(&self.visited),
-                                value,
-                                is_cycle: false,
-                            }
-                            .fmt(fmt),
-                            Err(err) => write!(fmt, "Error calling __wezterm_to_dynamic: {err}"),
-                        };
-                    }
-                match self.value.to_string() {
-                    Ok(s) => fmt.write_str(&s),
-                    Err(err) => write!(fmt, "userdata ({err:#})"),
+                if let Ok(mt) = ud.metatable()
+                    && let Ok(to_dynamic) = mt.get::<mlua::Function>("__wezterm_to_dynamic")
+                {
+                    return match to_dynamic.call::<mlua::Value>(LuaValue::UserData(ud.clone())) {
+                        Ok(value) => Self {
+                            visited: Rc::clone(&self.visited),
+                            value,
+                            is_cycle: false,
+                        }
+                        .fmt(fmt),
+                        Err(err) => write!(fmt, "Error calling __wezterm_to_dynamic: {err}"),
+                    };
                 }
+                write!(fmt, "userdata: {:?}", self.value.to_pointer())
             }
             LuaValue::Error(e) => fmt.write_fmt(format_args!("error {e}")),
-            LuaValue::String(s) => if let Ok(s) = s.to_str() { fmt.write_fmt(format_args!("\"{}\"", s.escape_default())) } else {
-                let mut binary_string = "b\"".to_string();
-                for &b in s.as_bytes() {
-                    if let Some(c) = char::from_u32(u32::from(b))
-                        && (c.is_ascii_alphanumeric() || c.is_ascii_punctuation() || c == ' ') {
+            LuaValue::String(s) => {
+                if let Ok(s) = s.to_str() {
+                    fmt.write_fmt(format_args!("\"{}\"", s.escape_default()))
+                } else {
+                    let mut binary_string = "b\"".to_string();
+                    for &b in s.as_bytes().as_ref() {
+                        if let Some(c) = char::from_u32(u32::from(b))
+                            && (c.is_ascii_alphanumeric() || c.is_ascii_punctuation() || c == ' ')
+                        {
                             binary_string.push(c);
                             continue;
                         }
-                    binary_string.push_str(&format!("\\x{b:02x}"));
+                        write!(&mut binary_string, "\\x{b:02x}").unwrap();
+                    }
+                    binary_string.push('"');
+                    fmt.write_str(&binary_string)
                 }
-                binary_string.push('"');
-                fmt.write_str(&binary_string)
-            },
-            _ => match self.value.to_string() {
-                Ok(s) => fmt.write_str(&s),
-                Err(err) => write!(fmt, "({err:#})"),
-            },
+            }
+            _ => write!(fmt, "value: {:?}", self.value.to_pointer()),
         }
     }
 }

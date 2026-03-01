@@ -1,5 +1,5 @@
 use num::{Integer, ToPrimitive};
-use std::cmp::{max, min, Ordering};
+use std::cmp::{Ordering, max, min};
 use std::fmt::Debug;
 use std::ops::Range;
 
@@ -32,11 +32,7 @@ pub fn range_intersection<T: Integer + Copy + Debug>(
     let start = max(r1.start, r2.start);
     let end = min(r1.end, r2.end);
 
-    if end > start {
-        Some(start..end)
-    } else {
-        None
-    }
+    if end > start { Some(start..end) } else { None }
 }
 
 /// Computes the r1 - r2, which may result in up to two non-overlapping ranges.
@@ -92,7 +88,7 @@ impl<T: Integer + Copy + Debug + ToPrimitive> From<RangeSet<T>> for Vec<Range<T>
 
 impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
     /// Create a new set
-    #[must_use] 
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             ranges: vec![],
@@ -101,14 +97,14 @@ impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
     }
 
     /// Returns true if this set is empty
-    #[must_use] 
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.ranges.is_empty()
     }
 
     /// Returns the total size of the range (the sum of the start..end
     /// distance of all contained ranges)
-    #[must_use] 
+    #[must_use]
     pub fn len(&self) -> T {
         let mut total = num::zero();
         for r in &self.ranges {
@@ -134,7 +130,7 @@ impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
     /// range for the scrollback, and a smaller contiguous range for changes
     /// in the viewport.
     /// If that doesn't hold up, we can improve this.
-    #[must_use] 
+    #[must_use]
     pub fn difference(&self, other: &Self) -> Self {
         let mut result = self.clone();
 
@@ -145,7 +141,7 @@ impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
         result
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn intersection(&self, other: &Self) -> Self {
         let mut result = Self::new();
         for range in &other.ranges {
@@ -279,14 +275,16 @@ impl<T: Integer + Copy + Debug + ToPrimitive> RangeSet<T> {
 
         let mut first = None;
         if let Some(r) = self.ranges.get(idx)
-            && (intersects_range(r, range) || r.end == range.start) {
-                first = Some(idx);
-            }
+            && (intersects_range(r, range) || r.end == range.start)
+        {
+            first = Some(idx);
+        }
         if let Some(r) = self.ranges.get(idx + 1)
             && (intersects_range(r, range) || r.end == range.start)
-                && first.is_some() {
-                    return (first, Some(idx + 1));
-                }
+            && first.is_some()
+        {
+            return (first, Some(idx + 1));
+        }
         (first, None)
     }
 

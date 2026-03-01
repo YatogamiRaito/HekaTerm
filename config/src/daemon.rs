@@ -46,21 +46,21 @@ fn open_log(path: PathBuf) -> anyhow::Result<File> {
 
 impl DaemonOptions {
     #[cfg_attr(windows, allow(dead_code))]
-    #[must_use] 
+    #[must_use]
     pub fn pid_file(&self) -> PathBuf {
         self.pid_file
             .clone()
             .unwrap_or_else(|| RUNTIME_DIR.join("pid"))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn stdout(&self) -> PathBuf {
         self.stdout
             .clone()
             .unwrap_or_else(|| RUNTIME_DIR.join("log"))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn stderr(&self) -> PathBuf {
         self.stderr
             .clone()
