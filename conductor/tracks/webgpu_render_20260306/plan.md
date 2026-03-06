@@ -21,17 +21,17 @@
 
 ## Phase 2: Vertex Buffer Pre-allocation (FR-3)
 
-- [ ] Task: Vertex buffer pre-allocation yaz
-    - [ ] `quad.rs` içinde sabit kapasiteli `QuadBuffer` struct'ı tanımla
-    - [ ] `wgpu::Buffer` için `MAP_WRITE | COPY_SRC` kullanımını incele, staging buffer pattern uygula
-    - [ ] Frame başında buffer'ı reuse et, sadece kapasiteyi aşınca grow et
-- [ ] Task: Pre-allocation için birim testler yaz
-    - [ ] `QuadBuffer::new()` doğru kapasiteyle başlatılıyor mu?
-    - [ ] Capacity aşımında `grow()` doğru çalışıyor mu?
-    - [ ] Clear/reuse sonrası len() sıfırlanıyor mu?
-- [ ] Task: `cargo clippy` ve `cargo fmt` çalıştır, tüm uyarıları gider
-- [ ] Task: Commit: `perf(render): Pre-allocate vertex buffer to avoid per-frame allocation`
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Vertex Buffer Pre-allocation' (Protocol in workflow.md)
+- [x] Task: Vertex buffer pre-allocation yaz b81dba7a1
+    - [x] `quad.rs` içinde sabit kapasiteli `QuadBuffer` struct'ı tanımla
+    - [x] `wgpu::Buffer` için `MAP_WRITE | COPY_SRC` kullanımını incele, staging buffer pattern uygula
+    - [x] Frame başında buffer'ı reuse et, sadece kapasiteyi aşınca grow et
+- [x] Task: Pre-allocation için birim testler yaz b81dba7a1
+    - [x] `QuadBuffer::new()` doğru kapasiteyle başlatılıyor mu?
+    - [x] Capacity aşımında `grow()` doğru çalışıyor mu?
+    - [x] Clear/reuse sonrası len() sıfırlanıyor mu?
+- [x] Task: `cargo clippy` ve `cargo fmt` çalıştır, tüm uyarıları gider b81dba7a1
+- [x] Task: Commit: `perf(render): Pre-allocate vertex buffer to avoid per-frame allocation` b81dba7a1
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Vertex Buffer Pre-allocation' (Protocol in workflow.md)
 
 ---
 
