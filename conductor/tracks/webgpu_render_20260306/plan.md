@@ -7,14 +7,14 @@
 
 ## Phase 1: Analiz ve Baseline
 
-- [x] Task: Mevcut render pipeline'ı analiz et
+- [x] Task: Mevcut render pipeline'ı analiz et ca9c5da6b
     - [x] `wezterm-gui/src/renderstate.rs` dosyasını oku ve draw call yapısını belgele
     - [x] `wezterm-gui/src/quad.rs` dosyasındaki vertex/index yapısını incele
     - [x] `wezterm-gui/src/glyphcache.rs` dosyasında atlas ve eviction mantığını analiz et
     - [x] `wezterm-gui/src/shader.wgsl` shader pipeline'ını incele
-- [ ] Task: Benchmark baseline kaydet
-    - [ ] Mevcut `hyperfine` startup sonuçlarını `/tmp/baseline_bench.txt` dosyasına kaydet
-    - [ ] Render throughput testini çalıştır ve sonuçları kaydet
+- [x] Task: Benchmark baseline kaydet
+    - [x] Mevcut `hyperfine` startup sonuçlarını `/tmp/baseline_bench.txt` dosyasına kaydet
+    - [x] Render throughput testini çalıştır ve sonuçları kaydet
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Analiz ve Baseline' (Protocol in workflow.md)
 
 ---
