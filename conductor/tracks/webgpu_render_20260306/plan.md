@@ -12,10 +12,10 @@
     - [x] `wezterm-gui/src/quad.rs` dosyasındaki vertex/index yapısını incele
     - [x] `wezterm-gui/src/glyphcache.rs` dosyasında atlas ve eviction mantığını analiz et
     - [x] `wezterm-gui/src/shader.wgsl` shader pipeline'ını incele
-- [x] Task: Benchmark baseline kaydet
+- [x] Task: Benchmark baseline kaydet a3d64e7f3
     - [x] Mevcut `hyperfine` startup sonuçlarını `/tmp/baseline_bench.txt` dosyasına kaydet
     - [x] Render throughput testini çalıştır ve sonuçları kaydet
-- [ ] Task: Conductor - User Manual Verification 'Phase 1: Analiz ve Baseline' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 1: Analiz ve Baseline' (Protocol in workflow.md)
 
 ---
 
