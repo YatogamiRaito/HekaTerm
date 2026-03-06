@@ -7,11 +7,11 @@
 
 ## Phase 1: Analiz ve Baseline
 
-- [ ] Task: Mevcut render pipeline'ı analiz et
-    - [ ] `wezterm-gui/src/renderstate.rs` dosyasını oku ve draw call yapısını belgele
-    - [ ] `wezterm-gui/src/quad.rs` dosyasındaki vertex/index yapısını incele
-    - [ ] `wezterm-gui/src/glyphcache.rs` dosyasında atlas ve eviction mantığını analiz et
-    - [ ] `wezterm-gui/src/shader.wgsl` shader pipeline'ını incele
+- [x] Task: Mevcut render pipeline'ı analiz et
+    - [x] `wezterm-gui/src/renderstate.rs` dosyasını oku ve draw call yapısını belgele
+    - [x] `wezterm-gui/src/quad.rs` dosyasındaki vertex/index yapısını incele
+    - [x] `wezterm-gui/src/glyphcache.rs` dosyasında atlas ve eviction mantığını analiz et
+    - [x] `wezterm-gui/src/shader.wgsl` shader pipeline'ını incele
 - [ ] Task: Benchmark baseline kaydet
     - [ ] Mevcut `hyperfine` startup sonuçlarını `/tmp/baseline_bench.txt` dosyasına kaydet
     - [ ] Render throughput testini çalıştır ve sonuçları kaydet
