@@ -1,7 +1,7 @@
 use crate::bitmaps::{BitmapImage, Texture2d, TextureRect};
 use crate::{Point, Rect, Size};
 use anyhow::{Result as Fallible, ensure};
-use guillotiere::{SimpleAtlasAllocator, Size as AtlasSize};
+use guillotiere::{AtlasAllocator, Size as AtlasSize};
 use std::convert::TryInto;
 use std::rc::Rc;
 use thiserror::Error;
@@ -21,7 +21,7 @@ pub struct OutOfTextureSpace {
 pub struct Atlas {
     texture: Rc<dyn Texture2d>,
 
-    allocator: SimpleAtlasAllocator,
+    allocator: AtlasAllocator,
 
     /// Dimensions of the texture
     side: usize,
@@ -41,7 +41,7 @@ impl Atlas {
         texture.write(rect, &image);
 
         let allocator =
-            SimpleAtlasAllocator::new(AtlasSize::new(side.try_into()?, side.try_into()?));
+            AtlasAllocator::new(AtlasSize::new(side.try_into()?, side.try_into()?));
         Ok(Self {
             texture: Rc::clone(texture),
             side,
@@ -99,8 +99,8 @@ impl Atlas {
             .allocator
             .allocate(AtlasSize::new(reserve_width, reserve_height))
         {
-            let left = allocation.min.x;
-            let top = allocation.min.y;
+            let left = allocation.rectangle.min.x;
+            let top = allocation.rectangle.min.y;
             let rect = Rect::new(
                 Point::new((left + PADDING) as isize, (top + PADDING) as isize),
                 Size::new(width as isize, height as isize),
@@ -112,6 +112,7 @@ impl Atlas {
             Ok(Sprite {
                 texture: Rc::clone(&self.texture),
                 coords: rect,
+                alloc_id: Some(allocation.id),
             })
         } else {
             // It's not possible to satisfy that request
@@ -140,11 +141,19 @@ impl Atlas {
         self.texture.write(rect, &image);
         self.allocator.clear();
     }
+
+    /// Deallocates a previously allocated sprite from the atlas
+    pub fn deallocate(&mut self, sprite: &Sprite) {
+        if let Some(id) = sprite.alloc_id {
+            self.allocator.deallocate(id);
+        }
+    }
 }
 
 pub struct Sprite {
     pub texture: Rc<dyn Texture2d>,
     pub coords: Rect,
+    pub alloc_id: Option<guillotiere::AllocId>,
 }
 
 impl std::fmt::Debug for Sprite {
@@ -153,6 +162,7 @@ impl std::fmt::Debug for Sprite {
             .field("coords", &self.coords)
             .field("texture_width", &self.texture.width())
             .field("texture_height", &self.texture.height())
+            .field("alloc_id", &self.alloc_id.map(|id| id.serialize()))
             .finish()
     }
 }
@@ -162,6 +172,7 @@ impl Clone for Sprite {
         Self {
             texture: Rc::clone(&self.texture),
             coords: self.coords,
+            alloc_id: self.alloc_id,
         }
     }
 }

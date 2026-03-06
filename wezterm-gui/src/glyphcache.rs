@@ -169,6 +169,7 @@ pub struct CachedGlyph {
     pub bearing_y: PixelLength,
     pub texture: Option<Sprite>,
     pub scale: f64,
+    pub last_used: std::cell::Cell<u64>,
 }
 
 impl std::fmt::Debug for CachedGlyph {
@@ -182,6 +183,7 @@ impl std::fmt::Debug for CachedGlyph {
             .field("bearing_y", &self.bearing_y)
             .field("scale", &self.scale)
             .field("texture", &self.texture)
+            .field("last_used", &self.last_used.get())
             .finish()
     }
 }
@@ -567,6 +569,8 @@ pub struct GlyphCache {
     pub cursor_glyphs: HashMap<(Option<CursorShape>, u8), Sprite>,
     pub color: HashMap<(RgbColor, NotNan<f32>), Sprite>,
     min_frame_duration: Duration,
+    pub capacity: usize,
+    pub generation: u64,
 }
 
 impl GlyphCache {
@@ -590,6 +594,8 @@ impl GlyphCache {
             cursor_glyphs: HashMap::new(),
             color: HashMap::new(),
             min_frame_duration: Duration::from_millis(1000 / fonts.config().max_fps),
+            capacity: 8192,
+            generation: 0,
         })
     }
 }
@@ -619,6 +625,8 @@ impl GlyphCache {
             cursor_glyphs: HashMap::new(),
             color: HashMap::new(),
             min_frame_duration: Duration::from_millis(1000 / fonts.config().max_fps),
+            capacity: 8192,
+            generation: 0,
         })
     }
 }
@@ -645,11 +653,18 @@ impl GlyphCache {
             id: font.id(),
         };
 
+        self.generation += 1;
         if let Some(entry) = self.glyph_cache.get(&key as &dyn GlyphKeyTrait) {
+            entry.last_used.set(self.generation);
             metrics::histogram!("glyph_cache.glyph_cache.hit.rate").record(1.);
             return Ok(Rc::clone(entry));
         }
         metrics::histogram!("glyph_cache.glyph_cache.miss.rate").record(1.);
+
+        if self.glyph_cache.len() >= self.capacity {
+            // Evict 10% when we reach capacity
+            self.evict_lru(self.capacity / 10);
+        }
 
         let glyph = match self.load_glyph(info, font, followed_by_space, num_cells) {
             Ok(g) => g,
@@ -680,6 +695,7 @@ impl GlyphCache {
                     bearing_x: PixelLength::zero(),
                     bearing_y: PixelLength::zero(),
                     scale: 1.0,
+                    last_used: std::cell::Cell::new(self.generation),
                 })
             }
         };
@@ -691,6 +707,28 @@ impl GlyphCache {
         let config = self.fonts.config();
         self.image_cache.update_config(&config);
         self.cursor_glyphs.clear();
+    }
+
+    fn evict_lru(&mut self, evict_count: usize) {
+        if evict_count == 0 {
+            return;
+        }
+
+        let mut items: Vec<_> = self.glyph_cache.iter()
+            .map(|(k, v)| (k.clone(), v.last_used.get()))
+            .collect();
+            
+        // Sort by last_used (ascending -> least recently used first)
+        items.sort_by_key(|(_, last)| *last);
+        
+        let to_evict = evict_count.min(items.len());
+        for (k, _) in items.iter().take(to_evict) {
+            if let Some(glyph) = self.glyph_cache.remove(k)
+                && let Some(sprite) = &glyph.texture
+            {
+                self.atlas.deallocate(sprite);
+            }
+        }
     }
 
     /// Perform the load and render of a glyph
@@ -827,6 +865,7 @@ impl GlyphCache {
                 bearing_x: PixelLength::zero(),
                 bearing_y: descender_adjust,
                 scale,
+                last_used: std::cell::Cell::new(self.generation),
             }
         } else {
             let raw_im =
@@ -874,6 +913,7 @@ impl GlyphCache {
                 bearing_x,
                 bearing_y,
                 scale,
+                last_used: std::cell::Cell::new(self.generation),
             };
 
             if info.font_idx != 0 {

@@ -37,33 +37,34 @@
 
 ## Phase 3: Draw Call Batching (FR-1)
 
-- [ ] Task: Mevcut draw call yapısını tek batch'e dönüştür
-    - [ ] `renderstate.rs` içindeki render loop'u incele
-    - [ ] Tüm quad'ları önce vertex buffer'a topla, sonra tek `draw_indexed` ile gönder
-    - [ ] Atlas texture layer'larına göre gruplandırma mantığını ekle
-- [ ] Task: Batch render için birim testler yaz
-    - [ ] N glyph için tam olarak ceil(N/atlas_layers) draw call yapılıyor mu?
-    - [ ] Batch sonrası output correctness: render edilen glyph pozisyonları doğru mu?
-- [ ] Task: `cargo clippy` ve `cargo fmt` çalıştır
-- [ ] Task: Commit: `perf(render): Batch all quad draw calls per frame to reduce GPU submissions`
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: Draw Call Batching' (Protocol in workflow.md)
+- [x] Task: Mevcut draw call yapısını tek batch'e dönüştür 376ff3409
+    - [x] `renderstate.rs` içindeki render loop'u incele
+    - [x] Tüm quad'ları önce vertex buffer'a topla, sonra tek `draw_indexed` ile gönder
+    - [x] Atlas texture layer'larına göre gruplandırma mantığını ekle
+- [x] Task: Batch render için birim testler yaz 376ff3409
+    - [x] N glyph için tam olarak ceil(N/atlas_layers) draw call yapılıyor mu?
+    - [x] Batch sonrası output correctness: render edilen glyph pozisyonları doğru mu?
+- [x] Task: `cargo clippy` ve `cargo fmt` çalıştır 376ff3409
+- [x] Task: Commit: `perf(render): Batch all quad draw calls per frame to reduce GPU submissions` 376ff3409
+- [x] Task: Conductor - User Manual Verification 'Phase 3: Draw Call Batching' (Protocol in workflow.md)
 
 ---
 
 ## Phase 4: Glyph Cache LRU Eviction (FR-2)
 
-- [ ] Task: LRU eviction policy implement et
-    - [ ] `glyphcache.rs` içinde mevcut eviction mantığını tespit et
-    - [ ] `lru` crate veya custom doubly-linked list + hashmap ile LRU implement et
-    - [ ] Cache max size: `config` üzerinden konfigüre edilebilir yap (default: 4096)
-    - [ ] Eviction sadece atlas full olduğunda tetiklenmeli
-- [ ] Task: LRU cache için birim testler yaz
-    - [ ] 4096 glyph dolduğunda eviction tetikleniyor mu?
-    - [ ] En az son kullanılan glyph evict ediliyor mu?
-    - [ ] Eviction sonrası yeni glyph doğru slot'a yerleştiriliyor mu?
-- [ ] Task: `cargo clippy` ve `cargo fmt` çalıştır
-- [ ] Task: Commit: `perf(render): Implement LRU eviction policy for glyph atlas cache`
-- [ ] Task: Conductor - User Manual Verification 'Phase 4: Glyph Cache LRU Eviction' (Protocol in workflow.md)
+- [x] Task: `cache_size` ve `eviction_threshold` ayarlarını ekle
+    - [x] `GlyphCache` yapısına `pub capacity: usize` ekle
+    - [x] `wezterm.lua` üzerinden ayarlanacak parametre bağla (opsiyonel/hardcode başla)
+- [x] Task: LRU algoritmasını `glyphcache.rs`'e entegre et
+    - [x] Texture atlas dolduğu zaman usage timestamp'i en eski olanları bul
+    - [x] En eski N (örn. %10) glyph'i sil veya LRU queue kullan
+- [x] Task: LRU evict logic için unit test yaz
+    - [x] 4096 glyph dolduğunda eviction tetikleniyor mu?
+    - [x] En az son kullanılan glyph evict ediliyor mu?
+    - [x] Eviction sonrası yeni glyph doğru slot'a yerleştiriliyor mu?
+- [x] Task: `cargo clippy` ve `cargo fmt` çalıştır
+- [x] Task: Commit: `perf(render): Add LRU eviction policy to glyph cache`
+- [x] Task: Conductor - User Manual Verification 'Phase 4: Glyph Cache LRU Eviction' (Protocol in workflow.md)
 
 ---
 

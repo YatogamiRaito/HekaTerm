@@ -755,6 +755,7 @@ impl crate::TermWindow {
                     bearing_x: PixelLength::zero(),
                     bearing_y: PixelLength::zero(),
                     scale: 1.0,
+                    last_used: std::cell::Cell::new(0),
                 }));
                 continue;
             }
