@@ -83,10 +83,16 @@ impl crate::TermWindow {
             for idx in 0..3 {
                 let vb = &layer.vb.borrow()[idx];
                 let (vertex_count, index_count) = vb.vertex_index_count();
-                let vertex_buffer;
-                let uniforms;
                 if vertex_count > 0 {
                     let mut vertices = vb.current_vb_mut();
+                    let vertex_buffer = vertices.webgpu_mut();
+                    let quads = vb.quads.borrow();
+                    let vertex_slice =
+                        &quads.vertices[0..quads.num_quads * crate::quad::VERTICES_PER_CELL];
+                    webgpu
+                        .queue
+                        .write_buffer(vertex_buffer, 0, bytemuck::cast_slice(vertex_slice));
+
                     let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("Render Pass"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -112,7 +118,7 @@ impl crate::TermWindow {
                     });
                     cleared = true;
 
-                    uniforms = webgpu.create_uniform(ShaderUniform {
+                    let uniforms = webgpu.create_uniform(ShaderUniform {
                         foreground_text_hsb,
                         milliseconds,
                         projection,
@@ -122,8 +128,6 @@ impl crate::TermWindow {
                     render_pass.set_bind_group(0, &uniforms, &[]);
                     render_pass.set_bind_group(1, &texture_linear_bind_group, &[]);
                     render_pass.set_bind_group(2, &texture_nearest_bind_group, &[]);
-                    vertex_buffer = vertices.webgpu_mut().recreate();
-                    vertex_buffer.unmap();
                     render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                     render_pass
                         .set_index_buffer(vb.indices.webgpu().slice(..), wgpu::IndexFormat::Uint32);

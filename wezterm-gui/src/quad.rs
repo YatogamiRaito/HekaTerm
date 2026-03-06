@@ -212,6 +212,74 @@ pub trait TripleLayerQuadAllocatorTrait {
     fn extend_with(&mut self, layer_num: usize, vertices: &[Vertex]);
 }
 
+pub struct QuadBuffer {
+    pub vertices: Vec<Vertex>,
+    pub num_quads: usize,
+    capacity: usize,
+}
+
+impl Default for QuadBuffer {
+    fn default() -> Self {
+        Self::new(1024)
+    }
+}
+
+impl QuadBuffer {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            vertices: vec![Vertex::default(); capacity * VERTICES_PER_CELL],
+            num_quads: 0,
+            capacity,
+        }
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    pub fn clear(&mut self) {
+        self.num_quads = 0;
+    }
+
+    pub fn grow(&mut self) {
+        self.capacity = self.capacity.max(1) * 2;
+        self.vertices
+            .resize(self.capacity * VERTICES_PER_CELL, Vertex::default());
+    }
+
+    pub fn allocate(&mut self) -> anyhow::Result<QuadImpl<'_>> {
+        if self.num_quads >= self.capacity {
+            self.grow();
+        }
+        let start = self.num_quads * VERTICES_PER_CELL;
+        self.num_quads += 1;
+
+        let mut quad = Quad {
+            vert: &mut self.vertices[start..start + VERTICES_PER_CELL],
+        };
+        quad.set_has_color(false);
+
+        // Transmute lifetime for QuadImpl since it will be used ephemerally
+        // within the RenderState's QuadAllocator
+        let vert: &mut [Vertex] =
+            unsafe { std::mem::transmute(&mut self.vertices[start..start + VERTICES_PER_CELL]) };
+        let mut quad = Quad { vert };
+        quad.set_has_color(false);
+
+        Ok(QuadImpl::Vert(quad))
+    }
+
+    pub fn extend_with(&mut self, vertices: &[Vertex]) {
+        let num_new_quads = vertices.len() / VERTICES_PER_CELL;
+        while self.num_quads + num_new_quads > self.capacity {
+            self.grow();
+        }
+        let start = self.num_quads * VERTICES_PER_CELL;
+        self.vertices[start..start + vertices.len()].copy_from_slice(vertices);
+        self.num_quads += num_new_quads;
+    }
+}
+
 /// We prefer to allocate a quad at a time for `HeapQuadAllocator`
 /// because we tend to end up with fairly large arrays of Vertex
 /// and the total amount of contiguous memory is in the MB range,
@@ -393,4 +461,28 @@ impl TripleLayerQuadAllocatorTrait for TripleLayerQuadAllocator<'_> {
 fn size() {
     assert_eq!(std::mem::size_of::<Vertex>() * VERTICES_PER_CELL, 272);
     assert_eq!(std::mem::size_of::<BoxedQuad>(), 84);
+}
+#[cfg(test)]
+#[test]
+fn test_quad_buffer_allocation() {
+    let mut buf = QuadBuffer::new(2);
+    assert_eq!(buf.capacity(), 2);
+
+    let _ = buf.allocate().unwrap();
+    assert_eq!(buf.num_quads, 1);
+
+    buf.extend_with(&[Vertex::default(); VERTICES_PER_CELL * 2]);
+    assert_eq!(buf.num_quads, 3);
+    assert!(buf.capacity() >= 4);
+
+    buf.clear();
+    assert_eq!(buf.num_quads, 0);
+    assert!(buf.capacity() >= 4);
+
+    // allocate past capacity
+    for _ in 0..10 {
+        let _ = buf.allocate().unwrap();
+    }
+    assert_eq!(buf.num_quads, 10);
+    assert!(buf.capacity() >= 10);
 }

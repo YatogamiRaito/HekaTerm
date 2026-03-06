@@ -1,8 +1,7 @@
 use super::glyphcache::GlyphCache;
 use super::quad::{
-    Quad, QuadAllocator, QuadImpl, QuadTrait, TripleLayerQuadAllocator,
-    TripleLayerQuadAllocatorTrait, V_BOT_LEFT, V_BOT_RIGHT, V_TOP_LEFT, V_TOP_RIGHT,
-    VERTICES_PER_CELL, Vertex,
+    QuadAllocator, QuadImpl, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait, V_BOT_LEFT,
+    V_BOT_RIGHT, V_TOP_LEFT, V_TOP_RIGHT, VERTICES_PER_CELL, Vertex,
 };
 use super::utilsprites::{RenderMetrics, UtilSprites};
 use crate::termwindow::webgpu::{WebGpuState, WebGpuTexture, adapter_info_to_gpu_info};
@@ -99,31 +98,8 @@ impl VertexBuffer {
     }
 }
 
-enum MappedVertexBuffer {
-    WebGpu(WebGpuMappedVertexBuffer),
-}
-
-impl MappedVertexBuffer {
-    fn slice_mut(&mut self, range: std::ops::Range<usize>) -> &mut [Vertex] {
-        match self {
-            Self::WebGpu(g) => {
-                let mapping: &mut [Vertex] = bytemuck::cast_slice_mut(&mut g.mapping);
-                &mut mapping[range]
-            }
-        }
-    }
-}
-
 pub struct MappedQuads<'a> {
-    mapping: MappedVertexBuffer,
-    next: RefMut<'a, usize>,
-    capacity: usize,
-}
-
-pub struct WebGpuMappedVertexBuffer {
-    mapping: wgpu::BufferViewMut<'static>,
-    // Owner mapping, must be dropped after mapping
-    _slice: wgpu::BufferSlice<'static>,
+    quads: RefMut<'a, crate::quad::QuadBuffer>,
 }
 
 pub struct WebGpuVertexBuffer {
@@ -145,23 +121,11 @@ impl WebGpuVertexBuffer {
             buf: state.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Vertex Buffer"),
                 size: (num_vertices * std::mem::size_of::<Vertex>()) as wgpu::BufferAddress,
-                usage: wgpu::BufferUsages::VERTEX,
-                mapped_at_creation: true,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
             }),
             num_vertices,
             state: Rc::clone(state),
-        }
-    }
-
-    pub fn map(&self) -> WebGpuMappedVertexBuffer {
-        unsafe {
-            let slice = self.buf.slice(..).extend_lifetime();
-            let mapping = slice.get_mapped_range_mut();
-
-            WebGpuMappedVertexBuffer {
-                mapping,
-                _slice: slice,
-            }
         }
     }
 
@@ -169,8 +133,8 @@ impl WebGpuVertexBuffer {
         let mut new_buf = self.state.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Vertex Buffer"),
             size: (self.num_vertices * std::mem::size_of::<Vertex>()) as wgpu::BufferAddress,
-            usage: wgpu::BufferUsages::VERTEX,
-            mapped_at_creation: true,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
         std::mem::swap(&mut new_buf, &mut self.buf);
         new_buf
@@ -204,44 +168,11 @@ impl WebGpuIndexBuffer {
 
 impl QuadAllocator for MappedQuads<'_> {
     fn allocate(&mut self) -> anyhow::Result<QuadImpl<'_>> {
-        let idx = *self.next;
-        *self.next += 1;
-        let idx = if idx >= self.capacity {
-            // We don't have enough quads, so we'll keep re-using
-            // the first quad until we reach the end of the render
-            // pass, at which point we'll detect this condition
-            // and re-allocate the quads.
-            0
-        } else {
-            idx
-        };
-
-        let idx = idx * VERTICES_PER_CELL;
-        let mut quad = Quad {
-            vert: self.mapping.slice_mut(idx..idx + VERTICES_PER_CELL),
-        };
-
-        quad.set_has_color(false);
-
-        Ok(QuadImpl::Vert(quad))
+        self.quads.allocate()
     }
 
     fn extend_with(&mut self, vertices: &[Vertex]) {
-        let idx = *self.next;
-        let len = vertices.len();
-
-        // idx and next are number of quads, so divide by number of vertices
-        *self.next += len / VERTICES_PER_CELL;
-        // Only copy in if there is enough room.
-        // We'll detect the out of space condition at the end of
-        // the render pass.
-        let idx = idx * VERTICES_PER_CELL;
-        let capacity = self.capacity * VERTICES_PER_CELL;
-        if idx + len <= capacity {
-            self.mapping
-                .slice_mut(idx..idx + len)
-                .copy_from_slice(vertices);
-        }
+        self.quads.extend_with(vertices);
     }
 }
 
@@ -250,7 +181,7 @@ pub struct TripleVertexBuffer {
     pub bufs: RefCell<[VertexBuffer; 3]>,
     pub indices: IndexBuffer,
     pub capacity: usize,
-    pub next_quad: RefCell<usize>,
+    pub quads: RefCell<crate::quad::QuadBuffer>,
 }
 
 /// A trait to avoid broadly-scoped transmutes; we only want to
@@ -301,44 +232,26 @@ unsafe impl ExtendStatic for MappedQuads<'_> {
 
 impl TripleVertexBuffer {
     pub fn clear_quad_allocation(&self) {
-        *self.next_quad.borrow_mut() = 0;
+        self.quads.borrow_mut().clear();
     }
 
     pub fn need_more_quads(&self) -> Option<usize> {
-        let next = *self.next_quad.borrow();
-        if next > self.capacity {
-            Some(next)
+        let quad_count = self.quads.borrow().num_quads;
+        if quad_count > self.capacity {
+            Some(quad_count)
         } else {
             None
         }
     }
 
     pub fn vertex_index_count(&self) -> (usize, usize) {
-        let num_quads = *self.next_quad.borrow();
+        let num_quads = self.quads.borrow().num_quads;
         (num_quads * VERTICES_PER_CELL, num_quads * INDICES_PER_CELL)
     }
 
     pub fn map(&self) -> MappedQuads<'_> {
-        let mut bufs = self.current_vb_mut();
-
-        // To map the vertex buffer, we need to hold a mutable reference to
-        // the buffer and hold the mapping object alive for the duration
-        // of the access.  Rust doesn't allow us to create a struct that
-        // holds both of those things, because one references the other
-        // and it doesn't permit self-referential structs.
-        // We use the very blunt instrument "transmute" to force Rust to
-        // treat the lifetimes of both of these things as static, which
-        // we can then store in the same struct.
-        // This is "safe" because we carry them around together and ensure
-        // that the owner is dropped after the derived data.
-        let mapping = match &mut *bufs {
-            VertexBuffer::WebGpu(vb) => MappedVertexBuffer::WebGpu(vb.map()),
-        };
-
         MappedQuads {
-            mapping,
-            next: self.next_quad.borrow_mut(),
-            capacity: self.capacity,
+            quads: self.quads.borrow_mut(),
         }
     }
 
@@ -442,6 +355,8 @@ impl RenderLayer {
             indices.push(idx + V_BOT_RIGHT as u32);
         }
 
+        let quads = crate::quad::QuadBuffer::new(num_quads);
+
         let buffer = TripleVertexBuffer {
             index: RefCell::new(0),
             bufs: RefCell::new([
@@ -451,7 +366,7 @@ impl RenderLayer {
             ]),
             capacity: num_quads,
             indices: context.allocate_index_buffer(&indices)?,
-            next_quad: RefCell::new(0),
+            quads: RefCell::new(quads),
         };
 
         Ok(buffer)

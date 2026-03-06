@@ -74,6 +74,10 @@ fn libpng() {
         .file("libpng/pngwtran.c")
         .file("libpng/pngwutil.c");
 
+    if Path::new("libpng/pngsimd.c").exists() {
+        cfg.file("libpng/pngsimd.c");
+    }
+
     if let Ok(arch) = env::var("CARGO_CFG_TARGET_ARCH") {
         match arch.as_str() {
             "aarch64" | "arm" => {
@@ -100,9 +104,14 @@ fn libpng() {
         cfg.define("_LARGEFILE64_SOURCE", Some("1"));
     }
 
+    let prebuilt_path = if Path::new("libpng/scripts/pnglibconf.h.prebuilt").exists() {
+        "libpng/scripts/pnglibconf.h.prebuilt"
+    } else {
+        "libpng/pnglibconf.h.prebuilt"
+    };
     fs::write(
         build_dir.join("pnglibconf.h"),
-        fs::read_to_string("libpng/scripts/pnglibconf.h.prebuilt").unwrap(),
+        fs::read_to_string(prebuilt_path).unwrap(),
     )
     .unwrap();
 
