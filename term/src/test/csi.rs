@@ -203,8 +203,6 @@ fn test_789() {
         ),
         appdata: RwLock {
             data: None,
-            poisoned: false,
-            ..
         },
     },
 ]

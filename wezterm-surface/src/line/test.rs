@@ -292,6 +292,9 @@ Line {
     bits: LineBits(
         0x0,
     ),
+    appdata: RwLock {
+        data: None,
+    },
 }
 "#
     );
@@ -599,6 +602,9 @@ Line {
     bits: LineBits(
         0x0,
     ),
+    appdata: RwLock {
+        data: None,
+    },
 }
 "#
     );

@@ -714,13 +714,15 @@ impl GlyphCache {
             return;
         }
 
-        let mut items: Vec<_> = self.glyph_cache.iter()
+        let mut items: Vec<_> = self
+            .glyph_cache
+            .iter()
             .map(|(k, v)| (k.clone(), v.last_used.get()))
             .collect();
-            
+
         // Sort by last_used (ascending -> least recently used first)
         items.sort_by_key(|(_, last)| *last);
-        
+
         let to_evict = evict_count.min(items.len());
         for (k, _) in items.iter().take(to_evict) {
             if let Some(glyph) = self.glyph_cache.remove(k)

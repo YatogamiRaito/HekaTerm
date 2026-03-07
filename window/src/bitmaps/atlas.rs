@@ -40,8 +40,7 @@ impl Atlas {
         let rect = Rect::new(Point::new(0, 0), Size::new(iside, iside));
         texture.write(rect, &image);
 
-        let allocator =
-            AtlasAllocator::new(AtlasSize::new(side.try_into()?, side.try_into()?));
+        let allocator = AtlasAllocator::new(AtlasSize::new(side.try_into()?, side.try_into()?));
         Ok(Self {
             texture: Rc::clone(texture),
             side,
