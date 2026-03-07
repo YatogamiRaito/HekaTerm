@@ -216,6 +216,7 @@ pub struct ComputeCellFgBgResult {
 pub struct ClusterStyleCache<'a> {
     attrs: &'a CellAttributes,
     style: &'a TextStyle,
+    font: Rc<wezterm_font::LoadedFont>,
     underline_tex_rect: TextureRect,
     fg_color: LinearRgba,
     bg_color: LinearRgba,

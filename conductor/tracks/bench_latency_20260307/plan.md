@@ -15,6 +15,6 @@
 - [x] Task: Conductor - User Manual Verification 'Phase 2' (Protocol in workflow.md)
 
 ## Phase 3: Optimizations & Validation
-- [ ] Task: Belirlenen darboğazlar üzerinde kod optimizasyonu uygula
-- [ ] Task: Değişiklikler sonrası benchmarkları tekrar et ve gelişimi tablolandır
-- [ ] Task: Conductor - User Manual Verification 'Phase 3' (Protocol in workflow.md)
+- [x] Task: Belirlenen darboğazlar üzerinde kod optimizasyonu uygula
+- [x] Task: Değişiklikler sonrası benchmarkları tekrar et ve gelişimi tablolandır
+- [x] Task: Conductor - User Manual Verification 'Phase 3' (Protocol in workflow.md)

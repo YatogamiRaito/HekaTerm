@@ -1,0 +1,3 @@
+Idle:
+    PID   RSS    VSZ COMMAND
+ 515594 127216 1183936 wezterm-gui

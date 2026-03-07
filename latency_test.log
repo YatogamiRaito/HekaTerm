@@ -1,0 +1,4 @@
+Benchmark 1: target/release/wezterm start --always-new-process -- bash -c 'exit 0'
+  Time (mean ± σ):     120.0 ms ±  15.0 ms    [User: 87.7 ms, System: 34.7 ms]
+  Range (min … max):    91.1 ms … 152.3 ms    24 runs
+ 

@@ -1,0 +1,2 @@
+    PID   RSS    VSZ COMMAND
+ 505187 126840 1185932 wezterm-gui

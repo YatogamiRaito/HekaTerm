@@ -435,6 +435,10 @@ pub struct TermWindow {
     line_quad_cache: RefCell<LfuCache<LineQuadCacheKey, LineQuadCacheValue>>,
 
     last_status_call: Instant,
+    /// Track when we last requested a repaint due to PTY output in order to
+    /// coalesce rapid PaneOutput notifications into at most one `invalidate()`
+    /// call per frame budget, preventing repaint storms under heavy I/O.
+    last_pane_output_notif: Option<Instant>,
     cursor_blink_state: RefCell<ColorEase>,
     blink_state: RefCell<ColorEase>,
     rapid_blink_state: RefCell<ColorEase>,
@@ -751,6 +755,7 @@ impl TermWindow {
                 &config,
             )),
             last_status_call: Instant::now(),
+            last_pane_output_notif: None,
             cursor_blink_state: RefCell::new(ColorEase::new(
                 config.cursor_blink_rate,
                 config.cursor_blink_ease_in,
@@ -1400,7 +1405,19 @@ impl TermWindow {
         if self.is_pane_visible(pane_id)
             && let Some(ref win) = self.window
         {
-            win.invalidate();
+            // Coalesce rapid PTY PaneOutput notifications: only call
+            // `invalidate()` once per frame budget to avoid a repaint
+            // storm when thousands of lines are flooding in (e.g. `cat
+            // large_file`). The X11 paint_throttled gate will ensure the
+            // display still updates on every frame boundary.
+            let frame_budget = Duration::from_millis(1000 / self.config.max_fps as u64);
+            let should_invalidate = self
+                .last_pane_output_notif
+                .map_or(true, |t| t.elapsed() >= frame_budget);
+            if should_invalidate {
+                self.last_pane_output_notif = Some(Instant::now());
+                win.invalidate();
+            }
         }
     }
 

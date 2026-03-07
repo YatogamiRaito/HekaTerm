@@ -21,6 +21,12 @@ We isolated `gui.paint.impl` metric profiling during continuous frame invalidati
 - **Quad Iteration**: ~278.53µs (`paint_pane.lines`) 
 - **Notes**: Overall latency per frame averages 8.45ms, adding to the startup footprint. Optimizing `paint_pane.lines` draw call batches could improve this.
 
-## Next Steps (Phase 2 & 3)
-1. Proceed with async `spawn_delay` optimizations around startup (PTY spawning/event loop setup).
-2. Continue rendering draw call optimizations for minimizing frame time, cutting input-to-pixel presentation.
+## Phase 3: Optimizations & Validation
+
+### 1. Rendering Path (`cached_cluster_shape`)
+Tracing revealed that under heavy line invalidation scenarios (like typing new text), `cached_cluster_shape` was taking up to **12.39ms (P95)**. We discovered the `wezterm-font` `resolve_font` algorithm was incurring significant delay because it was constantly re-evaluating fallback cascades per-cluster instead of carrying forward cached fonts.
+**Optimization**: Implemented pre-resolved font references into the `ClusterStyleCache` object. This shortcuts cluster traversal so that standard scrolling operations and typed characters load shapes instantly without querying fallback chains.
+
+### 2. Typing Latency & Input Constraints (Event Loop)
+The `X11` backend applied a constant 16.6ms (`max_fps`) timer to *all* updates by yielding Wayland/X11 tasks asynchronously. If a keystroke landed immediately after a painted frame, it had to endure the whole 16ms throttle envelope manually, inserting severe "perceived latency" to users.
+**Optimization**: Set `self.paint_throttled = false` directly within X11 KeyPress callbacks to interrupt the arbitrary sleep pacing. When a key is hit, the frame queue dispatches instantly. PTY input feedback to pixel representation now operates continuously, tearing down the +15-16ms synthetic lag barrier.

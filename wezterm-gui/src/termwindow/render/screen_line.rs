@@ -751,6 +751,7 @@ impl crate::TermWindow {
             {
                 let attrs = &cluster.attrs;
                 let style = self.fonts.match_style(params.config, attrs);
+                let font = self.fonts.resolve_font(style)?;
                 let hyperlink = attrs.hyperlink();
                 let is_highlited_hyperlink =
                     same_hyperlink(hyperlink, self.current_highlight.as_ref());
@@ -846,6 +847,7 @@ impl crate::TermWindow {
                 last_style.replace(ClusterStyleCache {
                     attrs,
                     style,
+                    font,
                     underline_tex_rect,
                     bg_color,
                     fg_color: glyph_color,
@@ -859,7 +861,7 @@ impl crate::TermWindow {
                 style_params.style,
                 cluster,
                 gl_state,
-                None,
+                Some(&style_params.font),
                 &self.render_metrics,
             )?;
             let pixel_width = glyph_info

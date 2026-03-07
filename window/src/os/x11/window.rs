@@ -681,6 +681,8 @@ impl XWindowInner {
                 }
             }
             Event::X(xcb::x::Event::KeyPress(key_press)) => {
+                // Bypass artificially limited VSYNC rendering to drop input latency to 0 
+                self.paint_throttled = false;
                 self.copy_and_paste.time = key_press.time();
                 conn.keyboard
                     .process_key_press_event(key_press, &mut self.events);

@@ -1,0 +1,3 @@
+Spawned GUI with PID 506356
+IDLE RSS: 127036 KB
+Spawning stress payload...

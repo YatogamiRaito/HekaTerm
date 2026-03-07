@@ -1126,9 +1126,12 @@ impl Line {
     /// re-materialize the storage in a form that is suitable
     /// for mutation.
     pub fn compress_for_scrollback(&mut self) {
-        let cv = match &self.cells {
+        let cv = match &mut self.cells {
             CellStorage::V(v) => ClusteredLine::from_cell_vec(v.len(), self.visible_cells()),
-            CellStorage::C(_) => return,
+            CellStorage::C(cl) => {
+                cl.shrink_to_fit();
+                return;
+            }
         };
         self.cells = CellStorage::C(cv);
     }

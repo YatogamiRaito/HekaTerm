@@ -88,6 +88,11 @@ impl ClusteredLine {
         }
     }
 
+    pub fn shrink_to_fit(&mut self) {
+        self.text.shrink_to_fit();
+        self.clusters.shrink_to_fit();
+    }
+
     pub fn to_cell_vec(&self) -> Vec<Cell> {
         let mut cells = vec![];
 
