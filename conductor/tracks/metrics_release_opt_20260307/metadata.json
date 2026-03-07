@@ -1,0 +1,8 @@
+{
+  "track_id": "metrics_release_opt_20260307",
+  "type": "chore",
+  "status": "new",
+  "created_at": "2026-03-07T12:00:00Z",
+  "updated_at": "2026-03-07T12:00:00Z",
+  "description": "Gate metrics::histogram! calls behind cfg(debug_assertions) to eliminate hot-path overhead in release"
+}

@@ -1,0 +1,8 @@
+{
+  "track_id": "gpu_uniform_cache_20260307",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-03-07T12:00:00Z",
+  "updated_at": "2026-03-07T12:00:00Z",
+  "description": "Cache wgpu ShaderUniform buffer and BindGroup to eliminate per-frame GPU allocations"
+}

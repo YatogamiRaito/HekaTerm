@@ -1,0 +1,8 @@
+{
+  "track_id": "quadbuffer_fix_20260307",
+  "type": "bug",
+  "status": "new",
+  "created_at": "2026-03-07T12:00:00Z",
+  "updated_at": "2026-03-07T12:00:00Z",
+  "description": "Fix QuadBuffer::allocate() double-init: redundant Quad construction and set_has_color call"
+}
