@@ -6,7 +6,7 @@
 ---
 
 ## Phase 1: Baseline Measurements
-- [ ] Task: Benchmark ortamını hazırla (`vtebench` veya özel script)
+- [x] Task: Benchmark ortamını hazırla (`vtebench` veya özel script) d84ab7ecd
 - [ ] Task: ASCII, ANSI ve Unicode için başlangıç sürelerini/FPS'leri kaydet
 - [ ] Task: CPU Flamegraph çıkarak darboğazları tespit et
 - [ ] Task: Conductor - User Manual Verification 'Phase 1' (Protocol in workflow.md)
