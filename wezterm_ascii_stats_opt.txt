@@ -1,0 +1,41 @@
+    Finished `release` profile [optimized] target(s) in 0.42s
+     Running `target/release/wezterm-gui --config enable_wayland=false --config periodic_stat_logging=10 start -- vtebench -b ascii`
+10:41:33.883  ERROR  wgpu_core::device::global > surface configuration failed: incompatible window kind
+10:41:33.883  ERROR  wgpu::backend::wgpu_core  > Handling wgpu errors as fatal by default
+10:41:33.967  ERROR  env_bootstrap             > panic at /home/ebubekir/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wgpu-25.0.2/src/backend/wgpu_core.rs:3561:18 - !?
+   0: env_bootstrap::register_panic_hook::{{closure}}
+   1: std::panicking::panic_with_hook
+   2: std::panicking::panic_handler::{{closure}}
+   3: std::sys::backtrace::__rust_end_short_backtrace
+   4: __rustc::rust_begin_unwind
+   5: core::panicking::panic_fmt
+   6: wgpu::backend::wgpu_core::ContextWgpuCore::handle_error_inner
+   7: <wgpu::backend::wgpu_core::CoreSurface as wgpu::dispatch::SurfaceInterface>::configure
+   8: wgpu::api::surface::Surface::configure
+   9: wezterm_gui::termwindow::TermWindow::new_window::{{closure}}
+  10: <async_task::runnable::Builder<M>::spawn_local::Checked<F> as core::future::future::Future>::poll
+  11: async_task::raw::RawTask<F,T,S,M>::run
+  12: window::spawn::SpawnQueue::run
+  13: <window::os::x11::connection::XConnection as window::connection::ConnectionOps>::run_message_loop
+  14: wezterm_gui::run_terminal_gui
+  15: wezterm_gui::main
+  16: std::sys::backtrace::__rust_begin_short_backtrace
+  17: std::rt::lang_start::{{closure}}
+  18: std::rt::lang_start_internal
+  19: main
+  20: __libc_start_call_main
+             at ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+  21: __libc_start_main_impl
+             at ./csu/../csu/libc-start.c:360:3
+  22: _start
+
+
+thread 'main' (479617) panicked at /home/ebubekir/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wgpu-25.0.2/src/backend/wgpu_core.rs:3561:18:
+wgpu error: Validation Error
+
+Caused by:
+  In Surface::configure
+    Invalid surface
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

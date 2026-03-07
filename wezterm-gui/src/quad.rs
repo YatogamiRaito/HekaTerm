@@ -106,49 +106,42 @@ pub trait QuadTrait {
 
 pub enum QuadImpl<'a> {
     Vert(Quad<'a>),
-    Boxed(&'a mut BoxedQuad),
 }
 
 impl QuadTrait for QuadImpl<'_> {
     fn set_texture_discrete(&mut self, x1: f32, x2: f32, y1: f32, y2: f32) {
         match self {
             Self::Vert(q) => q.set_texture_discrete(x1, x2, y1, y2),
-            Self::Boxed(q) => q.set_texture_discrete(x1, x2, y1, y2),
         }
     }
 
     fn set_has_color_impl(&mut self, has_color: f32) {
         match self {
             Self::Vert(q) => q.set_has_color_impl(has_color),
-            Self::Boxed(q) => q.set_has_color_impl(has_color),
         }
     }
 
     fn set_fg_color(&mut self, color: LinearRgba) {
         match self {
             Self::Vert(q) => q.set_fg_color(color),
-            Self::Boxed(q) => q.set_fg_color(color),
         }
     }
 
     fn set_alt_color_and_mix_value(&mut self, color: LinearRgba, mix_value: f32) {
         match self {
             Self::Vert(q) => q.set_alt_color_and_mix_value(color, mix_value),
-            Self::Boxed(q) => q.set_alt_color_and_mix_value(color, mix_value),
         }
     }
 
     fn set_hsv(&mut self, hsv: Option<HsbTransform>) {
         match self {
             Self::Vert(q) => q.set_hsv(hsv),
-            Self::Boxed(q) => q.set_hsv(hsv),
         }
     }
 
     fn set_position(&mut self, left: f32, top: f32, right: f32, bottom: f32) {
         match self {
             Self::Vert(q) => q.set_position(left, top, right, bottom),
-            Self::Boxed(q) => q.set_position(left, top, right, bottom),
         }
     }
 }
@@ -280,100 +273,12 @@ impl QuadBuffer {
     }
 }
 
-/// We prefer to allocate a quad at a time for `HeapQuadAllocator`
-/// because we tend to end up with fairly large arrays of Vertex
-/// and the total amount of contiguous memory is in the MB range,
-/// which is a bit gnarly to reallocate, and can waste several MB
-/// in unused capacity
-#[derive(Default)]
-pub struct BoxedQuad {
-    position: (f32, f32, f32, f32),
-    fg_color: [f32; 4],
-    alt_color: [f32; 4],
-    tex: (f32, f32, f32, f32),
-    hsv: [f32; 3],
-    has_color: f32,
-    mix_value: f32,
-}
-
-impl QuadTrait for BoxedQuad {
-    fn set_texture_discrete(&mut self, x1: f32, x2: f32, y1: f32, y2: f32) {
-        self.tex = (x1, x2, y1, y2);
-    }
-
-    fn set_has_color_impl(&mut self, has_color: f32) {
-        self.has_color = has_color;
-    }
-
-    fn set_fg_color(&mut self, color: LinearRgba) {
-        self.fg_color = color.into();
-    }
-    fn set_alt_color_and_mix_value(&mut self, color: LinearRgba, mix_value: f32) {
-        self.alt_color = color.into();
-        self.mix_value = mix_value;
-    }
-    fn set_hsv(&mut self, hsv: Option<HsbTransform>) {
-        let (h, s, v) = hsv.map_or((1., 1., 1.), |t| (t.hue, t.saturation, t.brightness));
-        self.hsv = [h, s, v];
-    }
-
-    fn set_position(&mut self, left: f32, top: f32, right: f32, bottom: f32) {
-        self.position = (left, top, right, bottom);
-    }
-}
-
-impl BoxedQuad {
-    const fn from_vertices(verts: &[Vertex; VERTICES_PER_CELL]) -> Self {
-        let [x1, y1] = verts[V_TOP_LEFT].tex;
-        let [x2, y2] = verts[V_BOT_RIGHT].tex;
-
-        let [left, top] = verts[V_TOP_LEFT].position;
-        let [right, bottom] = verts[V_BOT_RIGHT].position;
-        Self {
-            tex: (x1, x2, y1, y2),
-            position: (left, top, right, bottom),
-            has_color: verts[V_TOP_LEFT].has_color,
-            alt_color: verts[V_TOP_LEFT].alt_color,
-            fg_color: verts[V_TOP_LEFT].fg_color,
-            hsv: verts[V_TOP_LEFT].hsv,
-            mix_value: verts[V_TOP_LEFT].mix_value,
-        }
-    }
-
-    fn to_vertices(&self) -> [Vertex; VERTICES_PER_CELL] {
-        let mut vert: [Vertex; VERTICES_PER_CELL] = Default::default();
-        let mut quad = Quad { vert: &mut vert };
-
-        let (x1, x2, y1, y2) = self.tex;
-        quad.set_texture_discrete(x1, x2, y1, y2);
-
-        let (left, top, right, bottom) = self.position;
-        quad.set_position(left, top, right, bottom);
-
-        quad.set_has_color_impl(self.has_color);
-        let [hue, saturation, brightness] = self.hsv;
-        quad.set_hsv(Some(HsbTransform {
-            hue,
-            saturation,
-            brightness,
-        }));
-        quad.set_fg_color(LinearRgba::with_components(
-            self.fg_color[0],
-            self.fg_color[1],
-            self.fg_color[2],
-            self.fg_color[3],
-        ));
-        quad.set_alt_color_and_mix_value(self.alt_color.into(), self.mix_value);
-
-        vert
-    }
-}
 
 #[derive(Default)]
 pub struct HeapQuadAllocator {
-    layer0: Vec<BoxedQuad>,
-    layer1: Vec<BoxedQuad>,
-    layer2: Vec<BoxedQuad>,
+    layer0: Vec<Vertex>,
+    layer1: Vec<Vertex>,
+    layer2: Vec<Vertex>,
 }
 
 impl std::fmt::Debug for HeapQuadAllocator {
@@ -385,10 +290,8 @@ impl std::fmt::Debug for HeapQuadAllocator {
 impl HeapQuadAllocator {
     pub fn apply_to(&self, other: &mut TripleLayerQuadAllocator) -> anyhow::Result<()> {
         let start = std::time::Instant::now();
-        for (layer_num, quads) in [(0, &self.layer0), (1, &self.layer1), (2, &self.layer2)] {
-            for quad in quads {
-                other.extend_with(layer_num, &quad.to_vertices());
-            }
+        for (layer_num, vertices) in [(0, &self.layer0), (1, &self.layer1), (2, &self.layer2)] {
+            other.extend_with(layer_num, vertices);
         }
         metrics::histogram!("quad_buffer_apply").record(start.elapsed());
         Ok(())
@@ -397,17 +300,22 @@ impl HeapQuadAllocator {
 
 impl TripleLayerQuadAllocatorTrait for HeapQuadAllocator {
     fn allocate(&mut self, layer_num: usize) -> anyhow::Result<QuadImpl<'_>> {
-        let quads = match layer_num {
+        let vertices = match layer_num {
             0 => &mut self.layer0,
             1 => &mut self.layer1,
             2 => &mut self.layer2,
             _ => unreachable!(),
         };
 
-        quads.push(BoxedQuad::default());
+        let start = vertices.len();
+        vertices.resize(start + VERTICES_PER_CELL, Vertex::default());
 
-        let quad = quads.last_mut().unwrap();
-        Ok(QuadImpl::Boxed(quad))
+        let vert: &mut [Vertex] =
+            unsafe { std::mem::transmute(&mut vertices[start..start + VERTICES_PER_CELL]) };
+        let mut quad = Quad { vert };
+        quad.set_has_color(false);
+
+        Ok(QuadImpl::Vert(quad))
     }
 
     fn extend_with(&mut self, layer_num: usize, vertices: &[Vertex]) {
@@ -415,23 +323,14 @@ impl TripleLayerQuadAllocatorTrait for HeapQuadAllocator {
             return;
         }
 
-        let dest_quads = match layer_num {
+        let dest_vertices = match layer_num {
             0 => &mut self.layer0,
             1 => &mut self.layer1,
             2 => &mut self.layer2,
             _ => unreachable!(),
         };
 
-        // This is logically equivalent to
-        // https://doc.rust-lang.org/std/primitive.slice.html#method.as_chunks_unchecked
-        // which is currently nightly-only
-        assert_eq!(vertices.len() % VERTICES_PER_CELL, 0);
-        let src_quads: &[[Vertex; VERTICES_PER_CELL]] =
-            unsafe { std::slice::from_raw_parts(vertices.as_ptr().cast(), vertices.len() / 4) };
-
-        for quad in src_quads {
-            dest_quads.push(BoxedQuad::from_vertices(quad));
-        }
+        dest_vertices.extend_from_slice(vertices);
     }
 }
 
@@ -460,7 +359,6 @@ impl TripleLayerQuadAllocatorTrait for TripleLayerQuadAllocator<'_> {
 #[test]
 fn size() {
     assert_eq!(std::mem::size_of::<Vertex>() * VERTICES_PER_CELL, 272);
-    assert_eq!(std::mem::size_of::<BoxedQuad>(), 84);
 }
 #[cfg(test)]
 #[test]

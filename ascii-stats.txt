@@ -1,0 +1,87 @@
+
+STAT                                    current p50 p75 p95
+Key(glyph_cache.glyph_cache.hit.rate)   43      0   0   0  
+Key(glyph_cache.glyph_cache.miss.rate)  34      0   0   0  
+Key(gui.paint.impl.rate)                8       0   0   0  
+Key(line_quad_cache.hit.rate)           154     0   0   0  
+Key(line_quad_cache.miss.rate)          48      0   0   0  
+Key(line_state_cache.hit.rate)          130     0   0   0  
+Key(line_to_ele_shape_cache.hit.rate)   46      0   0   0  
+Key(line_to_ele_shape_cache.miss.rate)  2       0   0   0  
+Key(mux.pane_output_event.rate)         44      0   0   0  
+Key(read_from_pane_pty.bytes.rate)      2800    0   0   0  
+Key(send_actions_to_mux.rate)           49      0   0   0  
+Key(shape_cache.miss.rate)              10      0   0   0  
+Key(window.atlas.allocate.success.rate) 40      0   0   0  
+
+STAT                                             p50      p75      p95     
+Key(cached_cluster_shape)                        95.74µs  173.06µs 1.85ms  
+Key(executor.spawn_delay)                        57.34µs  1.47ms   17.56ms 
+Key(gui.paint.impl)                              1.55ms   3.18ms   13.83ms 
+Key(paint_pane.lines)                            331.78µs 382.98µs 4.65ms  
+Key(quad.map)                                    1.24µs   1.38µs   2.59µs  
+Key(quad_buffer_apply)                           3.95µs   5.28µs   8.45µs  
+Key(render_screen_line)                          6.37µs   10.50µs  85.50µs 
+Key(send_actions_to_mux.perform_actions.latency) 20.35µs  23.68µs  54.27µs 
+Key(shape.harfbuzz)                              36.10µs  45.06µs  236.54µs
+Key(window.atlas.allocate.latency)               20.74µs  32.77µs  60.16µs 
+
+STAT COUNT
+
+STAT                                    current p50  p75  p95 
+Key(glyph_cache.glyph_cache.hit.rate)   0       43   43   43  
+Key(glyph_cache.glyph_cache.miss.rate)  0       34   34   34  
+Key(gui.paint.impl.rate)                0       8    8    8   
+Key(line_quad_cache.hit.rate)           0       154  154  154 
+Key(line_quad_cache.miss.rate)          0       48   48   48  
+Key(line_state_cache.hit.rate)          0       130  130  130 
+Key(line_to_ele_shape_cache.hit.rate)   0       46   46   46  
+Key(line_to_ele_shape_cache.miss.rate)  0       2    2    2   
+Key(mux.pane_output_event.rate)         0       44   44   44  
+Key(read_from_pane_pty.bytes.rate)      0       2815 2815 2815
+Key(send_actions_to_mux.rate)           0       49   49   49  
+Key(shape_cache.miss.rate)              0       10   10   10  
+Key(window.atlas.allocate.success.rate) 0       40   40   40  
+
+STAT                                             p50      p75      p95     
+Key(cached_cluster_shape)                        95.74µs  173.06µs 1.85ms  
+Key(executor.spawn_delay)                        56.83µs  1.26ms   17.56ms 
+Key(gui.paint.impl)                              1.55ms   3.18ms   13.83ms 
+Key(paint_pane.lines)                            331.78µs 382.98µs 4.65ms  
+Key(quad.map)                                    1.24µs   1.38µs   2.59µs  
+Key(quad_buffer_apply)                           3.95µs   5.28µs   8.45µs  
+Key(render_screen_line)                          6.37µs   10.50µs  85.50µs 
+Key(send_actions_to_mux.perform_actions.latency) 20.35µs  23.68µs  54.27µs 
+Key(shape.harfbuzz)                              36.10µs  45.06µs  236.54µs
+Key(window.atlas.allocate.latency)               20.74µs  32.77µs  60.16µs 
+
+STAT COUNT
+
+STAT                                    current p50 p75  p95 
+Key(glyph_cache.glyph_cache.hit.rate)   0       0   43   43  
+Key(glyph_cache.glyph_cache.miss.rate)  0       0   34   34  
+Key(gui.paint.impl.rate)                0       0   8    8   
+Key(line_quad_cache.hit.rate)           0       0   154  154 
+Key(line_quad_cache.miss.rate)          0       0   48   48  
+Key(line_state_cache.hit.rate)          0       0   130  130 
+Key(line_to_ele_shape_cache.hit.rate)   0       0   46   46  
+Key(line_to_ele_shape_cache.miss.rate)  0       0   2    2   
+Key(mux.pane_output_event.rate)         0       0   44   44  
+Key(read_from_pane_pty.bytes.rate)      0       0   2815 2815
+Key(send_actions_to_mux.rate)           0       0   49   49  
+Key(shape_cache.miss.rate)              0       0   10   10  
+Key(window.atlas.allocate.success.rate) 0       0   40   40  
+
+STAT                                             p50      p75      p95     
+Key(cached_cluster_shape)                        95.74µs  173.06µs 1.85ms  
+Key(executor.spawn_delay)                        56.83µs  1.26ms   17.56ms 
+Key(gui.paint.impl)                              1.55ms   3.18ms   13.83ms 
+Key(paint_pane.lines)                            331.78µs 382.98µs 4.65ms  
+Key(quad.map)                                    1.24µs   1.38µs   2.59µs  
+Key(quad_buffer_apply)                           3.95µs   5.28µs   8.45µs  
+Key(render_screen_line)                          6.37µs   10.50µs  85.50µs 
+Key(send_actions_to_mux.perform_actions.latency) 20.35µs  23.68µs  54.27µs 
+Key(shape.harfbuzz)                              36.10µs  45.06µs  236.54µs
+Key(window.atlas.allocate.latency)               20.74µs  32.77µs  60.16µs 
+
+STAT COUNT
