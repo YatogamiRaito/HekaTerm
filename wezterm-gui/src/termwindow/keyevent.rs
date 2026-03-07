@@ -579,6 +579,7 @@ impl super::TermWindow {
     }
 
     pub fn key_event_impl(&mut self, window_key: KeyEvent, context: &dyn WindowOps) {
+        let _span = tracing::info_span!("key_event_impl", ?window_key.key).entered();
         let Some(pane) = self.get_active_pane_or_overlay() else {
             return;
         };

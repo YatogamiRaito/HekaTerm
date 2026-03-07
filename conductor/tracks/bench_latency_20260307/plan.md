@@ -7,12 +7,12 @@
 
 ## Phase 1: Baseline Measurements
 - [ ] Task: Typing latency testi için altyapı kur (Typometer veya kernel düzeyinde tracing)
-- [ ] Task: `hyperfine` ile cold / warm startup time testlerini çalıştır ve sonuçları not et
-- [ ] Task: Conductor - User Manual Verification 'Phase 1' (Protocol in workflow.md)
+- [x] Task: `hyperfine` ile cold / warm startup time testlerini çalıştır ve sonuçları not et
+- [x] Task: Conductor - User Manual Verification 'Phase 1' (Protocol in workflow.md)
 
 ## Phase 2: Code Profiling
-- [ ] Task: Window event loop üzerindeki input processing aşamalarını trace et (loglama/span eklentisi kullan)
-- [ ] Task: Conductor - User Manual Verification 'Phase 2' (Protocol in workflow.md)
+- [x] Task: Window event loop üzerindeki input processing aşamalarını trace et (loglama/span eklentisi kullan)
+- [x] Task: Conductor - User Manual Verification 'Phase 2' (Protocol in workflow.md)
 
 ## Phase 3: Optimizations & Validation
 - [ ] Task: Belirlenen darboğazlar üzerinde kod optimizasyonu uygula

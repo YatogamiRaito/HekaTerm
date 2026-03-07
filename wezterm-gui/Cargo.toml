@@ -108,6 +108,7 @@ window-funcs.workspace = true
 window.workspace = true
 ahash.workspace = true
 flume.workspace = true
+tracing = "0.1.44"
 
 [target.'cfg(windows)'.dependencies]
 shared_library.workspace = true

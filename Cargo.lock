@@ -7249,6 +7249,7 @@ dependencies = [
  "textwrap",
  "thiserror 2.0.18",
  "tiny-skia",
+ "tracing",
  "umask",
  "unicode-normalization",
  "unicode-segmentation",
