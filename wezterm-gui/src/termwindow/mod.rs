@@ -1410,10 +1410,10 @@ impl TermWindow {
             // storm when thousands of lines are flooding in (e.g. `cat
             // large_file`). The X11 paint_throttled gate will ensure the
             // display still updates on every frame boundary.
-            let frame_budget = Duration::from_millis(1000 / self.config.max_fps as u64);
+            let frame_budget = Duration::from_millis(1000 / self.config.max_fps);
             let should_invalidate = self
                 .last_pane_output_notif
-                .map_or(true, |t| t.elapsed() >= frame_budget);
+                .is_none_or(|t| t.elapsed() >= frame_budget);
             if should_invalidate {
                 self.last_pane_output_notif = Some(Instant::now());
                 win.invalidate();
