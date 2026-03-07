@@ -1,0 +1,8 @@
+{
+  "track_id": "bench_pty_sync_20260307",
+  "type": "chore",
+  "status": "new",
+  "created_at": "2026-03-07T06:53:00Z",
+  "updated_at": "2026-03-07T06:53:00Z",
+  "description": "Benchmark and improve PTY parser and render synchronization (FPS stability)"
+}
