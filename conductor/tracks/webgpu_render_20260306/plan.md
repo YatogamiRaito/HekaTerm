@@ -74,11 +74,11 @@
     - [x] `cargo test` — tüm testler geçmeli
     - [x] `cargo clippy -- -D warnings` — sıfır uyarı
     - [x] `cargo fmt --check` — temiz
-- [ ] Task: Render throughput benchmark'ı tekrarla
-    - [ ] ANSI color rendering: sistem versiyonuyla karşılaştır
-    - [ ] Unicode throughput: karşılaştır
-    - [ ] ASCII dense scroll: karşılaştır
-    - [ ] Sonuçları `conductor/tracks/webgpu_render_20260306/benchmark_results.md` dosyasına kaydet
-- [ ] Task: Regression testi
-    - [ ] `hyperfine` ile startup time regression olmadığını doğrula
+- [x] Task: Render throughput benchmark'ı tekrarla
+    - [x] ANSI color rendering: sistem versiyonuyla karşılaştır
+    - [x] Unicode throughput: karşılaştır
+    - [x] ASCII dense scroll: karşılaştır
+    - [x] Sonuçları `conductor/tracks/webgpu_render_20260306/benchmark_results.md` dosyasına kaydet
+- [x] Task: Regression testi
+    - [x] `hyperfine` ile startup time regression olmadığını doğrula
 - [ ] Task: Conductor - User Manual Verification 'Phase 5: Doğrulama ve Benchmark' (Protocol in workflow.md)
