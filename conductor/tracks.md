@@ -14,7 +14,7 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [ ] **Track: Evaluate and optimize terminal throughput (ASCII, ANSI, Unicode/BiDi)**
+- [~] **Track: Evaluate and optimize terminal throughput (ASCII, ANSI, Unicode/BiDi)**
   *Link: [./tracks/bench_throughput_20260307/](./tracks/bench_throughput_20260307/)*
 
 ---
