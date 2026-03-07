@@ -70,10 +70,10 @@
 
 ## Phase 5: Doğrulama ve Benchmark
 
-- [ ] Task: Tüm testleri çalıştır
-    - [ ] `cargo test` — tüm testler geçmeli
-    - [ ] `cargo clippy -- -D warnings` — sıfır uyarı
-    - [ ] `cargo fmt --check` — temiz
+- [x] Task: Tüm testleri çalıştır 2351b2967
+    - [x] `cargo test` — tüm testler geçmeli
+    - [x] `cargo clippy -- -D warnings` — sıfır uyarı
+    - [x] `cargo fmt --check` — temiz
 - [ ] Task: Render throughput benchmark'ı tekrarla
     - [ ] ANSI color rendering: sistem versiyonuyla karşılaştır
     - [ ] Unicode throughput: karşılaştır
